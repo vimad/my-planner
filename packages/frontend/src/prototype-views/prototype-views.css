@@ -1,0 +1,355 @@
+/* PROTOTYPE — throwaway styles for the "View Modes" wayfinder ticket. Wipe me. */
+
+.pv-root {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 1.5rem 2rem 5rem;
+  font-family: system-ui, sans-serif;
+  background: #f7f7fb;
+  color: #1a1a2e;
+}
+
+.pv-banner {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.25rem;
+  font-size: 0.8rem;
+}
+
+.pv-title {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+}
+
+/* shared bits */
+
+.pv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.pv-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.pv-tag {
+  font-size: 0.68rem;
+  color: #555;
+  background: #ececf5;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+
+.pv-due-today {
+  outline: 2px solid #ffb703;
+  box-shadow: 0 0 0 4px rgba(255, 183, 3, 0.2);
+}
+
+.pv-summary-strip {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.pv-summary-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.4rem 0.7rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-size: 0.78rem;
+}
+
+/* Variant A — category board */
+
+.pv-board {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+}
+
+.pv-column {
+  min-width: 260px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+}
+
+.pv-column-header {
+  padding: 0.85rem 1rem 0.6rem;
+  border-bottom: 1px solid #eee;
+  border-radius: 12px 12px 0 0;
+}
+
+.pv-column-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.pv-column-counts {
+  font-size: 0.72rem;
+  color: #666;
+}
+
+.pv-column-body {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex: 1;
+}
+
+.pv-card {
+  background: #fafafe;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+}
+
+.pv-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.pv-card-meta {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pv-quick-add {
+  margin: 0.5rem 0.75rem 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: #888;
+}
+
+/* Variant B — priority groups */
+
+.pv-priority-section {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+.pv-priority-header {
+  padding: 0.7rem 1rem;
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pv-priority-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  border-top: 1px solid #f1f1f1;
+}
+
+.pv-priority-row.pv-due-today {
+  background: rgba(255, 183, 3, 0.08);
+}
+
+.pv-priority-row-title {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+/* Variant C — date agenda */
+
+.pv-agenda-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.pv-mini-calendar {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 0.9rem;
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.pv-mini-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+}
+
+.pv-mini-calendar-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  border-radius: 6px;
+  position: relative;
+}
+
+.pv-mini-calendar-cell.pv-has-due::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #4361ee;
+}
+
+.pv-mini-calendar-cell.pv-today {
+  background: #ffb703;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.pv-agenda-main {
+  flex: 1;
+}
+
+.pv-agenda-group {
+  margin-bottom: 1.1rem;
+}
+
+.pv-agenda-group-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.pv-agenda-group.pv-today-group .pv-agenda-group-title {
+  color: #e07a00;
+}
+
+.pv-agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.4rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.pv-agenda-item-title {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+/* Variant D — flat filtered list */
+
+.pv-filter-bar {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.pv-filter-bar select,
+.pv-filter-bar input {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.pv-flat-list {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.pv-flat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.pv-flat-row.pv-due-today {
+  border-left: 4px solid #ffb703;
+}
+
+.pv-flat-row-title {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+/* switcher */
+
+.pv-switcher {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a2e;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.5rem 0.5rem 0.5rem 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  font-size: 0.85rem;
+  z-index: 1000;
+}
+
+.pv-switcher button {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pv-switcher button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

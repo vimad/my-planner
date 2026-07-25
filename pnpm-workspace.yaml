@@ -1,0 +1,4 @@
+packages:
+  - "packages/*"
+minimumReleaseAgeExclude:
+  - concurrently@10.0.4

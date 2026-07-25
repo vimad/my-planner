@@ -1,0 +1,157 @@
+/* PROTOTYPE — "Soft Pastel" visual variant. Wipe me. */
+
+.dvP-root {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 2.5rem 3rem 5rem;
+  font-family: 'Georgia', 'Iowan Old Style', serif;
+  background: #fffdfa;
+  color: #3a3a3a;
+}
+
+.dvP-header {
+  margin-bottom: 0.4rem;
+}
+
+.dvP-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.dvP-header p {
+  font-family: system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: #9a9a9a;
+  margin: 0.2rem 0 1.75rem;
+}
+
+.dvP-summary-strip {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+  font-family: system-ui, sans-serif;
+}
+
+.dvP-summary-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 12px;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.76rem;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.dvP-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dvP-body {
+  display: flex;
+  gap: 2.5rem;
+  align-items: flex-start;
+}
+
+.dvP-calendar {
+  background: #fbfaf6;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  padding: 1.25rem;
+  width: 230px;
+  flex-shrink: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.dvP-calendar-title {
+  font-family: 'Georgia', serif;
+  font-size: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.dvP-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.3rem;
+}
+
+.dvP-calendar-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  border-radius: 50%;
+  position: relative;
+  color: #6a6a6a;
+}
+
+.dvP-calendar-cell.has-due::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #c98a9c;
+}
+
+.dvP-calendar-cell.today {
+  background: #f4d9c6;
+  color: #4a3a2a;
+  font-weight: 600;
+}
+
+.dvP-main {
+  flex: 1;
+  font-family: system-ui, sans-serif;
+}
+
+.dvP-group {
+  margin-bottom: 1.6rem;
+}
+
+.dvP-group-title {
+  font-family: 'Georgia', serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: #b08a68;
+  margin-bottom: 0.7rem;
+}
+
+.dvP-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border-radius: 12px;
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.dvP-item.today {
+  border-color: #e0b088;
+  box-shadow: 0 0 0 3px rgba(224, 176, 136, 0.18);
+}
+
+.dvP-item-title {
+  flex: 1;
+  font-size: 0.86rem;
+}
+
+.dvP-badge {
+  font-size: 0.68rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dvP-tag {
+  font-size: 0.66rem;
+  color: #9a9a9a;
+}

@@ -1,0 +1,163 @@
+/* PROTOTYPE — "Vivid Blocks" visual variant. Wipe me. */
+
+.dvV-root {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 0 0 5rem;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #f2f1f8;
+  color: #1a1a2e;
+}
+
+.dvV-hero {
+  background: linear-gradient(120deg, #6a3df5 0%, #d6338c 55%, #ff8a3d 100%);
+  color: #fff;
+  padding: 2.25rem 2rem 2.75rem;
+  border-radius: 0 0 28px 28px;
+  margin-bottom: -1.5rem;
+}
+
+.dvV-hero h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.9rem;
+  font-weight: 800;
+}
+
+.dvV-hero p {
+  margin: 0;
+  opacity: 0.9;
+  font-size: 0.9rem;
+}
+
+.dvV-body {
+  padding: 2.5rem 2rem 0;
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.dvV-summary-strip {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0 2rem 1.5rem;
+}
+
+.dvV-summary-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem 0.5rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(90, 30, 160, 0.12);
+}
+
+.dvV-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dvV-calendar {
+  background: #fff;
+  border-radius: 20px;
+  padding: 1.1rem;
+  width: 230px;
+  flex-shrink: 0;
+  box-shadow: 0 10px 30px rgba(90, 30, 160, 0.12);
+}
+
+.dvV-calendar-title {
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
+.dvV-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.dvV-calendar-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  border-radius: 8px;
+  font-weight: 600;
+  position: relative;
+}
+
+.dvV-calendar-cell.has-due::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d6338c;
+}
+
+.dvV-calendar-cell.today {
+  background: linear-gradient(135deg, #6a3df5, #d6338c);
+  color: #fff;
+}
+
+.dvV-main {
+  flex: 1;
+}
+
+.dvV-group {
+  margin-bottom: 1.4rem;
+}
+
+.dvV-group-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6a3df5;
+  margin-bottom: 0.6rem;
+}
+
+.dvV-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border-radius: 16px;
+  padding: 0.7rem 1rem;
+  margin-bottom: 0.55rem;
+  color: #1a1a2e;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(30, 20, 60, 0.08);
+}
+
+.dvV-item.today {
+  outline: 3px solid #ff8a3d;
+}
+
+.dvV-item-title {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.dvV-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.dvV-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
