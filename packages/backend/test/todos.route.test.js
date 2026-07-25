@@ -223,6 +223,169 @@ describe('Todo routes', () => {
 
       expect(res.status).toBe(404)
     })
+
+    it('creates a daily-advanced next instance when completing a recurring todo', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Water the plants',
+        categoryId: 'work-id',
+        priority: 'High',
+        tags: ['home'],
+        body: { type: 'doc', content: [] },
+        recurrence: { pattern: 'daily' },
+        dueDate: '2026-07-25',
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+      Todo.create.mockResolvedValue({ _id: 't2' })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      expect(res.body.completed).toBe(true)
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'Water the plants',
+        categoryId: 'work-id',
+        priority: 'High',
+        tags: ['home'],
+        body: { type: 'doc', content: [] },
+        recurrence: { pattern: 'daily' },
+        completed: false,
+        dueDate: '2026-07-26',
+      })
+    })
+
+    it('creates a weekly-advanced next instance (+7 days)', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Weekly review',
+        categoryId: 'work-id',
+        priority: 'Medium',
+        tags: [],
+        body: null,
+        recurrence: { pattern: 'weekly' },
+        dueDate: '2026-07-25',
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+      Todo.create.mockResolvedValue({ _id: 't2' })
+
+      const app = createApp()
+      await request(app).patch('/api/todos/t1/toggle')
+
+      expect(Todo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ dueDate: '2026-08-01' }),
+      )
+    })
+
+    it('creates a monthly-advanced next instance (same day, next month)', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Pay rent',
+        categoryId: 'work-id',
+        priority: 'Medium',
+        tags: [],
+        body: null,
+        recurrence: { pattern: 'monthly' },
+        dueDate: '2026-07-25',
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+      Todo.create.mockResolvedValue({ _id: 't2' })
+
+      const app = createApp()
+      await request(app).patch('/api/todos/t1/toggle')
+
+      expect(Todo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ dueDate: '2026-08-25' }),
+      )
+    })
+
+    it('does not crash on a monthly rollover from a month-end date (JS Date rollover is acceptable)', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'End of month task',
+        categoryId: 'work-id',
+        priority: 'Medium',
+        tags: [],
+        body: null,
+        recurrence: { pattern: 'monthly' },
+        dueDate: '2026-01-31',
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+      Todo.create.mockResolvedValue({ _id: 't2' })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      expect(Todo.create).toHaveBeenCalled()
+    })
+
+    it('does not create a next instance when reopening (true -> false)', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Water the plants',
+        categoryId: 'work-id',
+        recurrence: { pattern: 'daily' },
+        dueDate: '2026-07-25',
+        completed: true,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      expect(res.body.completed).toBe(false)
+      expect(Todo.create).not.toHaveBeenCalled()
+    })
+
+    it('completes normally without creating a next instance when a recurring todo has no dueDate', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Someday task',
+        categoryId: 'work-id',
+        recurrence: { pattern: 'daily' },
+        dueDate: null,
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      expect(res.body.completed).toBe(true)
+      expect(Todo.create).not.toHaveBeenCalled()
+    })
+
+    it('does not create a next instance for a non-recurring todo', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'One-off task',
+        categoryId: 'work-id',
+        recurrence: null,
+        dueDate: '2026-07-25',
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      expect(Todo.create).not.toHaveBeenCalled()
+    })
   })
 
   describe('PATCH /api/todos/:id', () => {
@@ -290,6 +453,41 @@ describe('Todo routes', () => {
       const res = await request(app).patch('/api/todos/does-not-exist').send({ priority: 'Low' })
 
       expect(res.status).toBe(404)
+    })
+
+    it('sets recurrence to a pattern', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({
+        _id: 't1',
+        recurrence: { pattern: 'weekly' },
+      })
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/todos/t1')
+        .send({ recurrence: { pattern: 'weekly' } })
+
+      expect(res.status).toBe(200)
+      expect(res.body.recurrence).toEqual({ pattern: 'weekly' })
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { recurrence: { pattern: 'weekly' } },
+        { new: true, runValidators: true },
+      )
+    })
+
+    it('turns recurrence off via recurrence: null', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', recurrence: null })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ recurrence: null })
+
+      expect(res.status).toBe(200)
+      expect(res.body.recurrence).toBeNull()
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { recurrence: null },
+        { new: true, runValidators: true },
+      )
     })
   })
 

@@ -89,6 +89,65 @@ describe('TodoDetail', () => {
     expect(patch.tags).toEqual(['launch', 'urgent'])
   })
 
+  it('defaults the recurrence picker to None when the todo has no recurrence', () => {
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('sets recurrence to Daily and includes it in the save patch', async () => {
+    const onSave = vi.fn().mockResolvedValue()
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Daily' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+
+    const [, patch] = onSave.mock.calls[0]
+    expect(patch.recurrence).toEqual({ pattern: 'daily' })
+  })
+
+  it('preselects the existing recurrence pattern and can turn it off (None -> recurrence: null)', async () => {
+    const recurringTodo = { ...todo, recurrence: { pattern: 'weekly' } }
+    const onSave = vi.fn().mockResolvedValue()
+    render(
+      <TodoDetail
+        todo={recurringTodo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Weekly' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'None' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+
+    const [, patch] = onSave.mock.calls[0]
+    expect(patch.recurrence).toBeNull()
+  })
+
   it('calls onClose when Cancel is clicked', () => {
     const onClose = vi.fn()
     render(
