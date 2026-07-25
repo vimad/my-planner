@@ -6,6 +6,29 @@ export const todosRouter = Router()
 
 const UNCATEGORIZED_NAME = 'Uncategorized'
 
+// Advances a local YYYY-MM-DD calendar-day string by a recurrence pattern's
+// interval. Parses via new Date(year, month - 1, day) (local time) rather
+// than new Date(dateString) (parsed as UTC), then re-serializes from
+// getFullYear()/getMonth()/getDate() rather than toISOString(), to avoid the
+// day-shift bug called out in the spec's technical constraint.
+function advanceDueDate(dueDate, pattern) {
+  const [year, month, day] = dueDate.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+
+  if (pattern === 'daily') {
+    date.setDate(date.getDate() + 1)
+  } else if (pattern === 'weekly') {
+    date.setDate(date.getDate() + 7)
+  } else if (pattern === 'monthly') {
+    date.setMonth(date.getMonth() + 1)
+  }
+
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 // Resolved at creation time (not a static schema default) since the seeded
 // Uncategorized category's id is only known at runtime, after boot-time seeding.
 async function resolveDefaultCategoryId() {
@@ -64,7 +87,12 @@ todosRouter.get('/tags', async (req, res, next) => {
   }
 })
 
-// PATCH /api/todos/:id/toggle -> flip completed (complete <-> reopen)
+// PATCH /api/todos/:id/toggle -> flip completed (complete <-> reopen).
+// On the false -> true transition, if the todo has a non-null recurrence and
+// a dueDate, a new instance is cloned and its dueDate advanced by the
+// pattern's interval — see the spec's "Recurring todo mechanics" section.
+// The completed instance itself is left otherwise unchanged; recurrence only
+// advances forward (reopening never spawns a new instance).
 todosRouter.patch('/:id/toggle', async (req, res, next) => {
   try {
     const todo = await Todo.findById(req.params.id)
@@ -73,8 +101,23 @@ todosRouter.patch('/:id/toggle', async (req, res, next) => {
       return res.status(404).json({ error: 'Todo not found' })
     }
 
+    const wasCompleted = todo.completed
     todo.completed = !todo.completed
     await todo.save()
+
+    if (!wasCompleted && todo.completed && todo.recurrence && todo.dueDate) {
+      await Todo.create({
+        title: todo.title,
+        categoryId: todo.categoryId,
+        priority: todo.priority,
+        tags: todo.tags,
+        body: todo.body,
+        recurrence: todo.recurrence,
+        completed: false,
+        dueDate: advanceDueDate(todo.dueDate, todo.recurrence.pattern),
+      })
+    }
+
     res.json(todo)
   } catch (err) {
     next(err)
@@ -82,11 +125,12 @@ todosRouter.patch('/:id/toggle', async (req, res, next) => {
 })
 
 // PATCH /api/todos/:id -> general update (title, categoryId, priority,
-// dueDate, tags, body). Distinct from /:id/toggle, which stays dedicated to
-// the checkbox action.
+// dueDate, tags, body, recurrence). Distinct from /:id/toggle, which stays
+// dedicated to the checkbox action. Turning recurrence off is just a normal
+// update with recurrence: null — there's no separate "series" entity.
 todosRouter.patch('/:id', async (req, res, next) => {
   try {
-    const { title, categoryId, priority, dueDate, tags, body } = req.body
+    const { title, categoryId, priority, dueDate, tags, body, recurrence } = req.body
 
     if (title !== undefined && !String(title).trim()) {
       return res.status(400).json({ error: 'title is required' })
@@ -99,6 +143,7 @@ todosRouter.patch('/:id', async (req, res, next) => {
     if (dueDate !== undefined) update.dueDate = dueDate
     if (tags !== undefined) update.tags = tags
     if (body !== undefined) update.body = body
+    if (recurrence !== undefined) update.recurrence = recurrence
 
     const todo = await Todo.findByIdAndUpdate(req.params.id, update, {
       new: true,

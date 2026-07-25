@@ -4,6 +4,15 @@ import { TagInput } from './TagInput'
 
 const PRIORITIES = ['High', 'Medium', 'Low']
 
+// Simple presets only, per the spec — no custom interval/weekday selection.
+// The 'none' option maps to a null recurrence (turns recurrence off).
+const RECURRENCE_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+]
+
 // In-page overlay (no routing) for viewing/editing a single todo's detail:
 // priority, due date, category, tags, and rich-text body. Body view/edit
 // mode is a toggle over the same RichTextEditor instance/document.
@@ -17,6 +26,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
   const [dueDate, setDueDate] = useState(todo.dueDate ?? '')
   const [categoryId, setCategoryId] = useState(String(todo.categoryId ?? ''))
   const [tags, setTags] = useState(todo.tags ?? [])
+  const [recurrence, setRecurrence] = useState(todo.recurrence?.pattern ?? 'none')
   const [editingBody, setEditingBody] = useState(false)
   const [saving, setSaving] = useState(false)
   const bodyRef = useRef(null)
@@ -32,6 +42,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
         categoryId,
         tags,
         body,
+        recurrence: recurrence === 'none' ? null : { pattern: recurrence },
       })
     } finally {
       setSaving(false)
@@ -123,6 +134,27 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
         <div className="mb-4 flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-300">Tags</span>
           <TagInput tags={tags} onChange={setTags} suggestions={availableTags} />
+        </div>
+
+        <div className="mb-4 flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-300">Repeat</span>
+          <div role="group" aria-label="Repeat" className="flex gap-2">
+            {RECURRENCE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                aria-pressed={recurrence === opt.value}
+                onClick={() => setRecurrence(opt.value)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  recurrence === opt.value
+                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mb-5 flex flex-col gap-1">

@@ -15,6 +15,17 @@ const todoSchema = new mongoose.Schema(
     tags: { type: [String], default: [] },
     // Tiptap JSON document (or null when the body has never been edited).
     body: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Recurrence is a plain property on this instance, not a separate
+    // "series" entity — see the spec's "Recurring todo mechanics" section.
+    // null means one-off; { pattern } means the next instance is cloned and
+    // its dueDate advanced when this instance is completed.
+    recurrence: {
+      type: new mongoose.Schema(
+        { pattern: { type: String, enum: ['daily', 'weekly', 'monthly'], required: true } },
+        { _id: false },
+      ),
+      default: null,
+    },
   },
   { timestamps: true },
 )
