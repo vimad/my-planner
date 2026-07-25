@@ -142,6 +142,9 @@ describe('Todo routes', () => {
       })
 
       expect(res.status).toBe(201)
+      // bodyText is the denormalized plain-text extract of `body`, computed
+      // by the route (see utils/tiptapText.js) and included alongside it —
+      // needed by GET /api/todos/search (ticket 11).
       expect(Todo.create).toHaveBeenCalledWith({
         title: 'Plan launch',
         categoryId: 'work-id',
@@ -149,6 +152,7 @@ describe('Todo routes', () => {
         priority: 'High',
         tags: ['urgent'],
         body: { type: 'doc', content: [] },
+        bodyText: '',
       })
     })
   })
@@ -175,6 +179,60 @@ describe('Todo routes', () => {
       // If /:id had matched first, this would hit findById-style handling
       // instead, and Todo.distinct would never be called.
       expect(Todo.distinct).toHaveBeenCalled()
+    })
+  })
+
+  describe('GET /api/todos/search', () => {
+    it('matches by title (case-insensitive)', async () => {
+      const docs = [{ _id: 't1', title: 'Buy Milk', bodyText: '' }]
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/search').query({ q: 'milk' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(docs)
+      expect(Todo.find).toHaveBeenCalledWith({
+        $or: [{ title: { $regex: 'milk', $options: 'i' } }, { bodyText: { $regex: 'milk', $options: 'i' } }],
+      })
+    })
+
+    it('matches by the denormalized bodyText extract', async () => {
+      const docs = [{ _id: 't2', title: 'Groceries', bodyText: 'remember to buy oat milk' }]
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/search').query({ q: 'oat' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(docs)
+      expect(Todo.find).toHaveBeenCalledWith({
+        $or: [{ title: { $regex: 'oat', $options: 'i' } }, { bodyText: { $regex: 'oat', $options: 'i' } }],
+      })
+    })
+
+    it('is not swallowed by the /:id-shaped routes (route ordering)', async () => {
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/search')
+
+      expect(res.status).toBe(200)
+      // If /:id had matched first, Todo.findById would be hit instead.
+      expect(Todo.find).toHaveBeenCalled()
+      expect(Todo.findById).not.toHaveBeenCalled()
+    })
+
+    it('returns all todos when q is missing or empty', async () => {
+      const docs = [{ _id: 't1' }, { _id: 't2' }]
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/search').query({ q: '' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(docs)
+      expect(Todo.find).toHaveBeenCalledWith({})
     })
   })
 

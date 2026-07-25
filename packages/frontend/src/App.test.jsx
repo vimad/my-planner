@@ -33,15 +33,20 @@ const work = {
 // reassigning `todosData` before render().
 let categoriesData
 let todosData
+let searchData
 
 describe('App', () => {
   beforeEach(() => {
     categoriesData = [uncategorized, work]
     todosData = []
+    searchData = []
     vi.stubGlobal(
       'fetch',
       vi.fn((url) => {
         const href = String(url)
+        // Checked before the generic '/api/todos' branch below, since
+        // '/api/todos/search?...' also contains that substring.
+        if (href.includes('/api/todos/search')) return jsonResponse(searchData)
         if (href.includes('/api/todos')) return jsonResponse(todosData)
         if (href.includes('/api/categories')) return jsonResponse(categoriesData)
         return jsonResponse([])
@@ -333,6 +338,51 @@ describe('App', () => {
       expect(patchCall).toBeDefined()
       expect(patchCall[0]).toContain('/api/todos/todo-1')
       expect(JSON.parse(patchCall[1].body)).toMatchObject({ priority: 'High' })
+    })
+
+    it('filters the agenda by hitting the search endpoint as the user types', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'uncategorized-id',
+          completed: false,
+          dueDate: null,
+        },
+        {
+          _id: 'todo-2',
+          title: 'Ship feature',
+          categoryId: 'work-id',
+          completed: false,
+          dueDate: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
+
+      searchData = [todosData[0]]
+
+      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: 'milk' } })
+
+      await waitFor(() => {
+        expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
+      })
+      expect(screen.getByText('Buy milk')).toBeInTheDocument()
+
+      const searchCall = fetch.mock.calls.find(([url]) => String(url).includes('/api/todos/search'))
+      expect(searchCall).toBeDefined()
+      expect(searchCall[0]).toContain('q=milk')
+
+      // Clearing the query falls back to the normal unfiltered agenda.
+      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: '' } })
+
+      await waitFor(() => {
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
     })
   })
 })

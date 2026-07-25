@@ -27,6 +27,8 @@ function App() {
   const [editingCategory, setEditingCategory] = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
   const [sortByPriority, setSortByPriority] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
 
   async function loadCategories() {
     setLoading(true)
@@ -71,6 +73,37 @@ function App() {
     loadTodos()
     loadTags()
   }, [])
+
+  // Hits the real backend search endpoint (GET /api/todos/search) as the
+  // user types, per ticket 11 — deliberately not client-side filtering of
+  // the already-loaded `todos`, so the endpoint is exercised end-to-end. An
+  // empty query clears searchResults, which makes the agenda fall back to
+  // the normal unfiltered `todos` list. `ignore` guards against an in-flight
+  // request from a stale keystroke resolving after a newer one.
+  useEffect(() => {
+    const trimmed = searchQuery.trim()
+    if (!trimmed) {
+      setSearchResults(null)
+      return
+    }
+
+    let ignore = false
+    async function runSearch() {
+      try {
+        const res = await fetch(`${API_URL}/api/todos/search?q=${encodeURIComponent(trimmed)}`)
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        const data = await res.json()
+        if (!ignore) setSearchResults(data)
+      } catch (err) {
+        if (!ignore) setError(err.message)
+      }
+    }
+    runSearch()
+
+    return () => {
+      ignore = true
+    }
+  }, [searchQuery])
 
   async function handleCreate({ name, color }) {
     setError(null)
@@ -176,6 +209,11 @@ function App() {
     categories.map((category) => [category._id ?? category.id, category]),
   )
 
+  // While a search query is active, the agenda shows the backend search
+  // results instead of the unfiltered `todos` — `todos` itself stays
+  // unfiltered so MiniCalendar and category counts are unaffected by search.
+  const visibleTodos = searchQuery.trim() ? (searchResults ?? []) : todos
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] px-6 py-9 text-slate-100 sm:px-10">
       <header className="mb-7">
@@ -242,6 +280,14 @@ function App() {
         <MiniCalendar todos={todos} />
         <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
           <TodoQuickAdd onAdd={handleQuickAddTodo} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search todos by title or body..."
+            aria-label="Search todos"
+            className="mb-4 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-fuchsia-400/60 focus:outline-none"
+          />
           <label className="mb-4 flex items-center gap-2 text-xs font-medium text-slate-300">
             <input
               type="checkbox"
@@ -252,7 +298,7 @@ function App() {
             Sort by priority
           </label>
           <AgendaGroups
-            todos={todos}
+            todos={visibleTodos}
             categoriesById={categoriesById}
             onToggle={handleToggleTodo}
             onDelete={handleDeleteTodo}
