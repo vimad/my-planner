@@ -1,10 +1,11 @@
-import { Test } from './models/Test.js'
+import { Category } from './models/Category.js'
 
-// Scaffolding seed: make sure there is at least one document to read.
-// Later real work will replace this with proper seed/migration logic.
-export async function seedTestCollection() {
-  const existing = await Test.findOne()
+const UNCATEGORIZED = { name: 'Uncategorized', color: '#94a3b8', system: true }
+
+// Idempotent: ensure the system-provided "Uncategorized" category always exists.
+export async function seedUncategorizedCategory() {
+  const existing = await Category.findOne({ name: UNCATEGORIZED.name })
   if (existing) return existing
 
-  return Test.create({ name: 'vinod' })
+  return Category.create(UNCATEGORIZED)
 }

@@ -1,6 +1,6 @@
 import cors from 'cors'
 import express from 'express'
-import { testRouter } from './routes/test.js'
+import { categoriesRouter } from './routes/categories.js'
 
 export function createApp({ corsOrigin } = {}) {
   const app = express()
@@ -12,7 +12,7 @@ export function createApp({ corsOrigin } = {}) {
     res.json({ status: 'ok' })
   })
 
-  app.use('/api/test', testRouter)
+  app.use('/api/categories', categoriesRouter)
 
   // Basic error handler.
   app.use((err, req, res, next) => {

@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { createApp } from './app.js'
 import { connectDB } from './config/db.js'
-import { seedTestCollection } from './seed.js'
+import { seedUncategorizedCategory } from './seed.js'
 
 const PORT = process.env.PORT ?? 4100
 const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/my-planner'
@@ -11,7 +11,7 @@ async function main() {
   await connectDB(MONGODB_URI)
   console.log(`Connected to MongoDB at ${MONGODB_URI}`)
 
-  await seedTestCollection()
+  await seedUncategorizedCategory()
 
   const app = createApp({ corsOrigin: CORS_ORIGIN })
 
