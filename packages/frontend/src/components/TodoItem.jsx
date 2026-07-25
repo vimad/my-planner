@@ -1,3 +1,5 @@
+import { getId } from '../utils/getId'
+
 const PRIORITY_BADGE_STYLES = {
   High: 'bg-red-500/20 text-red-300',
   Medium: 'bg-amber-500/20 text-amber-300',
@@ -7,7 +9,7 @@ const PRIORITY_BADGE_STYLES = {
 // Clicking the row (but not the checkbox or delete button) opens the todo
 // detail view via `onOpen`, when provided.
 export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpen }) {
-  const id = todo._id ?? todo.id
+  const id = getId(todo)
   const priority = todo.priority ?? 'Medium'
 
   return (

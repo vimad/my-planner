@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { getId } from '../utils/getId'
 import { RichTextEditor } from './RichTextEditor'
 
 const PRIORITIES = ['High', 'Medium', 'Low']
@@ -15,7 +16,7 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
   const [editingLineId, setEditingLineId] = useState(null)
   const [selectedLineIds, setSelectedLineIds] = useState([])
   const [showPromoteForm, setShowPromoteForm] = useState(false)
-  const [categoryId, setCategoryId] = useState(String(categories[0]?._id ?? categories[0]?.id ?? ''))
+  const [categoryId, setCategoryId] = useState(String(getId(categories[0]) ?? ''))
   const [priority, setPriority] = useState('Medium')
   const [dueDate, setDueDate] = useState('')
   const [promoting, setPromoting] = useState(false)
@@ -159,7 +160,7 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
                     className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-slate-100 focus:border-fuchsia-400/60 focus:outline-none"
                   >
                     {categories.map((c) => {
-                      const cid = String(c._id ?? c.id)
+                      const cid = String(getId(c))
                       return (
                         <option key={cid} value={cid} className="bg-[#160f24]">
                           {c.name}

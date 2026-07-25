@@ -1,4 +1,5 @@
 import { GROUP_ORDER, groupLabel, localTodayISO } from '../utils/dateAgenda'
+import { getId } from '../utils/getId'
 import { TodoItem } from './TodoItem'
 
 const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 }
@@ -46,7 +47,7 @@ export function AgendaGroups({
           <div className="flex flex-col gap-2">
             {g.items.map((todo) => (
               <TodoItem
-                key={todo._id ?? todo.id}
+                key={getId(todo)}
                 todo={todo}
                 isDueToday={todo.dueDate === todayISO}
                 category={categoriesById?.[todo.categoryId]}

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { getId } from '../utils/getId'
 import { RichTextEditor } from './RichTextEditor'
 import { TagInput } from './TagInput'
 
@@ -17,7 +18,7 @@ const RECURRENCE_OPTIONS = [
 // priority, due date, category, tags, and rich-text body. Body view/edit
 // mode is a toggle over the same RichTextEditor instance/document.
 export function TodoDetail({ todo, categories, availableTags, onClose, onSave }) {
-  const id = todo._id ?? todo.id
+  const id = getId(todo)
 
   const [title, setTitle] = useState(todo.title)
   const [priority, setPriority] = useState(todo.priority ?? 'Medium')
@@ -120,7 +121,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
               className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-fuchsia-400/60 focus:outline-none"
             >
               {categories.map((c) => {
-                const cid = String(c._id ?? c.id)
+                const cid = String(getId(c))
                 return (
                   <option key={cid} value={cid} className="bg-[#160f24]">
                     {c.name}

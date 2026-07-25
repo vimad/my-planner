@@ -1,21 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
-import { Category } from '../models/Category.js'
 import { ScratchNote } from '../models/ScratchNote.js'
 import { Todo } from '../models/Todo.js'
+import { resolveDefaultCategoryId } from '../utils/defaultCategory.js'
 
 export const scratchNotesRouter = Router()
-
-const UNCATEGORIZED_NAME = 'Uncategorized'
-
-// Same pattern as todos.js's resolveDefaultCategoryId: the seeded
-// Uncategorized category's id is only known at runtime, so it's resolved
-// here rather than baked into a schema default. Duplicated locally (rather
-// than importing from todos.js) since it isn't exported there.
-async function resolveDefaultCategoryId() {
-  const uncategorized = await Category.findOne({ name: UNCATEGORIZED_NAME })
-  return uncategorized?._id ?? uncategorized?.id ?? null
-}
 
 // Recursively walk a Tiptap JSON document/node and concatenate its text
 // nodes. Doesn't need to be fancy (per the ticket) - just enough to turn a

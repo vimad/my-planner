@@ -1,11 +1,9 @@
 import { Router } from 'express'
-import { Category } from '../models/Category.js'
 import { Todo } from '../models/Todo.js'
+import { resolveDefaultCategoryId } from '../utils/defaultCategory.js'
 import { tiptapToPlainText } from '../utils/tiptapText.js'
 
 export const todosRouter = Router()
-
-const UNCATEGORIZED_NAME = 'Uncategorized'
 
 // Advances a local YYYY-MM-DD calendar-day string by a recurrence pattern's
 // interval. Parses via new Date(year, month - 1, day) (local time) rather
@@ -28,13 +26,6 @@ function advanceDueDate(dueDate, pattern) {
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
-}
-
-// Resolved at creation time (not a static schema default) since the seeded
-// Uncategorized category's id is only known at runtime, after boot-time seeding.
-async function resolveDefaultCategoryId() {
-  const uncategorized = await Category.findOne({ name: UNCATEGORIZED_NAME })
-  return uncategorized?._id ?? uncategorized?.id ?? null
 }
 
 // POST /api/todos -> quick-create a todo (title only required). Optional

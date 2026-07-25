@@ -1,3 +1,4 @@
+import { getId } from '../utils/getId'
 import { ScratchNoteCard } from './ScratchNoteCard'
 
 // Inbox-style list of scratch notes - each a separate card (not one
@@ -24,7 +25,7 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
 
       <div className="flex flex-col gap-3">
         {notes.map((note) => {
-          const id = note._id ?? note.id
+          const id = getId(note)
           return (
             <ScratchNoteCard
               key={id}

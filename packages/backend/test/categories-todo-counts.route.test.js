@@ -2,12 +2,19 @@ import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Verifies the wiring called out in ticket 07: categories.js's GET route
-// already computes remaining/completed counts via mongoose.model('Todo')
-// guarded by mongoose.modelNames().includes('Todo'). Now that the real Todo
-// model exists (imported below, unmocked, so it registers with mongoose),
-// those counts should reflect real data with no changes to categories.js.
-// We stub Todo.countDocuments (rather than hitting a real database) to keep
-// this at the same "mock at the module boundary" seam as the other route tests.
+// looks up Todo via mongoose.model('Todo') from the global registry (not a
+// direct import — see categories.js's getCounts helper), guarded by
+// mongoose.modelNames().includes('Todo'), so it stays decoupled from whether
+// a Todo model happens to exist yet. That registry lookup is the reason this
+// test can't follow the usual vi.mock('../src/models/Todo.js', ...)
+// convention: mocking the whole module would stop Todo.js's
+// mongoose.model('Todo', todoSchema) call from ever registering the model,
+// so mongoose.modelNames() would never include 'Todo' and getCounts would
+// always take its zero-counts short-circuit — the exact case this test
+// exists to move past. Importing the real Todo model (so it registers) and
+// stubbing its static countDocuments is the one seam that actually exercises
+// this wiring; everything else about the request stays at the same HTTP
+// boundary as the other route tests (createApp() + supertest).
 vi.mock('../src/models/Category.js', () => {
   return {
     Category: {

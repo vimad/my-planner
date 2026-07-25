@@ -6,6 +6,7 @@ import { MiniCalendar } from './components/MiniCalendar'
 import { Scratchpad } from './components/Scratchpad'
 import { TodoDetail } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
+import { getId } from './utils/getId'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -155,7 +156,7 @@ function App() {
   async function handleDelete(category) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/categories/${category._id ?? category.id}`, {
+      const res = await fetch(`${API_URL}/api/categories/${getId(category)}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
@@ -291,7 +292,7 @@ function App() {
   }
 
   const categoriesById = Object.fromEntries(
-    categories.map((category) => [category._id ?? category.id, category]),
+    categories.map((category) => [getId(category), category]),
   )
 
   // While a search query is active, the agenda shows the backend search
@@ -320,7 +321,7 @@ function App() {
           {!loading &&
             categories.map((category) => (
               <CategoryChip
-                key={category._id ?? category.id}
+                key={getId(category)}
                 category={category}
                 onEdit={setEditingCategory}
                 onDelete={handleDelete}
@@ -354,7 +355,7 @@ function App() {
               initialName={editingCategory.name}
               initialColor={editingCategory.color}
               submitLabel="Save"
-              onSubmit={(values) => handleRename(editingCategory._id ?? editingCategory.id, values)}
+              onSubmit={(values) => handleRename(getId(editingCategory), values)}
               onCancel={() => setEditingCategory(null)}
             />
           </div>
@@ -405,7 +406,7 @@ function App() {
 
       {selectedTodo && (
         <TodoDetail
-          key={selectedTodo._id ?? selectedTodo.id}
+          key={getId(selectedTodo)}
           todo={selectedTodo}
           categories={categories}
           availableTags={availableTags}
