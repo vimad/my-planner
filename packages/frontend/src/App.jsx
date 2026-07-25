@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
+import { AgendaGroups } from './components/AgendaGroups'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm } from './components/CategoryForm'
+import { MiniCalendar } from './components/MiniCalendar'
+import { TodoQuickAdd } from './components/TodoQuickAdd'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -15,6 +18,7 @@ async function parseErrorMessage(res) {
 
 function App() {
   const [categories, setCategories] = useState([])
+  const [todos, setTodos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -35,8 +39,21 @@ function App() {
     }
   }
 
+  async function loadTodos() {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos`)
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const data = await res.json()
+      setTodos(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   useEffect(() => {
     loadCategories()
+    loadTodos()
   }, [])
 
   async function handleCreate({ name, color }) {
@@ -83,6 +100,49 @@ function App() {
       setError(err.message)
     }
   }
+
+  // Todo mutations refresh both todos and categories, since category chip
+  // remaining/completed counts are computed server-side from real todos.
+  async function handleQuickAddTodo(title) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await Promise.all([loadTodos(), loadCategories()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleToggleTodo(id) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos/${id}/toggle`, { method: 'PATCH' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await Promise.all([loadTodos(), loadCategories()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleDeleteTodo(id) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await Promise.all([loadTodos(), loadCategories()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const categoriesById = Object.fromEntries(
+    categories.map((category) => [category._id ?? category.id, category]),
+  )
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] px-6 py-9 text-slate-100 sm:px-10">
@@ -146,8 +206,17 @@ function App() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-slate-400 backdrop-blur-md">
-        Agenda coming soon — your todos will show up here.
+      <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
+        <MiniCalendar todos={todos} />
+        <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+          <TodoQuickAdd onAdd={handleQuickAddTodo} />
+          <AgendaGroups
+            todos={todos}
+            categoriesById={categoriesById}
+            onToggle={handleToggleTodo}
+            onDelete={handleDeleteTodo}
+          />
+        </div>
       </section>
     </main>
   )

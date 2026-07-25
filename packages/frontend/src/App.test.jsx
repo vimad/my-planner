@@ -28,9 +28,25 @@ const work = {
   completed: 2,
 }
 
+// Mutable per-test fixtures read live by the default fetch mock below, so
+// individual tests can seed what the initial GET /api/todos returns just by
+// reassigning `todosData` before render().
+let categoriesData
+let todosData
+
 describe('App', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(() => jsonResponse([uncategorized, work])))
+    categoriesData = [uncategorized, work]
+    todosData = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const href = String(url)
+        if (href.includes('/api/todos')) return jsonResponse(todosData)
+        if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+        return jsonResponse([])
+      }),
+    )
   })
 
   afterEach(() => {
@@ -160,6 +176,118 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Error:/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Todos', () => {
+    it('quick-adds a todo and shows it in the agenda, refreshing category counts', async () => {
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Work')).toBeInTheDocument()
+      })
+
+      const newTodo = {
+        _id: 'todo-1',
+        title: 'Buy milk',
+        categoryId: 'uncategorized-id',
+        completed: false,
+        dueDate: null,
+      }
+
+      fetch.mockImplementationOnce(() => jsonResponse(newTodo, true)) // POST /api/todos
+      fetch.mockImplementationOnce(() => jsonResponse([newTodo])) // refetch GET /api/todos
+      fetch.mockImplementationOnce(() =>
+        jsonResponse([{ ...uncategorized, remaining: 2 }, work]),
+      ) // refetch GET /api/categories
+
+      fireEvent.change(screen.getByLabelText('New todo title'), {
+        target: { value: 'Buy milk' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      const postCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'POST')
+      expect(postCall).toBeDefined()
+      expect(postCall[0]).toContain('/api/todos')
+      expect(JSON.parse(postCall[1].body)).toEqual({ title: 'Buy milk' })
+
+      // Category chip counts reflect the follow-up GET /api/categories refetch.
+      expect(screen.getByText('2 remaining · 0 completed')).toBeInTheDocument()
+    })
+
+    it('toggles a todo complete and it drops out of the open agenda', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'uncategorized-id',
+          completed: false,
+          dueDate: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fetch.mockImplementationOnce(() =>
+        jsonResponse({ ...todosData[0], completed: true }, true),
+      ) // PATCH toggle
+      fetch.mockImplementationOnce(() => jsonResponse([{ ...todosData[0], completed: true }])) // refetch GET /api/todos
+      fetch.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByLabelText('Complete Buy milk'))
+
+      await waitFor(() => {
+        expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
+      })
+
+      const patchCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+      expect(patchCall[0]).toContain('/api/todos/todo-1/toggle')
+    })
+
+    it('deletes a todo', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'uncategorized-id',
+          completed: false,
+          dueDate: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fetch.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
+      fetch.mockImplementationOnce(() => jsonResponse([])) // refetch GET /api/todos
+      fetch.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByLabelText('Delete Buy milk'))
+
+      await waitFor(() => {
+        expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
+      })
+
+      const deleteCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'DELETE')
+      expect(deleteCall).toBeDefined()
+      expect(deleteCall[0]).toContain('/api/todos/todo-1')
+    })
+
+    it('shows a friendly message when there is nothing on the agenda', async () => {
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText("Nothing on your agenda — you're all caught up.")).toBeInTheDocument()
+      })
     })
   })
 })
