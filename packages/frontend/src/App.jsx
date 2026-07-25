@@ -3,6 +3,7 @@ import { AgendaGroups } from './components/AgendaGroups'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm } from './components/CategoryForm'
 import { MiniCalendar } from './components/MiniCalendar'
+import { TodoDetail } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
@@ -19,10 +20,13 @@ async function parseErrorMessage(res) {
 function App() {
   const [categories, setCategories] = useState([])
   const [todos, setTodos] = useState([])
+  const [availableTags, setAvailableTags] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
+  const [selectedTodo, setSelectedTodo] = useState(null)
+  const [sortByPriority, setSortByPriority] = useState(false)
 
   async function loadCategories() {
     setLoading(true)
@@ -51,9 +55,21 @@ function App() {
     }
   }
 
+  async function loadTags() {
+    try {
+      const res = await fetch(`${API_URL}/api/todos/tags`)
+      if (!res.ok) return
+      const data = await res.json()
+      setAvailableTags(data)
+    } catch {
+      // Autocomplete is a nice-to-have; a failed fetch just leaves it empty.
+    }
+  }
+
   useEffect(() => {
     loadCategories()
     loadTodos()
+    loadTags()
   }, [])
 
   async function handleCreate({ name, color }) {
@@ -140,6 +156,22 @@ function App() {
     }
   }
 
+  async function handleUpdateTodo(id, patch) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      setSelectedTodo(null)
+      await Promise.all([loadTodos(), loadCategories(), loadTags()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const categoriesById = Object.fromEntries(
     categories.map((category) => [category._id ?? category.id, category]),
   )
@@ -210,14 +242,36 @@ function App() {
         <MiniCalendar todos={todos} />
         <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
           <TodoQuickAdd onAdd={handleQuickAddTodo} />
+          <label className="mb-4 flex items-center gap-2 text-xs font-medium text-slate-300">
+            <input
+              type="checkbox"
+              checked={sortByPriority}
+              onChange={(e) => setSortByPriority(e.target.checked)}
+              className="h-3.5 w-3.5 accent-fuchsia-500"
+            />
+            Sort by priority
+          </label>
           <AgendaGroups
             todos={todos}
             categoriesById={categoriesById}
             onToggle={handleToggleTodo}
             onDelete={handleDeleteTodo}
+            onOpen={setSelectedTodo}
+            sortByPriority={sortByPriority}
           />
         </div>
       </section>
+
+      {selectedTodo && (
+        <TodoDetail
+          key={selectedTodo._id ?? selectedTodo.id}
+          todo={selectedTodo}
+          categories={categories}
+          availableTags={availableTags}
+          onClose={() => setSelectedTodo(null)}
+          onSave={handleUpdateTodo}
+        />
+      )}
     </main>
   )
 }

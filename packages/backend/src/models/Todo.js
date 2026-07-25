@@ -11,6 +11,10 @@ const todoSchema = new mongoose.Schema(
     categoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
     completed: { type: Boolean, default: false },
     dueDate: { type: String, default: null },
+    priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium' },
+    tags: { type: [String], default: [] },
+    // Tiptap JSON document (or null when the body has never been edited).
+    body: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true },
 )

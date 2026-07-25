@@ -289,5 +289,50 @@ describe('App', () => {
         expect(screen.getByText("Nothing on your agenda — you're all caught up.")).toBeInTheDocument()
       })
     })
+
+    it('opens the todo detail view on click and saves an edited priority', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'uncategorized-id',
+          completed: false,
+          dueDate: null,
+          priority: 'Medium',
+          tags: [],
+          body: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Buy milk'))
+
+      expect(screen.getByRole('dialog', { name: 'Edit Buy milk' })).toBeInTheDocument()
+
+      fetch.mockImplementationOnce(() =>
+        jsonResponse({ ...todosData[0], priority: 'High' }, true),
+      ) // PATCH /api/todos/todo-1
+      fetch.mockImplementationOnce(() =>
+        jsonResponse([{ ...todosData[0], priority: 'High' }]),
+      ) // refetch GET /api/todos
+      fetch.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+      fetch.mockImplementationOnce(() => jsonResponse(['errand'])) // refetch GET /api/todos/tags
+
+      fireEvent.click(screen.getByRole('button', { name: 'High' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      })
+
+      const patchCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+      expect(patchCall[0]).toContain('/api/todos/todo-1')
+      expect(JSON.parse(patchCall[1].body)).toMatchObject({ priority: 'High' })
+    })
   })
 })

@@ -8,6 +8,8 @@ vi.mock('../src/models/Todo.js', () => {
       create: vi.fn(),
       findById: vi.fn(),
       findByIdAndDelete: vi.fn(),
+      findByIdAndUpdate: vi.fn(),
+      distinct: vi.fn(),
     },
   }
 })
@@ -90,6 +92,90 @@ describe('Todo routes', () => {
       expect(res.status).toBe(400)
       expect(Todo.create).not.toHaveBeenCalled()
     })
+
+    it('defaults priority to Medium when not provided (schema-level default)', async () => {
+      Category.findOne.mockResolvedValue({ _id: 'uncategorized-id', name: 'Uncategorized' })
+      Todo.create.mockResolvedValue({
+        _id: 't3',
+        title: 'Water the plants',
+        categoryId: 'uncategorized-id',
+        completed: false,
+        dueDate: null,
+        priority: 'Medium',
+        tags: [],
+        body: null,
+      })
+
+      const app = createApp()
+      const res = await request(app).post('/api/todos').send({ title: 'Water the plants' })
+
+      expect(res.status).toBe(201)
+      expect(res.body.priority).toBe('Medium')
+      // No priority key passed through explicitly — the model's schema
+      // default is what's responsible for it in real usage.
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'Water the plants',
+        categoryId: 'uncategorized-id',
+        dueDate: null,
+      })
+    })
+
+    it('passes through priority, tags, and body when the client supplies them', async () => {
+      Todo.create.mockResolvedValue({
+        _id: 't4',
+        title: 'Plan launch',
+        categoryId: 'work-id',
+        dueDate: '2026-08-01',
+        priority: 'High',
+        tags: ['urgent'],
+        body: { type: 'doc', content: [] },
+      })
+
+      const app = createApp()
+      const res = await request(app).post('/api/todos').send({
+        title: 'Plan launch',
+        categoryId: 'work-id',
+        dueDate: '2026-08-01',
+        priority: 'High',
+        tags: ['urgent'],
+        body: { type: 'doc', content: [] },
+      })
+
+      expect(res.status).toBe(201)
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'Plan launch',
+        categoryId: 'work-id',
+        dueDate: '2026-08-01',
+        priority: 'High',
+        tags: ['urgent'],
+        body: { type: 'doc', content: [] },
+      })
+    })
+  })
+
+  describe('GET /api/todos/tags', () => {
+    it('returns the sorted list of distinct tags in use', async () => {
+      Todo.distinct.mockResolvedValue(['urgent', 'home', 'waiting-on-someone'])
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/tags')
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(['home', 'urgent', 'waiting-on-someone'])
+      expect(Todo.distinct).toHaveBeenCalledWith('tags')
+    })
+
+    it('is not swallowed by the /:id-shaped routes (route ordering)', async () => {
+      Todo.distinct.mockResolvedValue([])
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/tags')
+
+      expect(res.status).toBe(200)
+      // If /:id had matched first, this would hit findById-style handling
+      // instead, and Todo.distinct would never be called.
+      expect(Todo.distinct).toHaveBeenCalled()
+    })
   })
 
   describe('GET /api/todos', () => {
@@ -134,6 +220,74 @@ describe('Todo routes', () => {
 
       const app = createApp()
       const res = await request(app).patch('/api/todos/does-not-exist/toggle')
+
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('PATCH /api/todos/:id', () => {
+    it('updates priority, dueDate, and tags', async () => {
+      const updated = {
+        _id: 't1',
+        title: 'Buy milk',
+        priority: 'High',
+        dueDate: '2026-08-01',
+        tags: ['errand'],
+      }
+      Todo.findByIdAndUpdate.mockResolvedValue(updated)
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/todos/t1')
+        .send({ priority: 'High', dueDate: '2026-08-01', tags: ['errand'] })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(updated)
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { priority: 'High', dueDate: '2026-08-01', tags: ['errand'] },
+        { new: true, runValidators: true },
+      )
+    })
+
+    it('reassigns categoryId', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', categoryId: 'personal-id' })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ categoryId: 'personal-id' })
+
+      expect(res.status).toBe(200)
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { categoryId: 'personal-id' },
+        { new: true, runValidators: true },
+      )
+    })
+
+    it('updates the rich-text body', async () => {
+      const body = { type: 'doc', content: [{ type: 'paragraph' }] }
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', body })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ body })
+
+      expect(res.status).toBe(200)
+      expect(res.body.body).toEqual(body)
+    })
+
+    it('rejects a blank title', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ title: '   ' })
+
+      expect(res.status).toBe(400)
+      expect(Todo.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when the todo does not exist', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/does-not-exist').send({ priority: 'Low' })
 
       expect(res.status).toBe(404)
     })

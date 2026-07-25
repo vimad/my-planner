@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgendaGroups } from './AgendaGroups'
 
@@ -69,5 +69,59 @@ describe('AgendaGroups', () => {
 
     const overdueItem = screen.getByText('Overdue task').closest('[class*="border-fuchsia"]')
     expect(overdueItem).toBeNull()
+  })
+
+  it('calls onOpen with the todo when a row is clicked', () => {
+    const onOpen = vi.fn()
+    render(
+      <AgendaGroups
+        todos={todos}
+        categoriesById={{}}
+        onToggle={() => {}}
+        onDelete={() => {}}
+        onOpen={onOpen}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Today task'))
+
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ _id: '2', title: 'Today task' }))
+  })
+
+  it('sorts each group High -> Medium -> Low when sortByPriority is on, without changing the grouping', () => {
+    const mixedPriority = [
+      { _id: 'a', title: 'Low one', dueDate: '2026-08-20', completed: false, priority: 'Low' },
+      { _id: 'b', title: 'High one', dueDate: '2026-08-20', completed: false, priority: 'High' },
+      { _id: 'c', title: 'Medium one', dueDate: '2026-08-20', completed: false, priority: 'Medium' },
+    ]
+
+    render(
+      <AgendaGroups
+        todos={mixedPriority}
+        categoriesById={{}}
+        onToggle={() => {}}
+        onDelete={() => {}}
+        sortByPriority
+      />,
+    )
+
+    const titles = screen.getAllByText(/one$/).map((el) => el.textContent)
+    expect(titles).toEqual(['High one', 'Medium one', 'Low one'])
+    // Still a single "Later" group - grouping itself is untouched.
+    expect(screen.getAllByText('Later')).toHaveLength(1)
+  })
+
+  it('preserves original order within a group when sortByPriority is off', () => {
+    const mixedPriority = [
+      { _id: 'a', title: 'Low one', dueDate: '2026-08-20', completed: false, priority: 'Low' },
+      { _id: 'b', title: 'High one', dueDate: '2026-08-20', completed: false, priority: 'High' },
+    ]
+
+    render(
+      <AgendaGroups todos={mixedPriority} categoriesById={{}} onToggle={() => {}} onDelete={() => {}} />,
+    )
+
+    const titles = screen.getAllByText(/one$/).map((el) => el.textContent)
+    expect(titles).toEqual(['Low one', 'High one'])
   })
 })
