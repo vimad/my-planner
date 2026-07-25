@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express from 'express'
 import { categoriesRouter } from './routes/categories.js'
+import { scratchNotesRouter } from './routes/scratchNotes.js'
 import { todosRouter } from './routes/todos.js'
 
 export function createApp({ corsOrigin } = {}) {
@@ -15,6 +16,7 @@ export function createApp({ corsOrigin } = {}) {
 
   app.use('/api/categories', categoriesRouter)
   app.use('/api/todos', todosRouter)
+  app.use('/api/scratch-notes', scratchNotesRouter)
 
   // Basic error handler.
   app.use((err, req, res, next) => {
