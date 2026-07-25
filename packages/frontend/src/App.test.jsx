@@ -335,4 +335,88 @@ describe('App', () => {
       expect(JSON.parse(patchCall[1].body)).toMatchObject({ priority: 'High' })
     })
   })
+
+  describe('Scratchpad', () => {
+    it('creates a new scratch note', async () => {
+      const newNote = { _id: 'note-1', body: [], archived: false, createdAt: '2026-07-25T10:00:00.000Z' }
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Work')).toBeInTheDocument()
+      })
+
+      fetch.mockImplementationOnce(() => jsonResponse(newNote, true)) // POST /api/scratch-notes
+      fetch.mockImplementationOnce(() => jsonResponse([newNote])) // refetch GET /api/scratch-notes
+
+      fireEvent.click(screen.getByRole('button', { name: '+ New note' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('No lines yet.')).toBeInTheDocument()
+      })
+
+      const postCall = fetch.mock.calls.find(
+        ([url, opts]) => String(url).includes('/api/scratch-notes') && opts?.method === 'POST',
+      )
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall[1].body)).toEqual({ body: [] })
+    })
+
+    it('promotes a scratch note line into a todo', async () => {
+      const lineContent = {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Call the dentist' }] }],
+      }
+      const note = {
+        _id: 'note-1',
+        createdAt: '2026-07-25T10:00:00.000Z',
+        archived: false,
+        body: [{ id: 'line-1', content: lineContent, promotedTodoId: null }],
+      }
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          const href = String(url)
+          if (href.includes('/api/scratch-notes')) return jsonResponse([note])
+          if (href.includes('/api/todos')) return jsonResponse(todosData)
+          if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+          return jsonResponse([])
+        }),
+      )
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Call the dentist')).toBeInTheDocument()
+      })
+
+      const promotedNote = {
+        ...note,
+        body: [{ ...note.body[0], promotedTodoId: 'todo-99' }],
+      }
+
+      fetch.mockImplementationOnce(() =>
+        jsonResponse({ todo: { _id: 'todo-99', title: 'Call the dentist' }, note: promotedNote }, true),
+      ) // POST /api/scratch-notes/note-1/promote
+      fetch.mockImplementationOnce(() => jsonResponse([promotedNote])) // refetch GET /api/scratch-notes
+      fetch.mockImplementationOnce(() => jsonResponse(todosData)) // refetch GET /api/todos
+      fetch.mockImplementationOnce(() => jsonResponse(categoriesData)) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByLabelText('Promote line-1'))
+      fireEvent.click(screen.getByText('Promote 1 line'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm promote' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('✓ linked to todo')).toBeInTheDocument()
+      })
+
+      const promoteCall = fetch.mock.calls.find(([url]) =>
+        String(url).includes('/api/scratch-notes/note-1/promote'),
+      )
+      expect(promoteCall).toBeDefined()
+      expect(JSON.parse(promoteCall[1].body)).toMatchObject({
+        lineId: 'line-1',
+        priority: 'Medium',
+      })
+    })
+  })
 })

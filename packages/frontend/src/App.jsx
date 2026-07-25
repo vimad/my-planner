@@ -3,6 +3,7 @@ import { AgendaGroups } from './components/AgendaGroups'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm } from './components/CategoryForm'
 import { MiniCalendar } from './components/MiniCalendar'
+import { Scratchpad } from './components/Scratchpad'
 import { TodoDetail } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 
@@ -20,6 +21,7 @@ async function parseErrorMessage(res) {
 function App() {
   const [categories, setCategories] = useState([])
   const [todos, setTodos] = useState([])
+  const [scratchNotes, setScratchNotes] = useState([])
   const [availableTags, setAvailableTags] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -66,10 +68,23 @@ function App() {
     }
   }
 
+  async function loadScratchNotes() {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes`)
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const data = await res.json()
+      setScratchNotes(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   useEffect(() => {
     loadCategories()
     loadTodos()
     loadTags()
+    loadScratchNotes()
   }, [])
 
   async function handleCreate({ name, color }) {
@@ -172,6 +187,76 @@ function App() {
     }
   }
 
+  // Scratch note mutations only refresh scratch notes, except promotion,
+  // which also creates a Todo and so needs the same todos/categories refresh
+  // as the other todo-affecting mutations above.
+  async function handleCreateScratchNote() {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: [] }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await loadScratchNotes()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleUpdateScratchNoteLines(id, lines) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: lines }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await loadScratchNotes()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handlePromoteScratchLine(noteId, lineId, options) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes/${noteId}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId, ...options }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await Promise.all([loadScratchNotes(), loadTodos(), loadCategories()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleArchiveScratchNote(id) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes/${id}/archive`, { method: 'PATCH' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await loadScratchNotes()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleDeleteScratchNote(id) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/scratch-notes/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await loadScratchNotes()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const categoriesById = Object.fromEntries(
     categories.map((category) => [category._id ?? category.id, category]),
   )
@@ -261,6 +346,16 @@ function App() {
           />
         </div>
       </section>
+
+      <Scratchpad
+        notes={scratchNotes}
+        categories={categories}
+        onCreateNote={handleCreateScratchNote}
+        onUpdateLines={handleUpdateScratchNoteLines}
+        onPromote={handlePromoteScratchLine}
+        onArchive={handleArchiveScratchNote}
+        onDelete={handleDeleteScratchNote}
+      />
 
       {selectedTodo && (
         <TodoDetail
