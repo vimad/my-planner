@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { Category } from '../models/Category.js'
 import { Todo } from '../models/Todo.js'
+import { tiptapToPlainText } from '../utils/tiptapText.js'
 
 export const todosRouter = Router()
 
@@ -56,7 +57,7 @@ todosRouter.post('/', async (req, res, next) => {
       dueDate: dueDate ?? null,
       ...(priority !== undefined ? { priority } : {}),
       ...(tags !== undefined ? { tags } : {}),
-      ...(body !== undefined ? { body } : {}),
+      ...(body !== undefined ? { body, bodyText: tiptapToPlainText(body) } : {}),
     })
     res.status(201).json(todo)
   } catch (err) {
@@ -87,6 +88,27 @@ todosRouter.get('/tags', async (req, res, next) => {
   }
 })
 
+// GET /api/todos/search?q=... -> case-insensitive search over title and the
+// denormalized bodyText extract (see utils/tiptapText.js). Simple regex
+// match per the spec's explicit v1 guidance (no MongoDB text indexes needed
+// at this data volume). A missing/empty q returns all todos, which is the
+// more useful default for a "type to filter" search box that starts empty.
+// Must be registered before any /:id-shaped route (see /tags above).
+todosRouter.get('/search', async (req, res, next) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+
+    const filter = q
+      ? { $or: [{ title: { $regex: q, $options: 'i' } }, { bodyText: { $regex: q, $options: 'i' } }] }
+      : {}
+
+    const todos = await Todo.find(filter).sort({ createdAt: -1 })
+    res.json(todos)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // PATCH /api/todos/:id/toggle -> flip completed (complete <-> reopen).
 // On the false -> true transition, if the todo has a non-null recurrence and
 // a dueDate, a new instance is cloned and its dueDate advanced by the
@@ -112,6 +134,7 @@ todosRouter.patch('/:id/toggle', async (req, res, next) => {
         priority: todo.priority,
         tags: todo.tags,
         body: todo.body,
+        bodyText: todo.bodyText,
         recurrence: todo.recurrence,
         completed: false,
         dueDate: advanceDueDate(todo.dueDate, todo.recurrence.pattern),
@@ -142,7 +165,10 @@ todosRouter.patch('/:id', async (req, res, next) => {
     if (priority !== undefined) update.priority = priority
     if (dueDate !== undefined) update.dueDate = dueDate
     if (tags !== undefined) update.tags = tags
-    if (body !== undefined) update.body = body
+    if (body !== undefined) {
+      update.body = body
+      update.bodyText = tiptapToPlainText(body)
+    }
     if (recurrence !== undefined) update.recurrence = recurrence
 
     const todo = await Todo.findByIdAndUpdate(req.params.id, update, {

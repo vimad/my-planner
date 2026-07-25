@@ -15,6 +15,11 @@ const todoSchema = new mongoose.Schema(
     tags: { type: [String], default: [] },
     // Tiptap JSON document (or null when the body has never been edited).
     body: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Denormalized plain-text extract of `body`, maintained by the route
+    // layer (see utils/tiptapText.js) whenever `body` is set — used for
+    // simple case-insensitive search (see GET /api/todos/search) since Tiptap
+    // JSON isn't directly regex-matchable.
+    bodyText: { type: String, default: '' },
     // Recurrence is a plain property on this instance, not a separate
     // "series" entity — see the spec's "Recurring todo mechanics" section.
     // null means one-off; { pattern } means the next instance is cloned and
