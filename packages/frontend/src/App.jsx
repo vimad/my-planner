@@ -6,9 +6,11 @@ import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
 import { Scratchpad } from './components/Scratchpad'
+import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { getId } from './utils/getId'
+import { applyTheme, getInitialTheme } from './utils/theme'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -37,6 +39,11 @@ function App() {
   const [searchResults, setSearchResults] = useState(null)
   const [pendingConfirm, setPendingConfirm] = useState(null)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([])
+  const [theme, setTheme] = useState(getInitialTheme)
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   // Gates a destructive/hard-to-undo action (delete, mark complete) behind
   // an explicit confirm click. `run` fires only if the user confirms.
@@ -351,23 +358,26 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] px-6 py-9 text-slate-100 sm:px-10">
-      <header className="mb-7">
-        <h1 className="bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-3xl font-extrabold text-transparent">
-          My Planner
-        </h1>
-        <p className="mt-1 text-sm text-slate-400">Here's what's glowing today.</p>
+    <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
+      <header className="mb-7 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-3xl font-extrabold text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-300">
+            My Planner
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Here's what's glowing today.</p>
+        </div>
+        <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
       </header>
 
       {error && (
-        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           Error: {error}
         </p>
       )}
 
       <section aria-label="Categories" className="mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          {loading && <p className="text-sm text-slate-400">Loading categories...</p>}
+          {loading && <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>}
           {!loading &&
             categories.map((category) => (
               <CategoryChip
@@ -389,7 +399,7 @@ function App() {
               setEditingCategory(null)
               setShowCreateForm((v) => !v)
             }}
-            className="rounded-full border border-dashed border-white/20 px-4 py-2 text-sm text-slate-300 hover:bg-white/5"
+            className="rounded-full border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-500 hover:bg-white dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/5"
           >
             + Add category
           </button>
@@ -420,7 +430,7 @@ function App() {
 
       <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
         <MiniCalendar todos={todos} />
-        <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+        <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
           <TodoQuickAdd onAdd={handleQuickAddTodo} />
           <input
             type="search"
@@ -428,10 +438,10 @@ function App() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search todos by title or body..."
             aria-label="Search todos"
-            className="mb-4 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-fuchsia-400/60 focus:outline-none"
+            className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <div className="mb-4 flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={sortByPriority}
@@ -440,7 +450,7 @@ function App() {
               />
               Sort by priority
             </label>
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={showCompletedOnly}

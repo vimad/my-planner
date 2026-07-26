@@ -21,13 +21,13 @@ export function MiniCalendar({ todos }) {
   const dueDates = new Set(todos.filter((t) => t.dueDate).map((t) => t.dueDate))
 
   return (
-    <div className="w-full shrink-0 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-md sm:w-56">
-      <p className="mb-3 text-sm font-bold text-slate-100">
+    <div className="w-full shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md sm:w-56">
+      <p className="mb-3 text-sm font-bold text-slate-900 dark:text-slate-100">
         {today.toLocaleString('default', { month: 'long', year: 'numeric' })}
       </p>
       <div className="grid grid-cols-7 gap-1">
         {WEEKDAY_LABELS.map((label, i) => (
-          <div key={i} className="text-center text-[0.65rem] text-slate-500">
+          <div key={i} className="text-center text-[0.65rem] text-slate-400 dark:text-slate-500">
             {label}
           </div>
         ))}
@@ -44,7 +44,7 @@ export function MiniCalendar({ todos }) {
               className={`relative flex aspect-square items-center justify-center rounded-lg text-xs ${
                 isToday
                   ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 font-bold text-white shadow-[0_0_14px_rgba(255,107,214,0.5)]'
-                  : 'text-slate-300'
+                  : 'text-slate-600 dark:text-slate-300'
               }`}
             >
               {day}

@@ -43,14 +43,14 @@ export function TagInput({ tags, onChange, suggestions = [] }) {
           <span
             key={tag}
             role="listitem"
-            className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200"
+            className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700 dark:bg-white/10 dark:text-slate-200"
           >
             {tag}
             <button
               type="button"
               aria-label={`Remove tag ${tag}`}
               onClick={() => removeTag(tag)}
-              className="text-slate-400 hover:text-slate-100"
+              className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100"
             >
               ×
             </button>
@@ -66,20 +66,20 @@ export function TagInput({ tags, onChange, suggestions = [] }) {
           onKeyDown={handleKeyDown}
           placeholder="Add a tag and press Enter"
           aria-label="Add tag"
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-fuchsia-400/60 focus:outline-none"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
         />
         {filteredSuggestions.length > 0 && (
           <ul
             role="listbox"
             aria-label="Tag suggestions"
-            className="absolute z-10 mt-1 w-full rounded-lg border border-white/10 bg-[#1a1229] py-1 shadow-lg"
+            className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-[#1a1229]"
           >
             {filteredSuggestions.map((s) => (
               <li key={s} role="option" aria-selected="false">
                 <button
                   type="button"
                   onClick={() => addTag(s)}
-                  className="w-full px-3 py-1 text-left text-sm text-slate-200 hover:bg-white/10"
+                  className="w-full px-3 py-1 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
                 >
                   {s}
                 </button>

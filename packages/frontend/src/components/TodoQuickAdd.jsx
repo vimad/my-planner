@@ -27,7 +27,7 @@ export function TodoQuickAdd({ onAdd }) {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Quick-add a todo and hit enter..."
         aria-label="New todo title"
-        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-fuchsia-400/60 focus:outline-none"
+        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
       />
       <button
         type="submit"

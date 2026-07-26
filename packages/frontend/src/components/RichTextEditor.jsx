@@ -32,12 +32,14 @@ function Toolbar({ editor }) {
 
   function buttonClass(active) {
     return `rounded px-2 py-1 text-xs font-semibold transition ${
-      active ? 'bg-fuchsia-500/30 text-fuchsia-200' : 'text-slate-300 hover:bg-white/10'
+      active
+        ? 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/30 dark:text-fuchsia-200'
+        : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
     }`
   }
 
   return (
-    <div className="mb-1 flex flex-wrap gap-1 border-b border-white/10 pb-1">
+    <div className="mb-1 flex flex-wrap gap-1 border-b border-slate-200 pb-1 dark:border-white/10">
       {TOOLBAR_BUTTONS.map(({ mark, label, title, className }) => (
         <button
           key={mark}
@@ -52,7 +54,7 @@ function Toolbar({ editor }) {
           <span className={className}>{label}</span>
         </button>
       ))}
-      <span className="mx-1 w-px bg-white/10" aria-hidden="true" />
+      <span className="mx-1 w-px bg-slate-200 dark:bg-white/10" aria-hidden="true" />
       <button
         type="button"
         title="Bullet list"

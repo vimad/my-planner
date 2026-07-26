@@ -36,14 +36,20 @@ export function AgendaGroups({
   })).filter((g) => g.items.length > 0)
 
   if (groups.length === 0) {
-    return <p className="text-sm text-slate-400">Nothing on your agenda — you're all caught up.</p>
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Nothing on your agenda — you're all caught up.
+      </p>
+    )
   }
 
   return (
     <div className="flex flex-col gap-5">
       {groups.map((g) => (
         <div key={g.label}>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">{g.label}</p>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            {g.label}
+          </p>
           <div className="flex flex-col gap-2">
             {g.items.map((todo) => (
               <TodoItem

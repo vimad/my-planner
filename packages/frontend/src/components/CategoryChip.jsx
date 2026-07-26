@@ -18,10 +18,10 @@ export function CategoryChip({ category, selected = false, onToggleFilter, onEdi
           onToggleFilter?.(category)
         }
       }}
-      className={`flex cursor-pointer items-center gap-3 rounded-full border px-4 py-2 backdrop-blur-md transition ${
+      className={`flex cursor-pointer items-center gap-3 rounded-full border px-4 py-2 transition dark:backdrop-blur-md ${
         selected
-          ? 'border-fuchsia-400/60 bg-fuchsia-500/15 shadow-[0_0_14px_rgba(255,107,214,0.35)]'
-          : 'border-white/10 bg-white/5 hover:bg-white/10'
+          ? 'border-fuchsia-400/50 bg-fuchsia-50 shadow-[0_0_0_3px_rgba(217,70,239,0.1)] dark:border-fuchsia-400/60 dark:bg-fuchsia-500/15 dark:shadow-[0_0_14px_rgba(255,107,214,0.35)]'
+          : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
       }`}
     >
       <span
@@ -29,8 +29,8 @@ export function CategoryChip({ category, selected = false, onToggleFilter, onEdi
         style={{ background: category.color, boxShadow: `0 0 10px ${category.color}` }}
       />
       <div className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold text-slate-100">{category.name}</span>
-        <span className="text-xs text-slate-400">
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{category.name}</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
           {category.remaining ?? 0} remaining · {category.completed ?? 0} completed
         </span>
       </div>
@@ -43,7 +43,7 @@ export function CategoryChip({ category, selected = false, onToggleFilter, onEdi
               e.stopPropagation()
               onEdit(category)
             }}
-            className="rounded-full px-2 py-0.5 text-xs text-slate-300 hover:bg-white/10"
+            className="rounded-full px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
           >
             Edit
           </button>
@@ -54,7 +54,7 @@ export function CategoryChip({ category, selected = false, onToggleFilter, onEdi
               e.stopPropagation()
               onDelete(category)
             }}
-            className="rounded-full px-2 py-0.5 text-xs text-slate-300 hover:bg-white/10"
+            className="rounded-full px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
           >
             Delete
           </button>

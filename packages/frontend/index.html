@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Planner</title>
+    <script>
+      (function () {
+        var theme = 'dark'
+        try {
+          var stored = localStorage.getItem('planner-theme')
+          if (stored === 'light' || stored === 'dark') theme = stored
+        } catch (e) {
+          // localStorage unavailable (e.g. private browsing) - fall back to dark.
+        }
+        document.documentElement.classList.toggle('dark', theme === 'dark')
+        document.documentElement.style.colorScheme = theme
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

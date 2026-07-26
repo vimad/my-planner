@@ -12,7 +12,7 @@ export function CompletedTodos({ todos, categoriesById, onToggle, onDelete, onOp
     .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))
 
   if (completed.length === 0) {
-    return <p className="text-sm text-slate-400">No completed todos yet.</p>
+    return <p className="text-sm text-slate-500 dark:text-slate-400">No completed todos yet.</p>
   }
 
   return (

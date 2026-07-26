@@ -49,7 +49,7 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
         type="button"
         onClick={() => setPanelOpen(true)}
         aria-label={`Open scratchpad sessions (${notes.length})`}
-        className="fixed left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-xl border border-white/10 bg-white/5 px-2 py-4 text-xs font-semibold text-slate-300 backdrop-blur-md hover:bg-white/10"
+        className="fixed left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-xl border border-slate-200 bg-white px-2 py-4 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:shadow-none dark:backdrop-blur-md dark:hover:bg-white/10"
         style={{ writingMode: 'vertical-rl' }}
       >
         Sessions ({notes.length})
@@ -62,21 +62,21 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
             onClick={() => setPanelOpen(false)}
             aria-hidden="true"
           />
-          <div className="fixed inset-y-0 left-0 z-50 flex w-full max-w-md flex-col border-r border-white/10 bg-[#0f0f18] p-5 shadow-2xl">
+          <div className="fixed inset-y-0 left-0 z-50 flex w-full max-w-md flex-col border-r border-slate-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#0f0f18]">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-100">Scratchpad sessions</h2>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Scratchpad sessions</h2>
               <button
                 type="button"
                 onClick={() => setPanelOpen(false)}
                 aria-label="Close scratchpad sessions"
-                className="rounded-full px-2 py-1 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                className="rounded-full px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
               >
                 ✕
               </button>
             </div>
             <div className="flex-1 overflow-y-auto pb-24">
               {notes.length === 0 && (
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   No scratch notes yet — jot something down before it slips your mind.
                 </p>
               )}
@@ -101,31 +101,31 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
         </>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0f0f18]/95 backdrop-blur-md">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 dark:border-white/10 dark:bg-[#0f0f18]/95 dark:backdrop-blur-md">
         <div className="mx-auto max-w-3xl px-4 py-3">
           {!expanded ? (
             <button
               type="button"
               onClick={() => setExpanded(true)}
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-left text-sm text-slate-400 hover:bg-white/10"
+              className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-left text-sm text-slate-400 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
               Jot something down...
             </button>
           ) : (
-            <div className="rounded-2xl border border-fuchsia-400/30 bg-white/5 p-3">
-              <div className="mb-2 min-h-[3.5rem] rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <div className="rounded-2xl border border-fuchsia-300/50 bg-fuchsia-50/40 p-3 dark:border-fuchsia-400/30 dark:bg-white/5">
+              <div className="mb-2 min-h-[3.5rem] rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-white/5">
                 <RichTextEditor
                   ref={editorRef}
                   content={null}
                   editable
-                  className="text-sm text-slate-100 [&_.tiptap]:outline-none"
+                  className="text-sm text-slate-900 dark:text-slate-100 [&_.tiptap]:outline-none"
                 />
               </div>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setExpanded(false)}
-                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
                 >
                   Cancel
                 </button>

@@ -10,13 +10,13 @@ export function ConfirmDialog({ message, confirmLabel = 'Confirm', cancelLabel =
       aria-modal="true"
       aria-label="Confirm action"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#160f24] p-6 text-slate-100 shadow-xl">
-        <p className="mb-5 text-sm text-slate-200">{message}</p>
+      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
+        <p className="mb-5 text-sm text-slate-700 dark:text-slate-200">{message}</p>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
           >
             {cancelLabel}
           </button>
