@@ -41,6 +41,14 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
     )
   }
 
+  const selectableLineIds = lines.filter((line) => !line.promotedTodoId).map((line) => line.id)
+  const allSelected =
+    selectableLineIds.length > 0 && selectableLineIds.every((id) => selectedLineIds.includes(id))
+
+  function toggleSelectAll() {
+    setSelectedLineIds(allSelected ? [] : selectableLineIds)
+  }
+
   async function handlePromoteSelected() {
     setPromoting(true)
     try {
@@ -83,6 +91,16 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
       </div>
 
       {lines.length === 0 && <p className="text-sm text-slate-400">No lines yet.</p>}
+
+      {selectableLineIds.length > 1 && (
+        <button
+          type="button"
+          onClick={toggleSelectAll}
+          className="mb-2 text-xs font-semibold text-fuchsia-300 hover:text-fuchsia-200 hover:underline"
+        >
+          {allSelected ? 'Clear selection' : 'Select all'}
+        </button>
+      )}
 
       <ul className="flex flex-col gap-2">
         {lines.map((line) => {

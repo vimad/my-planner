@@ -114,4 +114,35 @@ describe('ScratchNoteCard', () => {
       dueDate: '2026-08-01',
     })
   })
+
+  it('selects all not-yet-promoted lines at once and can clear the selection', () => {
+    const manyLinesNote = {
+      ...note,
+      body: [
+        ...note.body,
+        { id: 'line-3', content: lineContent, promotedTodoId: null },
+      ],
+    }
+    render(
+      <ScratchNoteCard
+        note={manyLinesNote}
+        categories={categories}
+        onUpdateLines={vi.fn()}
+        onPromote={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Select all'))
+
+    expect(screen.getByLabelText('Promote line-1')).toBeChecked()
+    expect(screen.getByLabelText('Promote line-3')).toBeChecked()
+    expect(screen.getByText('Promote 2 lines')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Clear selection'))
+
+    expect(screen.getByLabelText('Promote line-1')).not.toBeChecked()
+    expect(screen.getByLabelText('Promote line-3')).not.toBeChecked()
+  })
 })
