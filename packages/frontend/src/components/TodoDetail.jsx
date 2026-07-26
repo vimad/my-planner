@@ -64,7 +64,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             aria-label="Todo title"
-            className="flex-1 bg-transparent text-lg font-semibold text-slate-100 focus:outline-none"
+            className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-lg font-semibold text-slate-100 focus:border-fuchsia-400/60 focus:outline-none"
           />
           <button
             type="button"
