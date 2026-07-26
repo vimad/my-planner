@@ -13,6 +13,11 @@ const todoSchema = new mongoose.Schema(
     dueDate: { type: String, default: null },
     priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium' },
     tags: { type: [String], default: [] },
+    // Links this todo to the app-wide Settings.nextOfficeDay instead of a
+    // real dueDate. An explicit dueDate always wins over this — see
+    // dateAgenda.js's effectiveDueDate, the single place that resolves the
+    // two into what's actually shown/grouped/highlighted.
+    officeLinked: { type: Boolean, default: false },
     // Tiptap JSON document (or null when the body has never been edited).
     body: { type: mongoose.Schema.Types.Mixed, default: null },
     // Denormalized plain-text extract of `body`, maintained by the route

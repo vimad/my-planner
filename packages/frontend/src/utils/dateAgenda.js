@@ -21,6 +21,20 @@ function parseLocalDate(dateStr) {
   return new Date(year, month - 1, day)
 }
 
+// A todo's due date for grouping/highlighting: its real dueDate if set,
+// otherwise the shared "next office day" when the todo is office-linked —
+// but only while that day hasn't already passed. A stale nextOfficeDay
+// (already in the past) contributes nothing, so office-linked todos fall
+// back to "No date" rather than "Overdue": a missed office day isn't a
+// broken deadline, it just means no office day is scheduled right now,
+// until the next one is set. Validated by hand in the office-day prototype
+// (see prototype-office-day/, throwaway branch prototype/office-day).
+export function effectiveDueDate(todo, nextOfficeDay, todayISO = localTodayISO()) {
+  if (todo.dueDate) return todo.dueDate
+  if (todo.officeLinked && nextOfficeDay && nextOfficeDay >= todayISO) return nextOfficeDay
+  return null
+}
+
 export function groupLabel(dueDate, todayISO = localTodayISO()) {
   if (!dueDate) return 'No date'
   if (dueDate === todayISO) return 'Today'

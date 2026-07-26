@@ -38,6 +38,14 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
         />
       )}
       <span className="flex-1 text-sm text-slate-900 dark:text-slate-100">{todo.title}</span>
+      {todo.officeLinked && (
+        <span
+          title="Linked to the next office day"
+          className="shrink-0 rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300"
+        >
+          Office
+        </span>
+      )}
       <span
         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PRIORITY_BADGE_STYLES[priority]}`}
       >

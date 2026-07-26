@@ -111,6 +111,70 @@ describe('AgendaGroups', () => {
     expect(screen.getAllByText('Later')).toHaveLength(1)
   })
 
+  it('groups and highlights an office-linked todo as Today when nextOfficeDay is today', () => {
+    const officeTodos = [
+      { _id: 'o1', title: 'Bring badge', dueDate: null, officeLinked: true, completed: false },
+    ]
+
+    render(
+      <AgendaGroups
+        todos={officeTodos}
+        categoriesById={{}}
+        onToggle={() => {}}
+        onDelete={() => {}}
+        nextOfficeDay="2026-07-25"
+      />,
+    )
+
+    expect(screen.getByText('Today')).toBeInTheDocument()
+    const item = screen.getByText('Bring badge').closest('[class*="border-fuchsia"]')
+    expect(item).not.toBeNull()
+  })
+
+  it('falls back to No date for an office-linked todo once nextOfficeDay is stale, not Overdue', () => {
+    const officeTodos = [
+      { _id: 'o1', title: 'Bring badge', dueDate: null, officeLinked: true, completed: false },
+    ]
+
+    render(
+      <AgendaGroups
+        todos={officeTodos}
+        categoriesById={{}}
+        onToggle={() => {}}
+        onDelete={() => {}}
+        nextOfficeDay="2026-07-20"
+      />,
+    )
+
+    expect(screen.getByText('No date')).toBeInTheDocument()
+    expect(screen.queryByText('Overdue')).not.toBeInTheDocument()
+  })
+
+  it('lets a real dueDate win over an office link', () => {
+    const officeTodos = [
+      {
+        _id: 'o1',
+        title: 'Sign contract',
+        dueDate: '2026-07-20',
+        officeLinked: true,
+        completed: false,
+      },
+    ]
+
+    render(
+      <AgendaGroups
+        todos={officeTodos}
+        categoriesById={{}}
+        onToggle={() => {}}
+        onDelete={() => {}}
+        nextOfficeDay="2026-07-25"
+      />,
+    )
+
+    expect(screen.getByText('Overdue')).toBeInTheDocument()
+    expect(screen.queryByText('Today')).not.toBeInTheDocument()
+  })
+
   it('preserves original order within a group when sortByPriority is off', () => {
     const mixedPriority = [
       { _id: 'a', title: 'Low one', dueDate: '2026-08-20', completed: false, priority: 'Low' },

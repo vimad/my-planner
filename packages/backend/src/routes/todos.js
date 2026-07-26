@@ -34,7 +34,7 @@ function advanceDueDate(dueDate, pattern) {
 // are left to Mongoose rather than re-asserted here.
 todosRouter.post('/', async (req, res, next) => {
   try {
-    const { title, categoryId, dueDate, priority, tags, body } = req.body
+    const { title, categoryId, dueDate, priority, tags, body, officeLinked } = req.body
 
     if (!title || !String(title).trim()) {
       return res.status(400).json({ error: 'title is required' })
@@ -49,6 +49,7 @@ todosRouter.post('/', async (req, res, next) => {
       ...(priority !== undefined ? { priority } : {}),
       ...(tags !== undefined ? { tags } : {}),
       ...(body !== undefined ? { body, bodyText: tiptapToPlainText(body) } : {}),
+      ...(officeLinked !== undefined ? { officeLinked } : {}),
     })
     res.status(201).json(todo)
   } catch (err) {
@@ -144,7 +145,7 @@ todosRouter.patch('/:id/toggle', async (req, res, next) => {
 // update with recurrence: null — there's no separate "series" entity.
 todosRouter.patch('/:id', async (req, res, next) => {
   try {
-    const { title, categoryId, priority, dueDate, tags, body, recurrence } = req.body
+    const { title, categoryId, priority, dueDate, tags, body, recurrence, officeLinked } = req.body
 
     if (title !== undefined && !String(title).trim()) {
       return res.status(400).json({ error: 'title is required' })
@@ -161,6 +162,7 @@ todosRouter.patch('/:id', async (req, res, next) => {
       update.bodyText = tiptapToPlainText(body)
     }
     if (recurrence !== undefined) update.recurrence = recurrence
+    if (officeLinked !== undefined) update.officeLinked = officeLinked
 
     const todo = await Todo.findByIdAndUpdate(req.params.id, update, {
       new: true,

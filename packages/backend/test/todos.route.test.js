@@ -155,6 +155,29 @@ describe('Todo routes', () => {
         bodyText: '',
       })
     })
+
+    it('passes through officeLinked when the client supplies it', async () => {
+      Todo.create.mockResolvedValue({
+        _id: 't5',
+        title: 'Bring badge',
+        categoryId: 'work-id',
+        dueDate: null,
+        officeLinked: true,
+      })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/todos')
+        .send({ title: 'Bring badge', categoryId: 'work-id', officeLinked: true })
+
+      expect(res.status).toBe(201)
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'Bring badge',
+        categoryId: 'work-id',
+        dueDate: null,
+        officeLinked: true,
+      })
+    })
   })
 
   describe('GET /api/todos/tags', () => {
@@ -529,6 +552,21 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { recurrence: { pattern: 'weekly' } },
+        { new: true, runValidators: true },
+      )
+    })
+
+    it('updates officeLinked', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', officeLinked: true })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ officeLinked: true })
+
+      expect(res.status).toBe(200)
+      expect(res.body.officeLinked).toBe(true)
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { officeLinked: true },
         { new: true, runValidators: true },
       )
     })

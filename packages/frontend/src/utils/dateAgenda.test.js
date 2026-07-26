@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupLabel, localTodayISO } from './dateAgenda'
+import { effectiveDueDate, groupLabel, localTodayISO } from './dateAgenda'
 
 describe('dateAgenda', () => {
   const today = '2026-07-25'
@@ -35,6 +35,40 @@ describe('dateAgenda', () => {
     // Jan 28 + up to 7 days should stay correctly grouped across the Jan/Feb
     // boundary — a regression check for any UTC/local parsing drift.
     expect(groupLabel('2026-02-02', '2026-01-28')).toBe('This week')
+  })
+
+  describe('effectiveDueDate', () => {
+    it('returns null when there is no dueDate and no office link', () => {
+      expect(effectiveDueDate({ dueDate: null, officeLinked: false }, null, today)).toBeNull()
+    })
+
+    it('returns the real dueDate when set, ignoring any office link', () => {
+      expect(
+        effectiveDueDate({ dueDate: '2026-07-30', officeLinked: true }, '2026-08-01', today),
+      ).toBe('2026-07-30')
+    })
+
+    it('returns nextOfficeDay for an office-linked todo with no dueDate', () => {
+      expect(
+        effectiveDueDate({ dueDate: null, officeLinked: true }, '2026-07-28', today),
+      ).toBe('2026-07-28')
+    })
+
+    it('ignores nextOfficeDay when the todo is not office-linked', () => {
+      expect(
+        effectiveDueDate({ dueDate: null, officeLinked: false }, '2026-07-28', today),
+      ).toBeNull()
+    })
+
+    it('treats a stale (past) office day as no date, not overdue', () => {
+      expect(
+        effectiveDueDate({ dueDate: null, officeLinked: true }, '2026-07-20', today),
+      ).toBeNull()
+    })
+
+    it('still counts an office day that is exactly today', () => {
+      expect(effectiveDueDate({ dueDate: null, officeLinked: true }, today, today)).toBe(today)
+    })
   })
 
   describe('localTodayISO', () => {

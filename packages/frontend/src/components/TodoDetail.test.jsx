@@ -89,6 +89,45 @@ describe('TodoDetail', () => {
     expect(patch.tags).toEqual(['launch', 'urgent'])
   })
 
+  it('defaults officeLinked to false and includes it unchanged in the save patch', async () => {
+    const onSave = vi.fn().mockResolvedValue()
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.getByLabelText('Link to next office day')).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][1].officeLinked).toBe(false)
+  })
+
+  it('toggles officeLinked on and includes it in the save patch', async () => {
+    const onSave = vi.fn().mockResolvedValue()
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText('Link to next office day'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][1].officeLinked).toBe(true)
+  })
+
   it('defaults the recurrence picker to None when the todo has no recurrence', () => {
     render(
       <TodoDetail

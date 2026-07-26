@@ -28,6 +28,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
   const [categoryId, setCategoryId] = useState(String(todo.categoryId ?? ''))
   const [tags, setTags] = useState(todo.tags ?? [])
   const [recurrence, setRecurrence] = useState(todo.recurrence?.pattern ?? 'none')
+  const [officeLinked, setOfficeLinked] = useState(Boolean(todo.officeLinked))
   const [editingBody, setEditingBody] = useState(false)
   const [saving, setSaving] = useState(false)
   const bodyRef = useRef(null)
@@ -44,6 +45,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
         tags,
         body,
         recurrence: recurrence === 'none' ? null : { pattern: recurrence },
+        officeLinked,
       })
     } finally {
       setSaving(false)
@@ -130,6 +132,23 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
               })}
             </select>
           </div>
+        </div>
+
+        <div className="mb-4 flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={officeLinked}
+              onChange={(e) => setOfficeLinked(e.target.checked)}
+              className="h-3.5 w-3.5 accent-fuchsia-500"
+            />
+            Link to next office day
+          </label>
+          {officeLinked && dueDate && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              Due date above takes priority while it's set.
+            </p>
+          )}
         </div>
 
         <div className="mb-4 flex flex-col gap-1">

@@ -40,6 +40,7 @@ function App() {
   const [pendingConfirm, setPendingConfirm] = useState(null)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([])
   const [theme, setTheme] = useState(getInitialTheme)
+  const [nextOfficeDay, setNextOfficeDay] = useState(null)
 
   useEffect(() => {
     applyTheme(theme)
@@ -111,11 +112,24 @@ function App() {
     }
   }
 
+  async function loadSettings() {
+    try {
+      const res = await fetch(`${API_URL}/api/settings`)
+      if (!res.ok) return
+      const data = await res.json()
+      setNextOfficeDay(data.nextOfficeDay ?? null)
+    } catch {
+      // The office-day highlight is a nice-to-have; a failed fetch just
+      // leaves it unset.
+    }
+  }
+
   useEffect(() => {
     loadCategories()
     loadTodos()
     loadTags()
     loadScratchNotes()
+    loadSettings()
   }, [])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
@@ -325,6 +339,22 @@ function App() {
     }
   }
 
+  async function handleSetOfficeDay(date) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nextOfficeDay: date }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const data = await res.json()
+      setNextOfficeDay(data.nextOfficeDay ?? null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const categoriesById = Object.fromEntries(
     categories.map((category) => [getId(category), category]),
   )
@@ -429,7 +459,7 @@ function App() {
       </section>
 
       <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
-        <MiniCalendar todos={todos} />
+        <MiniCalendar todos={todos} nextOfficeDay={nextOfficeDay} onSetOfficeDay={handleSetOfficeDay} />
         <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
           <TodoQuickAdd onAdd={handleQuickAddTodo} />
           <input
@@ -476,6 +506,7 @@ function App() {
               onDelete={handleTodoDelete}
               onOpen={setSelectedTodo}
               sortByPriority={sortByPriority}
+              nextOfficeDay={nextOfficeDay}
             />
           )}
         </div>

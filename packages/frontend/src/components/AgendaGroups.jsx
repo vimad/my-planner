@@ -1,4 +1,4 @@
-import { GROUP_ORDER, groupLabel, localTodayISO } from '../utils/dateAgenda'
+import { effectiveDueDate, GROUP_ORDER, groupLabel, localTodayISO } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
 import { TodoItem } from './TodoItem'
 
@@ -24,6 +24,7 @@ export function AgendaGroups({
   onDelete,
   onOpen,
   sortByPriority = false,
+  nextOfficeDay = null,
 }) {
   const todayISO = localTodayISO()
   const open = todos.filter((t) => !t.completed)
@@ -31,7 +32,7 @@ export function AgendaGroups({
   const groups = GROUP_ORDER.map((label) => ({
     label,
     items: open
-      .filter((t) => groupLabel(t.dueDate, todayISO) === label)
+      .filter((t) => groupLabel(effectiveDueDate(t, nextOfficeDay, todayISO), todayISO) === label)
       .sort((a, b) => (sortByPriority ? comparePriority(a, b) : 0)),
   })).filter((g) => g.items.length > 0)
 
@@ -55,7 +56,7 @@ export function AgendaGroups({
               <TodoItem
                 key={getId(todo)}
                 todo={todo}
-                isDueToday={todo.dueDate === todayISO}
+                isDueToday={effectiveDueDate(todo, nextOfficeDay, todayISO) === todayISO}
                 category={categoriesById?.[todo.categoryId]}
                 onToggle={onToggle}
                 onDelete={onDelete}
