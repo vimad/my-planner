@@ -203,4 +203,30 @@ describe('TodoDetail', () => {
 
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('acts as a "new todo" popup when given a todo with no id: prefills the title, defaults the category, and shows Add', async () => {
+    const onSave = vi.fn().mockResolvedValue()
+    render(
+      <TodoDetail
+        todo={{ title: 'Plan launch' }}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.getByRole('dialog', { name: 'New todo' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Todo title')).toHaveValue('Plan launch')
+    expect(screen.getByLabelText('Category')).toHaveValue('uncategorized-id')
+    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const [id, patch] = onSave.mock.calls[0]
+    expect(id).toBeUndefined()
+    expect(patch.title).toBe('Plan launch')
+    expect(patch.categoryId).toBe('uncategorized-id')
+  })
 })

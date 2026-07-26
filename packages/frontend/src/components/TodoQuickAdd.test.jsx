@@ -37,4 +37,30 @@ describe('TodoQuickAdd', () => {
 
     expect(onAdd).not.toHaveBeenCalled()
   })
+
+  it('opens the full editor on Shift+Enter instead of quick-adding', () => {
+    const onAdd = vi.fn()
+    const onOpenFull = vi.fn()
+    render(<TodoQuickAdd onAdd={onAdd} onOpenFull={onOpenFull} />)
+
+    const input = screen.getByLabelText('New todo title')
+    fireEvent.change(input, { target: { value: '  Plan launch  ' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+
+    expect(onOpenFull).toHaveBeenCalledWith('Plan launch')
+    expect(onAdd).not.toHaveBeenCalled()
+    expect(input).toHaveValue('')
+  })
+
+  it('plain Enter (no shift) does not open the full editor', () => {
+    const onAdd = vi.fn().mockResolvedValue()
+    const onOpenFull = vi.fn()
+    render(<TodoQuickAdd onAdd={onAdd} onOpenFull={onOpenFull} />)
+
+    const input = screen.getByLabelText('New todo title')
+    fireEvent.change(input, { target: { value: 'Ship it' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onOpenFull).not.toHaveBeenCalled()
+  })
 })

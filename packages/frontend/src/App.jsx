@@ -33,6 +33,7 @@ function App() {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
+  const [draftTodo, setDraftTodo] = useState(null)
   const [sortByPriority, setSortByPriority] = useState(false)
   const [showCompletedOnly, setShowCompletedOnly] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -220,6 +221,29 @@ function App() {
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await Promise.all([loadTodos(), loadCategories()])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // Shift+Enter in the quick-add box hands the typed (possibly empty) title
+  // off to the full TodoDetail popup instead of creating the todo right
+  // away, so priority/tags/due date/etc. can be set before anything exists.
+  function handleOpenFullTodo(title) {
+    setDraftTodo({ title })
+  }
+
+  async function handleCreateTodoDetailed(_id, patch) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      setDraftTodo(null)
+      await Promise.all([loadTodos(), loadCategories(), loadTags()])
     } catch (err) {
       setError(err.message)
     }
@@ -461,7 +485,7 @@ function App() {
       <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
         <MiniCalendar todos={todos} nextOfficeDay={nextOfficeDay} onSetOfficeDay={handleSetOfficeDay} />
         <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-          <TodoQuickAdd onAdd={handleQuickAddTodo} />
+          <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
           <input
             type="search"
             value={searchQuery}
@@ -534,6 +558,16 @@ function App() {
           availableTags={availableTags}
           onClose={() => setSelectedTodo(null)}
           onSave={handleUpdateTodo}
+        />
+      )}
+
+      {draftTodo && (
+        <TodoDetail
+          todo={draftTodo}
+          categories={categories}
+          availableTags={availableTags}
+          onClose={() => setDraftTodo(null)}
+          onSave={handleCreateTodoDetailed}
         />
       )}
 

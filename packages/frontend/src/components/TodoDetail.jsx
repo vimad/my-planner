@@ -17,15 +17,26 @@ const RECURRENCE_OPTIONS = [
 // In-page overlay (no routing) for viewing/editing a single todo's detail:
 // priority, due date, category, tags, and rich-text body. Body view/edit
 // mode is a toggle over the same RichTextEditor instance/document.
+//
+// Doubles as the "full add" popup for a brand-new todo: pass a todo-like
+// object with no _id/id (e.g. { title: draftTitle }) and `isNew` is inferred
+// from that missing id. onSave is still called as onSave(id, patch); for a
+// new todo, id is undefined and the caller is expected to create rather than
+// update.
 export function TodoDetail({ todo, categories, availableTags, onClose, onSave }) {
   const id = getId(todo)
+  const isNew = !id
 
-  const [title, setTitle] = useState(todo.title)
+  const [title, setTitle] = useState(todo.title ?? '')
   const [priority, setPriority] = useState(todo.priority ?? 'Medium')
   // Native <input type="date">'s string value is used directly - never
   // round-tripped through a Date object, to avoid local/UTC day-shift bugs.
   const [dueDate, setDueDate] = useState(todo.dueDate ?? '')
-  const [categoryId, setCategoryId] = useState(String(todo.categoryId ?? ''))
+  // A new todo has no categoryId yet - default to the first available
+  // category rather than '', which would fail the backend's ObjectId cast.
+  const [categoryId, setCategoryId] = useState(
+    String(todo.categoryId ?? getId(categories[0]) ?? ''),
+  )
   const [tags, setTags] = useState(todo.tags ?? [])
   const [recurrence, setRecurrence] = useState(todo.recurrence?.pattern ?? 'none')
   const [officeLinked, setOfficeLinked] = useState(Boolean(todo.officeLinked))
@@ -57,7 +68,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label={`Edit ${todo.title}`}
+      aria-label={isNew ? 'New todo' : `Edit ${todo.title}`}
     >
       <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
         <div className="mb-4 flex items-center justify-between gap-2">
@@ -212,7 +223,7 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
             onClick={handleSave}
             className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? (isNew ? 'Adding...' : 'Saving...') : isNew ? 'Add' : 'Save'}
           </button>
         </div>
       </div>

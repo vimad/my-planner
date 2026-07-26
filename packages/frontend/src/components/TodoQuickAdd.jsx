@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
-// Title-only quick-add: type a title, hit Enter (or click Add) to create a todo.
-export function TodoQuickAdd({ onAdd }) {
+// Title-only quick-add: type a title, hit Enter (or click Add) to create a
+// todo immediately. Shift+Enter instead hands the typed title off to the full
+// edit popup (via onOpenFull) so priority/tags/due date/etc. can be set
+// before the todo is actually created.
+export function TodoQuickAdd({ onAdd, onOpenFull }) {
   const [title, setTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -19,13 +22,21 @@ export function TodoQuickAdd({ onAdd }) {
     }
   }
 
+  function handleKeyDown(e) {
+    if (e.key !== 'Enter' || !e.shiftKey) return
+    e.preventDefault()
+    onOpenFull(title.trim())
+    setTitle('')
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mb-5 flex gap-2">
       <input
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Quick-add a todo and hit enter..."
+        onKeyDown={handleKeyDown}
+        placeholder="Quick-add a todo (enter) or shift+enter for full editor..."
         aria-label="New todo title"
         className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
       />
