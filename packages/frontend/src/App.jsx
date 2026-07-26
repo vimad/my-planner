@@ -34,7 +34,7 @@ function App() {
   const [editingCategory, setEditingCategory] = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
   const [draftTodo, setDraftTodo] = useState(null)
-  const [sortByPriority, setSortByPriority] = useState(false)
+  const [sortByPriority, setSortByPriority] = useState(true)
   const [showCompletedOnly, setShowCompletedOnly] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
