@@ -226,16 +226,17 @@ function App() {
   // as the other todo-affecting mutations above.
   //
   // Quick capture creates a new session (ScratchNote) pre-seeded with the
-  // captured line in one request, rather than creating an empty note and
-  // PATCHing a line onto it - the backend already accepts seeded `body` on
+  // captured lines in one request, rather than creating an empty note and
+  // PATCHing lines onto it - the backend already accepts seeded `body` on
   // create, so there's no need to round-trip and find the new note's id.
-  async function handleCreateScratchNote(content) {
+  // `lines` is already split one-per-paragraph by Scratchpad's capture bar.
+  async function handleCreateScratchNote(lines) {
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/scratch-notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: [{ content }] }),
+        body: JSON.stringify({ body: lines }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await loadScratchNotes()

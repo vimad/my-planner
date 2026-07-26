@@ -3,13 +3,26 @@ import { getId } from '../utils/getId'
 import { RichTextEditor } from './RichTextEditor'
 import { ScratchNoteCard } from './ScratchNoteCard'
 
+// Splits a captured Tiptap doc into one line per top-level block (each
+// paragraph the user typed, separated by Enter), matching the "lines as an
+// array of independent Tiptap documents" shape ScratchNote already stores.
+// A doc with no top-level blocks (shouldn't happen - Tiptap always keeps at
+// least an empty paragraph) falls back to a single line so Save never
+// silently no-ops.
+export function splitIntoLines(doc) {
+  if (!doc?.content?.length) return [{ content: doc ?? null }]
+  return doc.content.map((node) => ({ content: { type: 'doc', content: [node] } }))
+}
+
 // Capture lives in the chrome, always on screen: a chat-input-style bar
 // pinned to the bottom of the viewport. Click it and it grows upward into a
 // full editor in place; saving creates a new scratch note (session) seeded
-// with that one line, then collapses back. Browsing existing sessions is a
-// separate concern off a small icon rail on the left edge that slides in an
-// overlay panel. (Landed from the "scratchpad placement" UI prototype - see
-// the throwaway branch for the FAB/drawer and modal/grid alternatives.)
+// with one line per paragraph typed - each Enter-separated line lands as its
+// own independently promotable line, same as lines added later via "+ Add
+// line" - then collapses back. Browsing existing sessions is a separate
+// concern off a small icon rail on the left edge that slides in an overlay
+// panel. (Landed from the "scratchpad placement" UI prototype - see the
+// throwaway branch for the FAB/drawer and modal/grid alternatives.)
 export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onPromote, onArchive, onDelete }) {
   const [expanded, setExpanded] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -17,11 +30,13 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
   const editorRef = useRef(null)
 
   async function handleSave() {
-    const content = editorRef.current?.getJSON()
-    if (!content) return
+    const doc = editorRef.current?.getJSON()
+    if (!doc) return
+    const lines = splitIntoLines(doc)
+    if (lines.length === 0) return
     setSaving(true)
     try {
-      await onCreateNote(content)
+      await onCreateNote(lines)
       setExpanded(false)
     } finally {
       setSaving(false)
