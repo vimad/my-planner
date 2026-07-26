@@ -387,8 +387,13 @@ describe('App', () => {
   })
 
   describe('Scratchpad', () => {
-    it('creates a new scratch note', async () => {
-      const newNote = { _id: 'note-1', body: [], archived: false, createdAt: '2026-07-25T10:00:00.000Z' }
+    it('captures a quick note from the persistent bottom bar', async () => {
+      const newNote = {
+        _id: 'note-1',
+        body: [{ id: 'line-1', content: null, promotedTodoId: null }],
+        archived: false,
+        createdAt: '2026-07-25T10:00:00.000Z',
+      }
 
       render(<App />)
       await waitFor(() => {
@@ -398,20 +403,23 @@ describe('App', () => {
       fetch.mockImplementationOnce(() => jsonResponse(newNote, true)) // POST /api/scratch-notes
       fetch.mockImplementationOnce(() => jsonResponse([newNote])) // refetch GET /api/scratch-notes
 
-      fireEvent.click(screen.getByRole('button', { name: '+ New note' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Jot something down...' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
       await waitFor(() => {
-        expect(screen.getByText('No lines yet.')).toBeInTheDocument()
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
       })
 
       const postCall = fetch.mock.calls.find(
         ([url, opts]) => String(url).includes('/api/scratch-notes') && opts?.method === 'POST',
       )
       expect(postCall).toBeDefined()
-      expect(JSON.parse(postCall[1].body)).toEqual({ body: [] })
+      const body = JSON.parse(postCall[1].body)
+      expect(body.body).toHaveLength(1)
+      expect(body.body[0]).toHaveProperty('content')
     })
 
-    it('promotes a scratch note line into a todo', async () => {
+    it('promotes a scratch note line into a todo, from the sessions panel', async () => {
       const lineContent = {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Call the dentist' }] }],
@@ -435,6 +443,11 @@ describe('App', () => {
       )
 
       render(<App />)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Open scratchpad sessions (1)'))
       await waitFor(() => {
         expect(screen.getByText('Call the dentist')).toBeInTheDocument()
       })

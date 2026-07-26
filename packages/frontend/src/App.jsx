@@ -224,13 +224,18 @@ function App() {
   // Scratch note mutations only refresh scratch notes, except promotion,
   // which also creates a Todo and so needs the same todos/categories refresh
   // as the other todo-affecting mutations above.
-  async function handleCreateScratchNote() {
+  //
+  // Quick capture creates a new session (ScratchNote) pre-seeded with the
+  // captured line in one request, rather than creating an empty note and
+  // PATCHing a line onto it - the backend already accepts seeded `body` on
+  // create, so there's no need to round-trip and find the new note's id.
+  async function handleCreateScratchNote(content) {
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/scratch-notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: [] }),
+        body: JSON.stringify({ body: [{ content }] }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await loadScratchNotes()

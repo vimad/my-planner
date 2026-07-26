@@ -1,6 +1,29 @@
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Env files (keep .env.example tracked)
 .env
+.env.*
+!.env.example
+
+# Logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
 .DS_Store
-mongo-data
+.vscode/
+
+# Mongo (docker compose data dir)
+mongo-data/
+
+# Test / coverage
+coverage/
+*.tsbuildinfo
+
+.idea

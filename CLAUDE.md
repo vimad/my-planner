@@ -1,5 +1,7 @@
 # my-planner
 
+A personal, single-user planner web app (no accounts/auth) — categories, todos with priority/tags/due dates/recurrence, a rich-text scratchpad for capturing and promoting quick notes into todos, and a date-agenda dashboard with search. Dark, glassmorphism-style UI.
+
 pnpm workspace with two packages:
 
 - `packages/backend` — Express + Mongoose (MongoDB)

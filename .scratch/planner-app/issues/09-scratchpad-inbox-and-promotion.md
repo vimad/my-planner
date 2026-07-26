@@ -14,3 +14,19 @@
 - [ ] The user can manually archive or delete a scratch note
 - [ ] Backend routes are tested via `createApp()` + supertest with mocked models
 - [ ] Frontend note creation and line-promotion flow are tested via React Testing Library
+
+## Follow-up: scratchpad placement (2026-07-26)
+
+Original placement was an inline "+ New note" button inside a full note list on
+the dashboard. Prototyped three alternatives live on the dashboard route
+(`?variant=A|B|C`) - see branch `prototype/scratchpad-placement-ui` for the
+full exploration (floating button + drawer, inline pill + modal + grid, and
+persistent bottom bar + icon rail).
+
+**Decision:** variant C - a persistent bottom capture bar (grows in place
+into an editor, always reachable) plus a left icon rail that opens a
+"Scratchpad sessions" overlay panel. Folded into
+`packages/frontend/src/components/Scratchpad.jsx`. Quick capture now creates
+a note pre-seeded with its first line in a single `POST /api/scratch-notes`
+call (the route already accepted a seeded `body`), instead of the old
+create-then-patch two-step.
