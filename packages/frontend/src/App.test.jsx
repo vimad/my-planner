@@ -161,6 +161,7 @@ describe('App', () => {
     fetch.mockImplementationOnce(() => jsonResponse([uncategorized])) // refetch GET
 
     fireEvent.click(screen.getByLabelText('Delete Work'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => {
       expect(screen.queryByText('Work')).not.toBeInTheDocument()
@@ -169,6 +170,22 @@ describe('App', () => {
     const deleteCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'DELETE')
     expect(deleteCall).toBeDefined()
     expect(deleteCall[0]).toContain('/api/categories/work-id')
+  })
+
+  it('does not delete a category when the confirmation is cancelled', async () => {
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Work')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByLabelText('Delete Work'))
+    expect(screen.getByText('Delete category "Work"? This cannot be undone.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText('Work')).toBeInTheDocument()
+    expect(fetch.mock.calls.some(([, opts]) => opts?.method === 'DELETE')).toBe(false)
   })
 
   it('shows an error message when loading categories fails', async () => {
@@ -246,6 +263,7 @@ describe('App', () => {
       fetch.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
 
       fireEvent.click(screen.getByLabelText('Complete Buy milk'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
       await waitFor(() => {
         expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
@@ -254,6 +272,31 @@ describe('App', () => {
       const patchCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
       expect(patchCall).toBeDefined()
       expect(patchCall[0]).toContain('/api/todos/todo-1/toggle')
+    })
+
+    it('does not mark a todo complete when the confirmation is cancelled', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'uncategorized-id',
+          completed: false,
+          dueDate: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Complete Buy milk'))
+      expect(screen.getByText('Mark "Buy milk" as completed?')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      expect(fetch.mock.calls.some(([, opts]) => opts?.method === 'PATCH')).toBe(false)
     })
 
     it('deletes a todo', async () => {
@@ -277,6 +320,7 @@ describe('App', () => {
       fetch.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
 
       fireEvent.click(screen.getByLabelText('Delete Buy milk'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
       await waitFor(() => {
         expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
@@ -479,6 +523,53 @@ describe('App', () => {
       expect(JSON.parse(promoteCall[1].body)).toMatchObject({
         lineId: 'line-1',
         priority: 'Medium',
+      })
+    })
+
+    it('deletes a scratch note only after the confirmation is accepted', async () => {
+      const note = {
+        _id: 'note-1',
+        createdAt: '2026-07-25T10:00:00.000Z',
+        archived: false,
+        body: [{ id: 'line-1', content: null, promotedTodoId: null }],
+      }
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          const href = String(url)
+          if (href.includes('/api/scratch-notes')) return jsonResponse([note])
+          if (href.includes('/api/todos')) return jsonResponse(todosData)
+          if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+          return jsonResponse([])
+        }),
+      )
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Open scratchpad sessions (1)'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Delete note')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Delete note'))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(fetch.mock.calls.some(([, opts]) => opts?.method === 'DELETE')).toBe(false)
+
+      fetch.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
+      fetch.mockImplementationOnce(() => jsonResponse([])) // refetch GET /api/scratch-notes
+
+      fireEvent.click(screen.getByLabelText('Delete note'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        const deleteCall = fetch.mock.calls.find(([, opts]) => opts?.method === 'DELETE')
+        expect(deleteCall).toBeDefined()
+        expect(deleteCall[0]).toContain('/api/scratch-notes/note-1')
       })
     })
   })

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AgendaGroups } from './components/AgendaGroups'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm } from './components/CategoryForm'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
 import { Scratchpad } from './components/Scratchpad'
 import { TodoDetail } from './components/TodoDetail'
@@ -32,6 +33,13 @@ function App() {
   const [sortByPriority, setSortByPriority] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
+  const [pendingConfirm, setPendingConfirm] = useState(null)
+
+  // Gates a destructive/hard-to-undo action (delete, mark complete) behind
+  // an explicit confirm click. `run` fires only if the user confirms.
+  function requestConfirm(message, run) {
+    setPendingConfirm({ message, run })
+  }
 
   async function loadCategories() {
     setLoading(true)
@@ -330,7 +338,11 @@ function App() {
                 key={getId(category)}
                 category={category}
                 onEdit={setEditingCategory}
-                onDelete={handleDelete}
+                onDelete={(cat) =>
+                  requestConfirm(`Delete category "${cat.name}"? This cannot be undone.`, () =>
+                    handleDelete(cat),
+                  )
+                }
               />
             ))}
           <button
@@ -392,8 +404,22 @@ function App() {
           <AgendaGroups
             todos={visibleTodos}
             categoriesById={categoriesById}
-            onToggle={handleToggleTodo}
-            onDelete={handleDeleteTodo}
+            onToggle={(id) => {
+              const todo = visibleTodos.find((t) => getId(t) === id)
+              if (todo?.completed) {
+                handleToggleTodo(id)
+              } else {
+                requestConfirm(`Mark "${todo?.title ?? 'this todo'}" as completed?`, () =>
+                  handleToggleTodo(id),
+                )
+              }
+            }}
+            onDelete={(id) => {
+              const todo = visibleTodos.find((t) => getId(t) === id)
+              requestConfirm(`Delete "${todo?.title ?? 'this todo'}"? This cannot be undone.`, () =>
+                handleDeleteTodo(id),
+              )
+            }}
             onOpen={setSelectedTodo}
             sortByPriority={sortByPriority}
           />
@@ -407,7 +433,11 @@ function App() {
         onUpdateLines={handleUpdateScratchNoteLines}
         onPromote={handlePromoteScratchLine}
         onArchive={handleArchiveScratchNote}
-        onDelete={handleDeleteScratchNote}
+        onDelete={(id) =>
+          requestConfirm('Delete this scratch note? This cannot be undone.', () =>
+            handleDeleteScratchNote(id),
+          )
+        }
       />
 
       {selectedTodo && (
@@ -418,6 +448,18 @@ function App() {
           availableTags={availableTags}
           onClose={() => setSelectedTodo(null)}
           onSave={handleUpdateTodo}
+        />
+      )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={pendingConfirm.message}
+          onCancel={() => setPendingConfirm(null)}
+          onConfirm={() => {
+            const { run } = pendingConfirm
+            setPendingConfirm(null)
+            run()
+          }}
         />
       )}
     </main>
