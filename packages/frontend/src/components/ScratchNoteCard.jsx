@@ -97,7 +97,7 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
                   aria-label={`Promote ${line.id}`}
                   checked={selectedLineIds.includes(line.id)}
                   onChange={() => toggleSelected(line.id)}
-                  className="mt-2 h-3.5 w-3.5 shrink-0 accent-fuchsia-500"
+                  className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-fuchsia-500"
                 />
               )}
               <div className={`min-w-0 flex-1 ${isPromoted ? 'opacity-60' : ''}`}>
