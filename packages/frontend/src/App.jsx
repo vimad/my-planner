@@ -64,7 +64,6 @@ function App() {
   }
 
   async function loadCategories() {
-    setLoading(true)
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/categories`)
@@ -73,8 +72,6 @@ function App() {
       setCategories(data)
     } catch (err) {
       setError(err.message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -125,12 +122,20 @@ function App() {
     }
   }
 
+  // `loading` only gates this initial bootstrap fetch, not the refetches
+  // that follow every todo/category mutation - toggling it on every mutation
+  // made the category chip row flash back to "Loading categories..." on
+  // every add/toggle/delete.
   useEffect(() => {
-    loadCategories()
-    loadTodos()
-    loadTags()
-    loadScratchNotes()
-    loadSettings()
+    async function bootstrap() {
+      setLoading(true)
+      try {
+        await Promise.all([loadCategories(), loadTodos(), loadTags(), loadScratchNotes(), loadSettings()])
+      } finally {
+        setLoading(false)
+      }
+    }
+    bootstrap()
   }, [])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
