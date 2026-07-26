@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AgendaGroups } from './components/AgendaGroups'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm } from './components/CategoryForm'
+import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
 import { Scratchpad } from './components/Scratchpad'
@@ -31,14 +32,26 @@ function App() {
   const [editingCategory, setEditingCategory] = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
   const [sortByPriority, setSortByPriority] = useState(false)
+  const [showCompletedOnly, setShowCompletedOnly] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [pendingConfirm, setPendingConfirm] = useState(null)
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState([])
 
   // Gates a destructive/hard-to-undo action (delete, mark complete) behind
   // an explicit confirm click. `run` fires only if the user confirms.
   function requestConfirm(message, run) {
     setPendingConfirm({ message, run })
+  }
+
+  // Category chips double as a multi-select filter: clicking one toggles it
+  // in/out of the active set, clicking a second adds it (OR filter, not a
+  // replace), clicking a selected one again clears it.
+  function toggleCategoryFilter(category) {
+    const cid = String(getId(category))
+    setSelectedCategoryIds((prev) =>
+      prev.includes(cid) ? prev.filter((id) => id !== cid) : [...prev, cid],
+    )
   }
 
   async function loadCategories() {
@@ -312,7 +325,30 @@ function App() {
   // While a search query is active, the agenda shows the backend search
   // results instead of the unfiltered `todos` — `todos` itself stays
   // unfiltered so MiniCalendar and category counts are unaffected by search.
-  const visibleTodos = searchQuery.trim() ? (searchResults ?? []) : todos
+  const searchedTodos = searchQuery.trim() ? (searchResults ?? []) : todos
+
+  // Category chip filter is an OR across the selected categories, applied on
+  // top of search; empty selection means "no filter, show everything".
+  const visibleTodos =
+    selectedCategoryIds.length > 0
+      ? searchedTodos.filter((t) => selectedCategoryIds.includes(String(t.categoryId)))
+      : searchedTodos
+
+  function handleTodoToggle(id) {
+    const todo = visibleTodos.find((t) => getId(t) === id)
+    if (todo?.completed) {
+      handleToggleTodo(id)
+    } else {
+      requestConfirm(`Mark "${todo?.title ?? 'this todo'}" as completed?`, () => handleToggleTodo(id))
+    }
+  }
+
+  function handleTodoDelete(id) {
+    const todo = visibleTodos.find((t) => getId(t) === id)
+    requestConfirm(`Delete "${todo?.title ?? 'this todo'}"? This cannot be undone.`, () =>
+      handleDeleteTodo(id),
+    )
+  }
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] px-6 py-9 text-slate-100 sm:px-10">
@@ -337,6 +373,8 @@ function App() {
               <CategoryChip
                 key={getId(category)}
                 category={category}
+                selected={selectedCategoryIds.includes(String(getId(category)))}
+                onToggleFilter={toggleCategoryFilter}
                 onEdit={setEditingCategory}
                 onDelete={(cat) =>
                   requestConfirm(`Delete category "${cat.name}"? This cannot be undone.`, () =>
@@ -392,37 +430,44 @@ function App() {
             aria-label="Search todos"
             className="mb-4 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-fuchsia-400/60 focus:outline-none"
           />
-          <label className="mb-4 flex items-center gap-2 text-xs font-medium text-slate-300">
-            <input
-              type="checkbox"
-              checked={sortByPriority}
-              onChange={(e) => setSortByPriority(e.target.checked)}
-              className="h-3.5 w-3.5 accent-fuchsia-500"
+          <div className="mb-4 flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
+              <input
+                type="checkbox"
+                checked={sortByPriority}
+                onChange={(e) => setSortByPriority(e.target.checked)}
+                className="h-3.5 w-3.5 accent-fuchsia-500"
+              />
+              Sort by priority
+            </label>
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
+              <input
+                type="checkbox"
+                checked={showCompletedOnly}
+                onChange={(e) => setShowCompletedOnly(e.target.checked)}
+                className="h-3.5 w-3.5 accent-fuchsia-500"
+              />
+              Show completed
+            </label>
+          </div>
+          {showCompletedOnly ? (
+            <CompletedTodos
+              todos={visibleTodos}
+              categoriesById={categoriesById}
+              onToggle={handleTodoToggle}
+              onDelete={handleTodoDelete}
+              onOpen={setSelectedTodo}
             />
-            Sort by priority
-          </label>
-          <AgendaGroups
-            todos={visibleTodos}
-            categoriesById={categoriesById}
-            onToggle={(id) => {
-              const todo = visibleTodos.find((t) => getId(t) === id)
-              if (todo?.completed) {
-                handleToggleTodo(id)
-              } else {
-                requestConfirm(`Mark "${todo?.title ?? 'this todo'}" as completed?`, () =>
-                  handleToggleTodo(id),
-                )
-              }
-            }}
-            onDelete={(id) => {
-              const todo = visibleTodos.find((t) => getId(t) === id)
-              requestConfirm(`Delete "${todo?.title ?? 'this todo'}"? This cannot be undone.`, () =>
-                handleDeleteTodo(id),
-              )
-            }}
-            onOpen={setSelectedTodo}
-            sortByPriority={sortByPriority}
-          />
+          ) : (
+            <AgendaGroups
+              todos={visibleTodos}
+              categoriesById={categoriesById}
+              onToggle={handleTodoToggle}
+              onDelete={handleTodoDelete}
+              onOpen={setSelectedTodo}
+              sortByPriority={sortByPriority}
+            />
+          )}
         </div>
       </section>
 

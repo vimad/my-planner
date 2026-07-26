@@ -1,8 +1,29 @@
-export function CategoryChip({ category, onEdit, onDelete }) {
+// Doubles as a multi-select filter toggle: clicking the chip body (but not
+// Edit/Delete, which stop propagation) toggles it in/out of the active
+// category filter set. Selected state is fully controlled via `selected` -
+// this component owns no filter state of its own.
+export function CategoryChip({ category, selected = false, onToggleFilter, onEdit, onDelete }) {
   const isSystem = category.system || category.name === 'Uncategorized'
 
   return (
-    <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 backdrop-blur-md">
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Filter by ${category.name}`}
+      onClick={() => onToggleFilter?.(category)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onToggleFilter?.(category)
+        }
+      }}
+      className={`flex cursor-pointer items-center gap-3 rounded-full border px-4 py-2 backdrop-blur-md transition ${
+        selected
+          ? 'border-fuchsia-400/60 bg-fuchsia-500/15 shadow-[0_0_14px_rgba(255,107,214,0.35)]'
+          : 'border-white/10 bg-white/5 hover:bg-white/10'
+      }`}
+    >
       <span
         className="h-2.5 w-2.5 shrink-0 rounded-full"
         style={{ background: category.color, boxShadow: `0 0 10px ${category.color}` }}
@@ -18,7 +39,10 @@ export function CategoryChip({ category, onEdit, onDelete }) {
           <button
             type="button"
             aria-label={`Edit ${category.name}`}
-            onClick={() => onEdit(category)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(category)
+            }}
             className="rounded-full px-2 py-0.5 text-xs text-slate-300 hover:bg-white/10"
           >
             Edit
@@ -26,7 +50,10 @@ export function CategoryChip({ category, onEdit, onDelete }) {
           <button
             type="button"
             aria-label={`Delete ${category.name}`}
-            onClick={() => onDelete(category)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(category)
+            }}
             className="rounded-full px-2 py-0.5 text-xs text-slate-300 hover:bg-white/10"
           >
             Delete

@@ -339,6 +339,64 @@ describe('App', () => {
       })
     })
 
+    it('filters the agenda by category via chip toggles, supporting multi-select', async () => {
+      todosData = [
+        { _id: 'todo-1', title: 'Buy milk', categoryId: 'uncategorized-id', completed: false, dueDate: null },
+        { _id: 'todo-2', title: 'Ship feature', categoryId: 'work-id', completed: false, dueDate: null },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Filter by Uncategorized'))
+
+      expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Filter by Uncategorized')).toHaveAttribute('aria-pressed', 'true')
+
+      // Selecting a second chip is additive (OR filter), not a replace.
+      fireEvent.click(screen.getByLabelText('Filter by Work'))
+
+      expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      expect(screen.getByText('Ship feature')).toBeInTheDocument()
+
+      // Clicking the first chip again clears just that one.
+      fireEvent.click(screen.getByLabelText('Filter by Uncategorized'))
+
+      expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
+      expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      expect(screen.getByLabelText('Filter by Uncategorized')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('shows only completed todos when "Show completed" is checked', async () => {
+      todosData = [
+        { _id: 'todo-1', title: 'Buy milk', categoryId: 'uncategorized-id', completed: false, dueDate: null },
+        {
+          _id: 'todo-2',
+          title: 'Old finished task',
+          categoryId: 'uncategorized-id',
+          completed: true,
+          dueDate: null,
+          updatedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText('Old finished task')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Show completed'))
+
+      expect(screen.getByText('Old finished task')).toBeInTheDocument()
+      expect(screen.queryByText('Buy milk')).not.toBeInTheDocument()
+    })
+
     it('opens the todo detail view on click and saves an edited priority', async () => {
       todosData = [
         {
