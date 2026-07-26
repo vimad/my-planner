@@ -173,7 +173,9 @@ export function TodoDetail({ todo, categories, availableTags, onClose, onSave })
             ref={bodyRef}
             content={todo.body}
             editable={editingBody}
-            className="min-h-[120px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 [&_.tiptap]:min-h-[100px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5"
+            toolbar
+            className="min-h-[120px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100"
+            contentClassName="max-h-[40vh] overflow-y-auto [&_.tiptap]:min-h-[100px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through"
           />
         </div>
 
