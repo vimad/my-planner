@@ -1,6 +1,39 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TodoDetail } from './TodoDetail'
+
+// dnd-kit's real drag gesture recognition needs real layout (getBoundingClientRect)
+// that jsdom can't provide, so pointer/keyboard drag physics aren't ours to
+// re-test here - dnd-kit owns that contract. Instead, DndContext is stubbed to
+// hand back its onDragEnd callback directly, letting tests drive our own
+// reorder/rollback logic (the part this codebase owns) with a plain
+// {active, over} event, the same shape dnd-kit itself would produce.
+let capturedDragEnd
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    DndContext: ({ children, onDragEnd }) => {
+      capturedDragEnd = onDragEnd
+      return children
+    },
+  }
+})
+vi.mock('@dnd-kit/sortable', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    SortableContext: ({ children }) => children,
+    useSortable: () => ({
+      attributes: {},
+      listeners: {},
+      setNodeRef: () => {},
+      transform: null,
+      transition: null,
+      isDragging: false,
+    }),
+  }
+})
 
 const categories = [
   { _id: 'uncategorized-id', name: 'Uncategorized' },
@@ -311,6 +344,170 @@ describe('TodoDetail', () => {
 
       expect(screen.queryByLabelText('Unlink Get filled EPF form')).not.toBeInTheDocument()
       expect(screen.getByRole('tab', { name: 'Todos' })).toBeInTheDocument()
+    })
+
+    it('renders the linked list in linkedTodoIds order, not the app-wide todos list order', () => {
+      // allTodos is [todo, linkableTodo("todo-2"), otherTodo("todo-3")], but
+      // linkedTodoIds deliberately lists todo-3 before todo-2 - the rendered
+      // list must follow linkedTodoIds's own order, not allTodos's.
+      render(
+        <TodoDetail
+          todo={{ ...todo, linkedTodoIds: ['todo-3', 'todo-2'] }}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+          onReorderLinkedTodos={vi.fn()}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+
+      const unlinkButtons = screen.getAllByLabelText(/^Unlink /)
+      expect(unlinkButtons.map((btn) => btn.getAttribute('aria-label'))).toEqual([
+        'Unlink Chase approval from finance',
+        'Unlink Get filled EPF form',
+      ])
+    })
+
+    describe('reordering linked todos', () => {
+      async function dragEnd(activeId, overId) {
+        await act(async () => {
+          await capturedDragEnd({ active: { id: activeId }, over: { id: overId } })
+        })
+      }
+
+      it('persists the new order immediately via onReorderLinkedTodos, in linkedTodoIds order', async () => {
+        const onReorderLinkedTodos = vi.fn().mockResolvedValue(true)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+            onReorderLinkedTodos={onReorderLinkedTodos}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        await dragEnd('todo-2', 'todo-3')
+
+        await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
+        expect(onReorderLinkedTodos).toHaveBeenCalledWith('todo-1', { linkedTodoIds: ['todo-3', 'todo-2'] })
+
+        const unlinkButtons = screen.getAllByLabelText(/^Unlink /)
+        expect(unlinkButtons.map((btn) => btn.getAttribute('aria-label'))).toEqual([
+          'Unlink Chase approval from finance',
+          'Unlink Get filled EPF form',
+        ])
+      })
+
+      it('does not call onSave or onSaveLinkedTodo when reordering', async () => {
+        const onSave = vi.fn()
+        const onSaveLinkedTodo = vi.fn()
+        const onReorderLinkedTodos = vi.fn().mockResolvedValue(true)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={onSave}
+            onSaveLinkedTodo={onSaveLinkedTodo}
+            onReorderLinkedTodos={onReorderLinkedTodos}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        await dragEnd('todo-2', 'todo-3')
+
+        await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
+        expect(onSave).not.toHaveBeenCalled()
+        expect(onSaveLinkedTodo).not.toHaveBeenCalled()
+      })
+
+      it('does not change which linked todo is selected', async () => {
+        const onReorderLinkedTodos = vi.fn().mockResolvedValue(true)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+            onReorderLinkedTodos={onReorderLinkedTodos}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+        expect(screen.getByText('waiting on finance')).toBeInTheDocument()
+
+        await dragEnd('todo-2', 'todo-3')
+
+        await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
+        expect(screen.getByText('waiting on finance')).toBeInTheDocument()
+      })
+
+      it('reverts to the pre-drag order and leaves the failed save to the app-wide error banner when the save fails', async () => {
+        const onReorderLinkedTodos = vi.fn().mockResolvedValue(false)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+            onReorderLinkedTodos={onReorderLinkedTodos}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        await dragEnd('todo-2', 'todo-3')
+
+        await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
+        await waitFor(() => {
+          const unlinkButtons = screen.getAllByLabelText(/^Unlink /)
+          expect(unlinkButtons.map((btn) => btn.getAttribute('aria-label'))).toEqual([
+            'Unlink Get filled EPF form',
+            'Unlink Chase approval from finance',
+          ])
+        })
+      })
+
+      it('preserves a dangling linkedTodoIds entry in place when reordering the visible items around it', async () => {
+        const onReorderLinkedTodos = vi.fn().mockResolvedValue(true)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'missing-todo', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+            onReorderLinkedTodos={onReorderLinkedTodos}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        await dragEnd('todo-2', 'todo-3')
+
+        await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
+        expect(onReorderLinkedTodos).toHaveBeenCalledWith('todo-1', {
+          linkedTodoIds: ['todo-3', 'missing-todo', 'todo-2'],
+        })
+      })
     })
 
     it('saves a selected linked todo\'s notes via its own Save button, independent of the parent Save', async () => {

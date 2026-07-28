@@ -308,6 +308,7 @@ function App() {
     await patchTodo(id, patch)
   }
 
+
   // Scratch note mutations only refresh scratch notes, except promotion,
   // which also creates a Todo and so needs the same todos/categories refresh
   // as the other todo-affecting mutations above.
@@ -581,6 +582,7 @@ function App() {
           onClose={() => setSelectedTodo(null)}
           onSave={handleUpdateTodo}
           onSaveLinkedTodo={handleSaveLinkedTodoField}
+          onReorderLinkedTodos={patchTodo}
         />
       )}
 

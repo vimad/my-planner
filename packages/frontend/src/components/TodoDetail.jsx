@@ -1,3 +1,12 @@
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useRef, useState } from 'react'
 import { getId } from '../utils/getId'
 import { RichTextEditor } from './RichTextEditor'
@@ -22,6 +31,71 @@ const PRIORITY_BADGE_STYLES = {
 
 function todoKey(todo) {
   return String(getId(todo))
+}
+
+// Reorders the *visible* (resolvable) ids per the drag result while leaving
+// any dangling id (its todo since deleted) at its original index - dragging
+// only ever reorders what's actually rendered, never resolves or discards a
+// dangling reference.
+function reorderLinkedIds(fullIds, todosList, activeId, overId) {
+  const isResolvable = (linkId) => todosList.some((t) => todoKey(t) === linkId)
+  const resolvedIds = fullIds.filter(isResolvable)
+  const oldIndex = resolvedIds.indexOf(activeId)
+  const newIndex = resolvedIds.indexOf(overId)
+  if (oldIndex === -1 || newIndex === -1) return fullIds
+  const reordered = arrayMove(resolvedIds, oldIndex, newIndex)
+  let cursor = 0
+  return fullIds.map((linkId) => (isResolvable(linkId) ? reordered[cursor++] : linkId))
+}
+
+// One row in the linked-todos list. The drag handle is the sole
+// draggable/sortable affordance - the row's own click-to-select and the
+// unlink "×" keep working unchanged, same as before this feature.
+function SortableLinkedTodoRow({ todo: t, selected, onSelect, onUnlink }) {
+  const key = todoKey(t)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: key })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(key)}
+      className={`flex items-center gap-1.5 rounded-lg border px-2 py-2 text-sm transition ${
+        selected
+          ? 'border-fuchsia-400/60 bg-fuchsia-50 dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10'
+          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
+      } ${isDragging ? 'opacity-50' : ''}`}
+    >
+      <button
+        type="button"
+        aria-label={`Reorder ${t.title}`}
+        {...attributes}
+        {...listeners}
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 cursor-grab touch-none rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 active:cursor-grabbing dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        ⠿
+      </button>
+      <span className="min-w-0 flex-1 truncate text-slate-800 dark:text-slate-100">{t.title}</span>
+      <button
+        type="button"
+        aria-label={`Unlink ${t.title}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onUnlink(key)
+        }}
+        className="shrink-0 rounded-full px-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        ×
+      </button>
+    </div>
+  )
 }
 
 // Compact read-only stand-in for the editable header, shown on the Todos tab
@@ -78,8 +152,20 @@ function CollapsedHeader({ title, priority, dueDate, category, onClose }) {
 // since a brand-new todo has no id yet to link against. `onSaveLinkedTodo`
 // persists a linked todo's own body independently, without closing this
 // popup — distinct from `onSave`, which only ever saves the currently open
-// (parent) todo's own fields.
-export function TodoDetail({ todo, categories, availableTags, todos, onClose, onSave, onSaveLinkedTodo }) {
+// (parent) todo's own fields. `onReorderLinkedTodos` persists a drag reorder
+// of the linked list immediately (optimistic, with rollback on failure) —
+// distinct from both of the above, and independent of the parent's own
+// Save/Cancel footer.
+export function TodoDetail({
+  todo,
+  categories,
+  availableTags,
+  todos,
+  onClose,
+  onSave,
+  onSaveLinkedTodo,
+  onReorderLinkedTodos,
+}) {
   const id = getId(todo)
   const isNew = !id
   const canLink = !isNew && Array.isArray(todos)
@@ -145,6 +231,25 @@ export function TodoDetail({ todo, categories, availableTags, todos, onClose, on
     if (selectedLinkedId === childId) setSelectedLinkedId(null)
   }
 
+  const dragSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  // Persists immediately on drop, independent of the parent's own Save
+  // button (unlike link/unlink above, which only stage `linkedTodoIds`
+  // locally). Optimistic: the list reorders right away, then rolls back to
+  // the pre-drag order if the PATCH fails.
+  async function handleDragEnd(event) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const previous = linkedTodoIds
+    const next = reorderLinkedIds(linkedTodoIds, todos, active.id, over.id)
+    setLinkedTodoIds(next)
+    const ok = await onReorderLinkedTodos(id, { linkedTodoIds: next })
+    if (!ok) setLinkedTodoIds(previous)
+  }
+
   async function handleSave() {
     const body = tab === 'notes' && bodyRef.current ? bodyRef.current.getJSON() : (bodyOverride ?? todo.body ?? null)
     setSaving(true)
@@ -165,7 +270,13 @@ export function TodoDetail({ todo, categories, availableTags, todos, onClose, on
     }
   }
 
-  const linked = canLink ? todos.filter((t) => linkedTodoIds.includes(todoKey(t))) : []
+  // linkedTodoIds's own array order is authoritative for render/drag order -
+  // not `todos`'s order (which is the app-wide list, sorted newest-first).
+  // A dangling id (its todo since deleted) resolves to undefined and is
+  // dropped here, per the no-cascade tolerance documented on the schema.
+  const linked = canLink
+    ? linkedTodoIds.map((linkId) => todos.find((t) => todoKey(t) === linkId)).filter(Boolean)
+    : []
   const results =
     canLink && query.trim()
       ? todos
@@ -425,32 +536,23 @@ export function TodoDetail({ todo, categories, availableTags, todos, onClose, on
                     No todos linked yet.
                   </p>
                 )}
-                {linked.map((t) => (
-                  <div
-                    key={todoKey(t)}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => selectLinked(todoKey(t))}
-                    className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
-                      selectedLinkedId === todoKey(t)
-                        ? 'border-fuchsia-400/60 bg-fuchsia-50 dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10'
-                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
-                    }`}
-                  >
-                    <span className="truncate text-slate-800 dark:text-slate-100">{t.title}</span>
-                    <button
-                      type="button"
-                      aria-label={`Unlink ${t.title}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleUnlink(todoKey(t))
-                      }}
-                      className="shrink-0 rounded-full px-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                <DndContext
+                  sensors={dragSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext items={linked.map(todoKey)} strategy={verticalListSortingStrategy}>
+                    {linked.map((t) => (
+                      <SortableLinkedTodoRow
+                        key={todoKey(t)}
+                        todo={t}
+                        selected={selectedLinkedId === todoKey(t)}
+                        onSelect={selectLinked}
+                        onUnlink={handleUnlink}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
               </div>
             </div>
 
