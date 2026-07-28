@@ -123,7 +123,7 @@ export function ScratchNoteCard({ note, categories, onUpdateLines, onPromote, on
                   ref={isEditing ? editorRef : undefined}
                   content={line.content}
                   editable={isEditing}
-                  className={`text-sm text-slate-900 dark:text-slate-100 [&_.tiptap]:outline-none ${
+                  className={`text-sm text-slate-900 dark:text-slate-100 [&_.tiptap]:outline-none [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200 ${
                     isPromoted ? 'line-through' : ''
                   }`}
                 />

@@ -2,13 +2,27 @@ import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import Underline from '@tiptap/extension-underline'
+import Link from '@tiptap/extension-link'
 import { forwardRef, useEffect, useImperativeHandle } from 'react'
+
+// StarterKit's bundled Link extension makes the link mark `inclusive` when
+// autolink is on, so text typed right after a URL keeps extending the same
+// link instead of starting fresh. Disable the bundled copy and configure our
+// own with `inclusive: false` so typing past a linkified URL (e.g. after a
+// space) drops out of the mark.
+const LinkExtension = Link.extend({ inclusive: false })
 
 // StarterKit already registers BulletList/OrderedList/ListItem (it pulls them
 // from @tiptap/extension-list internally) and Bold/Italic marks - Underline
 // is the only common formatting mark StarterKit doesn't include, so it's
 // added on top alongside checklist support.
-const EXTENSIONS = [StarterKit, TaskList, TaskItem.configure({ nested: true }), Underline]
+const EXTENSIONS = [
+  StarterKit.configure({ link: false }),
+  TaskList,
+  TaskItem.configure({ nested: true }),
+  Underline,
+  LinkExtension,
+]
 
 const TOOLBAR_BUTTONS = [
   { mark: 'bold', label: 'B', title: 'Bold', className: 'font-bold' },

@@ -1,4 +1,5 @@
 import { getId } from '../utils/getId'
+import { linkify } from '../utils/linkify'
 
 const PRIORITY_BADGE_STYLES = {
   High: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
@@ -37,7 +38,24 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
           style={{ background: category.color, boxShadow: `0 0 8px ${category.color}` }}
         />
       )}
-      <span className="flex-1 text-sm text-slate-900 dark:text-slate-100">{todo.title}</span>
+      <span className="flex-1 text-sm text-slate-900 dark:text-slate-100">
+        {linkify(todo.title).map((segment, i) =>
+          segment.href ? (
+            <a
+              key={i}
+              href={segment.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-fuchsia-600 hover:text-fuchsia-700 hover:underline dark:text-fuchsia-300 dark:hover:text-fuchsia-200"
+            >
+              {segment.text}
+            </a>
+          ) : (
+            <span key={i}>{segment.text}</span>
+          ),
+        )}
+      </span>
       {todo.officeLinked && (
         <span
           title="Linked to the next office day"
