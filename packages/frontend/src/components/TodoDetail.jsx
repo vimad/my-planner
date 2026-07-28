@@ -478,7 +478,7 @@ export function TodoDetail({ todo, categories, availableTags, todos, onClose, on
                     editable
                     toolbar
                     className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-                    contentClassName="h-full overflow-y-auto [&_.tiptap]:min-h-[120px] [&_.tiptap]:outline-none"
+                    contentClassName="h-full overflow-y-auto [&_.tiptap]:min-h-[120px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200"
                   />
                 </>
               ) : (

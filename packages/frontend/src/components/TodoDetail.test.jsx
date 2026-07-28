@@ -342,6 +342,31 @@ describe('TodoDetail', () => {
       expect(onSave).not.toHaveBeenCalled()
     })
 
+    it('applies list-style CSS (list-disc/list-decimal) to the linked-todo notes panel, not just the parent notes panel', () => {
+      const { container } = render(
+        <TodoDetail
+          todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+      fireEvent.click(screen.getByText('Chase approval from finance'))
+
+      // Tailwind resets <ul>/<ol> to list-style: none by default - without
+      // this class on the wrapper, toggling a bullet/numbered list produces
+      // correct HTML but renders no visible bullets or numbers at all.
+      const hasListStyling = Array.from(container.querySelectorAll('*')).some((el) =>
+        el.className?.includes?.('list-disc'),
+      )
+      expect(hasListStyling).toBe(true)
+    })
+
     it('preserves unsaved edits to the parent\'s own title when switching to the Todos tab and back', () => {
       render(
         <TodoDetail
