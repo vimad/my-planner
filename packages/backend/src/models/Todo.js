@@ -36,6 +36,15 @@ const todoSchema = new mongoose.Schema(
       ),
       default: null,
     },
+    // Flat, reference-only grouping of other todos for visibility and quick
+    // access to their notes — NOT a cascade in either direction. Completing,
+    // reopening, or deleting this todo must never affect a linked todo, and
+    // vice versa. Stored one-directionally on the linking ("parent") todo
+    // only; a linked todo has no back-reference to whoever links to it. A
+    // linked id whose todo has since been deleted is left dangling rather
+    // than cleaned up — the route/frontend layer is responsible for
+    // tolerating that, not this schema.
+    linkedTodoIds: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Todo' }], default: [] },
   },
   { timestamps: true },
 )

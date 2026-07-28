@@ -107,6 +107,8 @@ todosRouter.get('/search', async (req, res, next) => {
 // pattern's interval — see the spec's "Recurring todo mechanics" section.
 // The completed instance itself is left otherwise unchanged; recurrence only
 // advances forward (reopening never spawns a new instance).
+// Deliberately never touches any other todo's linkedTodoIds — see the
+// no-cascade invariant on that field in models/Todo.js.
 todosRouter.patch('/:id/toggle', async (req, res, next) => {
   try {
     const todo = await Todo.findById(req.params.id)
@@ -140,12 +142,14 @@ todosRouter.patch('/:id/toggle', async (req, res, next) => {
 })
 
 // PATCH /api/todos/:id -> general update (title, categoryId, priority,
-// dueDate, tags, body, recurrence). Distinct from /:id/toggle, which stays
-// dedicated to the checkbox action. Turning recurrence off is just a normal
-// update with recurrence: null — there's no separate "series" entity.
+// dueDate, tags, body, recurrence, officeLinked, linkedTodoIds). Distinct
+// from /:id/toggle, which stays dedicated to the checkbox action. Turning
+// recurrence off is just a normal update with recurrence: null — there's no
+// separate "series" entity.
 todosRouter.patch('/:id', async (req, res, next) => {
   try {
-    const { title, categoryId, priority, dueDate, tags, body, recurrence, officeLinked } = req.body
+    const { title, categoryId, priority, dueDate, tags, body, recurrence, officeLinked, linkedTodoIds } =
+      req.body
 
     if (title !== undefined && !String(title).trim()) {
       return res.status(400).json({ error: 'title is required' })
@@ -163,6 +167,7 @@ todosRouter.patch('/:id', async (req, res, next) => {
     }
     if (recurrence !== undefined) update.recurrence = recurrence
     if (officeLinked !== undefined) update.officeLinked = officeLinked
+    if (linkedTodoIds !== undefined) update.linkedTodoIds = linkedTodoIds
 
     const todo = await Todo.findByIdAndUpdate(req.params.id, update, {
       new: true,
@@ -179,7 +184,10 @@ todosRouter.patch('/:id', async (req, res, next) => {
   }
 })
 
-// DELETE /api/todos/:id -> delete a todo
+// DELETE /api/todos/:id -> delete a todo. Deliberately never touches any
+// other todo's linkedTodoIds — see the no-cascade invariant on that field in
+// models/Todo.js. A dangling reference to this id in some other todo's
+// linkedTodoIds is left as-is; the frontend tolerates unresolved links.
 todosRouter.delete('/:id', async (req, res, next) => {
   try {
     const todo = await Todo.findById(req.params.id)

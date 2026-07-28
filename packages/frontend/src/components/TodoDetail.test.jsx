@@ -204,6 +204,165 @@ describe('TodoDetail', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('does not show the Todos tab when no `todos` list is supplied (e.g. the new-todo popup)', () => {
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('tab', { name: /Todos/ })).not.toBeInTheDocument()
+  })
+
+  describe('linking other todos', () => {
+    const linkableTodo = {
+      _id: 'todo-2',
+      title: 'Get filled EPF form',
+      categoryId: 'work-id',
+      priority: 'Low',
+      dueDate: null,
+      tags: [],
+      completed: false,
+      body: null,
+    }
+    const otherTodo = {
+      _id: 'todo-3',
+      title: 'Chase approval from finance',
+      categoryId: 'work-id',
+      priority: 'Medium',
+      dueDate: null,
+      tags: [],
+      completed: false,
+      body: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'waiting on finance' }] }],
+      },
+    }
+    const allTodos = [todo, linkableTodo, otherTodo]
+
+    it('collapses to a read-only header (title/priority/due date/category) on the Todos tab', () => {
+      render(
+        <TodoDetail
+          todo={todo}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+
+      expect(screen.queryByLabelText('Todo title')).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Ship feature' })).toBeInTheDocument()
+      expect(screen.getByText('Medium')).toBeInTheDocument()
+      expect(screen.getByText('Due 2026-07-25')).toBeInTheDocument()
+    })
+
+    it('searches candidates excluding the parent and already-linked todos, and links a result', () => {
+      render(
+        <TodoDetail
+          todo={todo}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+      fireEvent.change(screen.getByLabelText('Search todos to link'), { target: { value: 'EPF' } })
+
+      expect(screen.getByRole('button', { name: /Get filled EPF form/ })).toBeInTheDocument()
+      expect(screen.queryByText('Ship feature', { selector: 'button *' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /Get filled EPF form/ }))
+
+      expect(screen.getByRole('tab', { name: 'Todos (1)' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Unlink Get filled EPF form')).toBeInTheDocument()
+    })
+
+    it('unlinks a linked todo via its × control', () => {
+      render(
+        <TodoDetail
+          todo={todo}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+      fireEvent.change(screen.getByLabelText('Search todos to link'), { target: { value: 'EPF' } })
+      fireEvent.click(screen.getByRole('button', { name: /Get filled EPF form/ }))
+
+      fireEvent.click(screen.getByLabelText('Unlink Get filled EPF form'))
+
+      expect(screen.queryByLabelText('Unlink Get filled EPF form')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Todos' })).toBeInTheDocument()
+    })
+
+    it('saves a selected linked todo\'s notes via its own Save button, independent of the parent Save', async () => {
+      const onSave = vi.fn().mockResolvedValue()
+      const onSaveLinkedTodo = vi.fn().mockResolvedValue()
+      render(
+        <TodoDetail
+          todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={onSave}
+          onSaveLinkedTodo={onSaveLinkedTodo}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+      fireEvent.click(screen.getByText('Chase approval from finance'))
+
+      expect(screen.getByText('waiting on finance')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Save notes for Chase approval from finance'))
+
+      await waitFor(() => expect(onSaveLinkedTodo).toHaveBeenCalled())
+      const [id, patch] = onSaveLinkedTodo.mock.calls[0]
+      expect(id).toBe('todo-3')
+      expect(patch.body).toEqual(otherTodo.body)
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('preserves unsaved edits to the parent\'s own title when switching to the Todos tab and back', () => {
+      render(
+        <TodoDetail
+          todo={todo}
+          categories={categories}
+          availableTags={[]}
+          todos={allTodos}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onSaveLinkedTodo={vi.fn()}
+        />,
+      )
+
+      fireEvent.change(screen.getByLabelText('Todo title'), { target: { value: 'Ship feature v2' } })
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+      expect(screen.getByLabelText('Todo title')).toHaveValue('Ship feature v2')
+    })
+  })
+
   it('acts as a "new todo" popup when given a todo with no id: prefills the title, defaults the category, and shows Add', async () => {
     const onSave = vi.fn().mockResolvedValue()
     render(

@@ -467,6 +467,28 @@ describe('Todo routes', () => {
       expect(res.status).toBe(200)
       expect(Todo.create).not.toHaveBeenCalled()
     })
+
+    it('does not touch any other todo when completing one that other todos link to (no-cascade invariant)', async () => {
+      const doc = {
+        _id: 't1',
+        title: 'Linked-to todo',
+        recurrence: null,
+        dueDate: null,
+        completed: false,
+        save: vi.fn().mockResolvedValue(),
+      }
+      Todo.findById.mockResolvedValue(doc)
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1/toggle')
+
+      expect(res.status).toBe(200)
+      // A cascade implementation would need to look up/update whichever
+      // parent todos reference t1 in their linkedTodoIds — assert neither
+      // ever happens.
+      expect(Todo.findByIdAndUpdate).not.toHaveBeenCalled()
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
   })
 
   describe('PATCH /api/todos/:id', () => {
@@ -585,6 +607,38 @@ describe('Todo routes', () => {
         { new: true, runValidators: true },
       )
     })
+
+    it('persists a provided linkedTodoIds array', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', linkedTodoIds: ['t2', 't3'] })
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/todos/t1')
+        .send({ linkedTodoIds: ['t2', 't3'] })
+
+      expect(res.status).toBe(200)
+      expect(res.body.linkedTodoIds).toEqual(['t2', 't3'])
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { linkedTodoIds: ['t2', 't3'] },
+        { new: true, runValidators: true },
+      )
+    })
+
+    it('clears linkedTodoIds via an empty array (unlink)', async () => {
+      Todo.findByIdAndUpdate.mockResolvedValue({ _id: 't1', linkedTodoIds: [] })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/todos/t1').send({ linkedTodoIds: [] })
+
+      expect(res.status).toBe(200)
+      expect(res.body.linkedTodoIds).toEqual([])
+      expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
+        't1',
+        { linkedTodoIds: [] },
+        { new: true, runValidators: true },
+      )
+    })
   })
 
   describe('DELETE /api/todos/:id', () => {
@@ -607,6 +661,22 @@ describe('Todo routes', () => {
 
       expect(res.status).toBe(404)
       expect(Todo.findByIdAndDelete).not.toHaveBeenCalled()
+    })
+
+    it('does not touch any other todo when deleting one that other todos link to (no-cascade invariant)', async () => {
+      Todo.findById.mockResolvedValue({ _id: 't1' })
+      Todo.findByIdAndDelete.mockResolvedValue({ _id: 't1' })
+
+      const app = createApp()
+      const res = await request(app).delete('/api/todos/t1')
+
+      expect(res.status).toBe(204)
+      // A cascade implementation would need to look up/update whichever
+      // parent todos reference t1 in their linkedTodoIds — assert neither
+      // ever happens. Dangling references are left for the frontend to
+      // tolerate, per the spec.
+      expect(Todo.findByIdAndUpdate).not.toHaveBeenCalled()
+      expect(Todo.find).not.toHaveBeenCalled()
     })
   })
 })

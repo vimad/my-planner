@@ -276,7 +276,10 @@ function App() {
     }
   }
 
-  async function handleUpdateTodo(id, patch) {
+  // Shared PATCH core for both handleUpdateTodo and handleSaveLinkedTodoField
+  // below - they differ only in whether the currently-open detail popup gets
+  // closed afterwards.
+  async function patchTodo(id, patch) {
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/todos/${id}`, {
@@ -285,11 +288,24 @@ function App() {
         body: JSON.stringify(patch),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      setSelectedTodo(null)
       await Promise.all([loadTodos(), loadCategories(), loadTags()])
+      return true
     } catch (err) {
       setError(err.message)
+      return false
     }
+  }
+
+  async function handleUpdateTodo(id, patch) {
+    if (await patchTodo(id, patch)) setSelectedTodo(null)
+  }
+
+  // Saves a single field on *any* todo (used for a linked todo's notes from
+  // within another todo's detail popup) without closing whatever detail
+  // popup is currently open, unlike handleUpdateTodo above which always
+  // clears selectedTodo on success.
+  async function handleSaveLinkedTodoField(id, patch) {
+    await patchTodo(id, patch)
   }
 
   // Scratch note mutations only refresh scratch notes, except promotion,
@@ -561,8 +577,10 @@ function App() {
           todo={selectedTodo}
           categories={categories}
           availableTags={availableTags}
+          todos={todos}
           onClose={() => setSelectedTodo(null)}
           onSave={handleUpdateTodo}
+          onSaveLinkedTodo={handleSaveLinkedTodoField}
         />
       )}
 
