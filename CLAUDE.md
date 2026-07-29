@@ -11,7 +11,8 @@ pnpm workspace with two packages:
 
 - `pnpm db:up` / `pnpm db:down` — start/stop MongoDB (docker compose)
 - `pnpm dev` — run backend + frontend together
-- `pnpm test` — run all tests (Vitest)
+- `pnpm test` — typecheck both packages (`pnpm typecheck`), then run all tests (Vitest)
+- `pnpm typecheck` — typecheck both packages (`tsc --noEmit`) without running tests
 
 ## Manual/browser verification
 

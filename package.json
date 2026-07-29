@@ -8,9 +8,10 @@
     "dev:backend": "pnpm --filter backend dev",
     "dev:frontend": "pnpm --filter frontend dev",
     "build": "pnpm --filter frontend build",
-    "test": "pnpm --filter backend test && pnpm --filter frontend test",
+    "test": "pnpm typecheck && pnpm --filter backend test && pnpm --filter frontend test",
     "test:backend": "pnpm --filter backend test",
     "test:frontend": "pnpm --filter frontend test",
+    "typecheck": "pnpm --filter backend typecheck && pnpm --filter frontend typecheck",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down"
   },
