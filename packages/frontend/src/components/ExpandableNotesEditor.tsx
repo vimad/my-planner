@@ -138,26 +138,37 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
         }
       }
 
-      // Only 'collapsing' plays a transform below - 'inline' has nothing to
-      // animate (and must not fall through here, since finish() below sets
-      // phase back to 'inline', which re-runs this effect; without this
-      // guard that re-run would treat 'inline' as another collapse and
-      // replay the shrink transform a second time, flickering).
+      if (phase === 'inline') {
+        // Clears any transform left over from a prior collapse. This must
+        // happen in a *layout* effect (synchronous, pre-paint) rather than
+        // inside the transitionend handler below - clearing it there would
+        // run before React has committed the DOM's className back to the
+        // plain inline one (still `fixed`, full-size ENLARGED_PANEL_CLASSES
+        // at that point), so the browser could paint a full-size flash of
+        // the panel with no transform holding it small before the next
+        // commit swaps the class. Doing it here instead means the class
+        // swap and the style cleanup land in the same pre-paint pass.
+        el.style.transition = ''
+        el.style.transform = ''
+        el.style.transformOrigin = ''
+        return
+      }
+
+      // Only 'collapsing' plays a transform below.
       if (phase !== 'collapsing') return
 
       el.style.transformOrigin = 'top left'
       el.style.transition = `transform ${FLIP_DURATION_MS}ms ease`
       el.style.transform = invertedTransform()
 
+      // Only flips the phase - see the 'inline' branch above for why the
+      // actual style cleanup is deferred rather than done here.
       let done = false
       const finish = () => {
         if (done) return
         done = true
         window.clearTimeout(timeoutId)
         el.removeEventListener('transitionend', onEnd)
-        el.style.transition = ''
-        el.style.transform = ''
-        el.style.transformOrigin = ''
         setPhase('inline')
       }
       function onEnd(e: TransitionEvent) {
