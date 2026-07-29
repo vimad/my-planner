@@ -11,6 +11,19 @@ import { TodoDetail } from './TodoDetail'
 // hand back its onDragEnd callback directly, letting tests drive our own
 // reorder/rollback logic (the part this codebase owns) with a plain
 // {active, over} event, the same shape dnd-kit itself would produce.
+
+// Simulates typing into a Tiptap/ProseMirror editor. jsdom doesn't implement
+// real contenteditable text insertion, so `fireEvent.paste` (which
+// ProseMirror's paste handler reads `clipboardData` from directly, applying
+// a transaction rather than relying on a DOM mutation to appear) is the
+// reliable way to actually change the live document in these tests - see
+// RichTextEditor.test.tsx, which establishes this same pattern.
+function pasteText(node: Element, text: string) {
+  fireEvent.paste(node, {
+    clipboardData: { getData: (type: string) => (type === 'text/plain' ? text : '') },
+  })
+}
+
 let capturedDragEnd: ((event: DragEndEvent) => void | Promise<void>) | undefined
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>()
@@ -64,7 +77,7 @@ const todo: Todo = {
 }
 
 describe('TodoDetail', () => {
-  it('renders the todo fields, including the rich-text body in read-only view mode by default', () => {
+  it('renders the todo fields, including the rich-text body already editable by default', () => {
     render(
       <TodoDetail
         todo={todo}
@@ -81,10 +94,10 @@ describe('TodoDetail', () => {
     expect(screen.getByLabelText('Category')).toHaveValue('uncategorized-id')
     expect(screen.getByText('launch')).toBeInTheDocument()
     expect(screen.getByText('Some notes')).toBeInTheDocument()
-    expect(document.querySelector('[contenteditable]')).toHaveAttribute('contenteditable', 'false')
+    expect(document.querySelector('[contenteditable]')).toHaveAttribute('contenteditable', 'true')
   })
 
-  it('flips the rich-text body into an editable state via the Edit toggle', () => {
+  it('is editable immediately on open, with no Edit toggle anywhere in the popup', () => {
     render(
       <TodoDetail
         todo={todo}
@@ -95,10 +108,91 @@ describe('TodoDetail', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-
     expect(document.querySelector('[contenteditable]')).toHaveAttribute('contenteditable', 'true')
-    expect(screen.getByRole('button', { name: 'Done editing' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Done editing' })).not.toBeInTheDocument()
+  })
+
+  it('shows no border accent or Save button for the parent notes box when nothing has changed', () => {
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={vi.fn()}
+        onSaveNotes={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Save notes' })).not.toBeInTheDocument()
+    const editorBox = document.querySelector('[contenteditable]')?.closest('.min-h-\\[120px\\]')
+    expect(editorBox?.className).toContain('border-slate-200')
+    expect(editorBox?.className).not.toContain('border-fuchsia-400/60')
+  })
+
+  it('shows a border accent and Save button for the parent notes box once its content changes, and a successful save clears both', async () => {
+    const onSaveNotes = vi.fn().mockResolvedValue(undefined)
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        onClose={() => {}}
+        onSave={vi.fn()}
+        onSaveNotes={onSaveNotes}
+      />,
+    )
+
+    const editable = document.querySelector('[contenteditable]') as HTMLElement
+    pasteText(editable, 'X')
+
+    const saveButton = await screen.findByRole('button', { name: 'Save notes' })
+    const editorBox = editable.closest('.min-h-\\[120px\\]')
+    expect(editorBox?.className).toContain('border-fuchsia-400/60')
+
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(onSaveNotes).toHaveBeenCalled())
+    const [id, patch] = onSaveNotes.mock.calls[0]
+    expect(id).toBe('todo-1')
+    expect(patch.body).toBeTruthy()
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save notes' })).not.toBeInTheDocument())
+    expect(editorBox?.className).not.toContain('border-fuchsia-400/60')
+  })
+
+  it('still shows the parent notes box as dirty after switching the Notes tab away and back with an unsaved edit', async () => {
+    const linkableTodo: Todo = {
+      _id: 'todo-2',
+      title: 'Get filled EPF form',
+      categoryId: 'work-id',
+      priority: 'Low',
+      dueDate: null,
+      tags: [],
+      completed: false,
+      body: null,
+    }
+    render(
+      <TodoDetail
+        todo={todo}
+        categories={categories}
+        availableTags={[]}
+        todos={[todo, linkableTodo]}
+        onClose={() => {}}
+        onSave={vi.fn()}
+        onSaveNotes={vi.fn()}
+      />,
+    )
+
+    const editable = document.querySelector('[contenteditable]') as HTMLElement
+    pasteText(editable, 'X')
+    expect(await screen.findByRole('button', { name: 'Save notes' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+    expect(screen.getByRole('button', { name: 'Save notes' })).toBeInTheDocument()
   })
 
   it('saves edited priority, due date, category, and tags', async () => {
@@ -295,7 +389,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
         />,
       )
 
@@ -316,7 +410,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
         />,
       )
 
@@ -341,7 +435,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
         />,
       )
 
@@ -367,7 +461,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
           onReorderLinkedTodos={vi.fn()}
         />,
       )
@@ -402,7 +496,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
             onReorderLinkedTodos={onReorderLinkedTodos}
           />,
         )
@@ -420,9 +514,9 @@ describe('TodoDetail', () => {
         ])
       })
 
-      it('does not call onSave or onSaveLinkedTodo when reordering', async () => {
+      it('does not call onSave or onSaveNotes when reordering', async () => {
         const onSave = vi.fn()
-        const onSaveLinkedTodo = vi.fn()
+        const onSaveNotes = vi.fn()
         const onReorderLinkedTodos = vi.fn().mockResolvedValue(true)
         render(
           <TodoDetail
@@ -432,7 +526,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={onSave}
-            onSaveLinkedTodo={onSaveLinkedTodo}
+            onSaveNotes={onSaveNotes}
             onReorderLinkedTodos={onReorderLinkedTodos}
           />,
         )
@@ -442,7 +536,7 @@ describe('TodoDetail', () => {
 
         await waitFor(() => expect(onReorderLinkedTodos).toHaveBeenCalled())
         expect(onSave).not.toHaveBeenCalled()
-        expect(onSaveLinkedTodo).not.toHaveBeenCalled()
+        expect(onSaveNotes).not.toHaveBeenCalled()
       })
 
       it('does not change which linked todo is selected', async () => {
@@ -455,7 +549,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
             onReorderLinkedTodos={onReorderLinkedTodos}
           />,
         )
@@ -480,7 +574,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
             onReorderLinkedTodos={onReorderLinkedTodos}
           />,
         )
@@ -508,7 +602,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
             onReorderLinkedTodos={onReorderLinkedTodos}
           />,
         )
@@ -525,7 +619,7 @@ describe('TodoDetail', () => {
 
     it('saves a selected linked todo\'s notes via its own Save button, independent of the parent Save', async () => {
       const onSave = vi.fn().mockResolvedValue(undefined)
-      const onSaveLinkedTodo = vi.fn().mockResolvedValue(undefined)
+      const onSaveNotes = vi.fn().mockResolvedValue(undefined)
       render(
         <TodoDetail
           todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
@@ -534,7 +628,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={onSave}
-          onSaveLinkedTodo={onSaveLinkedTodo}
+          onSaveNotes={onSaveNotes}
         />,
       )
 
@@ -543,13 +637,121 @@ describe('TodoDetail', () => {
 
       expect(screen.getByText('waiting on finance')).toBeInTheDocument()
 
-      fireEvent.click(screen.getByLabelText('Save notes for Chase approval from finance'))
+      const editable = document.querySelector('[contenteditable]') as HTMLElement
+      pasteText(editable, 'X')
 
-      await waitFor(() => expect(onSaveLinkedTodo).toHaveBeenCalled())
-      const [id, patch] = onSaveLinkedTodo.mock.calls[0]
+      const saveButton = await screen.findByLabelText('Save notes for Chase approval from finance')
+      fireEvent.click(saveButton)
+
+      await waitFor(() => expect(onSaveNotes).toHaveBeenCalled())
+      const [id, patch] = onSaveNotes.mock.calls[0]
       expect(id).toBe('todo-3')
-      expect(patch.body).toEqual(otherTodo.body)
+      expect(patch.body).toBeTruthy()
       expect(onSave).not.toHaveBeenCalled()
+    })
+
+    describe('linked-notes panel dirty indicator', () => {
+      it('shows no Save button or border for a freshly-selected linked todo with unmodified notes', () => {
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveNotes={vi.fn()}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+
+        expect(
+          screen.queryByLabelText('Save notes for Chase approval from finance'),
+        ).not.toBeInTheDocument()
+        const editable = document.querySelector('[contenteditable]') as HTMLElement
+        const editorBox = editable.closest('.flex-1.overflow-hidden')
+        expect(editorBox?.className).toContain('border-slate-200')
+        expect(editorBox?.className).not.toContain('border-fuchsia-400/60')
+      })
+
+      it('shows a border accent and Save button once the linked todo\'s notes change, and a successful save clears both', async () => {
+        const onSaveNotes = vi.fn().mockResolvedValue(undefined)
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveNotes={onSaveNotes}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+
+        const editable = document.querySelector('[contenteditable]') as HTMLElement
+        pasteText(editable, 'X')
+
+        const saveButton = await screen.findByLabelText('Save notes for Chase approval from finance')
+        const editorBox = editable.closest('.flex-1.overflow-hidden')
+        expect(editorBox?.className).toContain('border-fuchsia-400/60')
+
+        fireEvent.click(saveButton)
+
+        await waitFor(() => expect(onSaveNotes).toHaveBeenCalled())
+
+        await waitFor(() =>
+          expect(
+            screen.queryByLabelText('Save notes for Chase approval from finance'),
+          ).not.toBeInTheDocument(),
+        )
+        expect(editorBox?.className).not.toContain('border-fuchsia-400/60')
+      })
+
+      it('tracks each linked todo\'s dirty state independently, and never marks the parent\'s own notes as dirty', async () => {
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveNotes={vi.fn()}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+
+        const editable = document.querySelector('[contenteditable]') as HTMLElement
+        pasteText(editable, 'X')
+        expect(
+          await screen.findByLabelText('Save notes for Chase approval from finance'),
+        ).toBeInTheDocument()
+
+        // Switching to the other linked todo shows it as clean - editing
+        // "Chase approval from finance" must not have marked it dirty too.
+        fireEvent.click(screen.getByText('Get filled EPF form'))
+        expect(
+          screen.queryByLabelText('Save notes for Get filled EPF form'),
+        ).not.toBeInTheDocument()
+
+        // Switching back reflects "Chase approval from finance"'s own
+        // still-pending unsaved edit, captured via linkedNotesOverrides.
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+        expect(
+          await screen.findByLabelText('Save notes for Chase approval from finance'),
+        ).toBeInTheDocument()
+
+        // The parent todo's own Notes tab was never touched by any of this.
+        fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+        expect(screen.queryByRole('button', { name: 'Save notes' })).not.toBeInTheDocument()
+      })
     })
 
     it('applies list-style CSS (list-disc/list-decimal) to the linked-todo notes panel, not just the parent notes panel', () => {
@@ -561,7 +763,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
         />,
       )
 
@@ -587,7 +789,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
           />,
         )
 
@@ -611,7 +813,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
           />,
         )
 
@@ -637,7 +839,7 @@ describe('TodoDetail', () => {
             todos={allTodos}
             onClose={() => {}}
             onSave={vi.fn()}
-            onSaveLinkedTodo={vi.fn()}
+            onSaveNotes={vi.fn()}
           />,
         )
 
@@ -662,7 +864,7 @@ describe('TodoDetail', () => {
           todos={allTodos}
           onClose={() => {}}
           onSave={vi.fn()}
-          onSaveLinkedTodo={vi.fn()}
+          onSaveNotes={vi.fn()}
         />,
       )
 

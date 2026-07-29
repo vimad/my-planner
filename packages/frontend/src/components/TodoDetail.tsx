@@ -183,7 +183,11 @@ interface TodoDetailProps {
   todos?: Todo[]
   onClose: () => void
   onSave: (id: string | undefined, patch: TodoSavePatch) => Promise<void> | void
-  onSaveLinkedTodo?: (id: string, patch: { body: JSONContent | null }) => Promise<void> | void
+  // Persists a single todo's `body` by id, independent of `onSave` — used by
+  // both the parent's own notes Save button (called with this todo's own
+  // id) and the linked-notes panel's Save button (called with the selected
+  // linked todo's id). Omitted for the new-todo popup, which has no id yet.
+  onSaveNotes?: (id: string, patch: { body: JSONContent | null }) => Promise<void> | void
   onReorderLinkedTodos?: (id: string | undefined, patch: { linkedTodoIds: string[] }) => Promise<boolean> | boolean
 }
 
@@ -199,13 +203,14 @@ interface TodoDetailProps {
 //
 // Linking other todos is opt-in via the `todos` prop (the full todo list) —
 // omitting it (as the new-todo popup does) hides the Todos tab entirely,
-// since a brand-new todo has no id yet to link against. `onSaveLinkedTodo`
-// persists a linked todo's own body independently, without closing this
-// popup — distinct from `onSave`, which only ever saves the currently open
-// (parent) todo's own fields. `onReorderLinkedTodos` persists a drag reorder
-// of the linked list immediately (optimistic, with rollback on failure) —
-// distinct from both of the above, and independent of the parent's own
-// Save/Cancel footer.
+// since a brand-new todo has no id yet to link against. `onSaveNotes`
+// persists a single todo's body independently by id — the parent's own
+// notes (via its own Save button) or a linked todo's notes — without
+// closing this popup — distinct from `onSave`, which saves every field of
+// the currently open (parent) todo at once. `onReorderLinkedTodos` persists
+// a drag reorder of the linked list immediately (optimistic, with rollback
+// on failure) — distinct from both of the above, and independent of the
+// parent's own Save/Cancel footer.
 export function TodoDetail({
   todo,
   categories,
@@ -213,7 +218,7 @@ export function TodoDetail({
   todos,
   onClose,
   onSave,
-  onSaveLinkedTodo,
+  onSaveNotes,
   onReorderLinkedTodos,
 }: TodoDetailProps) {
   const id = getId(todo)
@@ -237,8 +242,13 @@ export function TodoDetail({
   const [tags, setTags] = useState<string[]>(todo.tags ?? [])
   const [recurrence, setRecurrence] = useState<RecurrenceOptionValue>(todo.recurrence?.pattern ?? 'none')
   const [officeLinked, setOfficeLinked] = useState(Boolean(todo.officeLinked))
-  const [editingBody, setEditingBody] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Whether the parent todo's own notes box currently differs from
+  // `todo.body` (the real database value) - drives the light accent border
+  // and the independent notes Save button, both shown only for an existing
+  // todo (a new todo has no id yet to save against, see `isNew` below).
+  const [notesDirty, setNotesDirty] = useState(false)
+  const [savingNotes, setSavingNotes] = useState(false)
   const bodyRef = useRef<RichTextEditorHandle>(null)
 
   // Local, staged list of linked todo ids - committed to the backend only
@@ -248,6 +258,14 @@ export function TodoDetail({
   const [query, setQuery] = useState('')
   const [selectedLinkedId, setSelectedLinkedId] = useState<string | null>(null)
   const [savingLinkedNotes, setSavingLinkedNotes] = useState(false)
+  // Whether the selected linked todo's notes box currently differs from its
+  // own `body` (the real database value) - same role as `notesDirty` above,
+  // but for whichever linked todo is currently selected on the Todos tab.
+  // Reset explicitly on selection change (see `selectLinked`/`handleUnlink`
+  // below) so a stale true from the previously-selected todo can't flash the
+  // border/Save button for a newly-selected, actually-clean todo before the
+  // freshly-mounted editor's own onDirtyChange corrects it.
+  const [linkedNotesDirty, setLinkedNotesDirty] = useState(false)
   // The RichTextEditor for the parent's own body and for a selected linked
   // todo's notes are both conditionally rendered (tab, and which linked todo
   // is selected) - capture their live document into these overrides before
@@ -273,6 +291,7 @@ export function TodoDetail({
   function selectLinked(linkId: string) {
     captureOpenEditors()
     setSelectedLinkedId(linkId)
+    setLinkedNotesDirty(false)
   }
 
   function handleLink(childId: string) {
@@ -282,7 +301,10 @@ export function TodoDetail({
 
   function handleUnlink(childId: string) {
     setLinkedTodoIds((prev) => prev.filter((linkedId) => linkedId !== childId))
-    if (selectedLinkedId === childId) setSelectedLinkedId(null)
+    if (selectedLinkedId === childId) {
+      setSelectedLinkedId(null)
+      setLinkedNotesDirty(false)
+    }
   }
 
   const dragSensors = useSensors(
@@ -347,18 +369,40 @@ export function TodoDetail({
   const isTodosTab = canLink && tab === 'todos'
   const selectedCategory = categories.find((c) => String(getId(c)) === categoryId)
 
+  // Persists the parent todo's own notes body immediately via the renamed
+  // `onSaveNotes` prop, independent of the footer Save/Add button - mirrors
+  // handleSaveLinkedNotes below. Only reachable for an existing todo (the
+  // Save button that calls this isn't rendered for a new one, see `isNew`
+  // in the JSX), so `id` is guaranteed non-empty here.
+  async function handleSaveNotes() {
+    if (!id) return
+    const json = bodyRef.current?.getJSON() ?? bodyOverride ?? todo.body ?? null
+    setSavingNotes(true)
+    try {
+      await onSaveNotes?.(id, { body: json })
+      // Resets the dirty-tracking baseline synchronously so the border/
+      // button clear immediately, without waiting on a background refetch.
+      bodyRef.current?.markSaved()
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
   async function handleSaveLinkedNotes() {
     if (!selectedLinkedTodo) return
     const linkedId = todoKey(selectedLinkedTodo)
     const json = linkedNotesRef.current?.getJSON() ?? linkedNotesOverrides[linkedId] ?? selectedLinkedTodo.body ?? null
     setSavingLinkedNotes(true)
     try {
-      await onSaveLinkedTodo?.(linkedId, { body: json })
+      await onSaveNotes?.(linkedId, { body: json })
       setLinkedNotesOverrides((prev) => {
         const next = { ...prev }
         delete next[linkedId]
         return next
       })
+      // Resets the dirty-tracking baseline synchronously so the border/
+      // button clear immediately, mirroring handleSaveNotes above.
+      linkedNotesRef.current?.markSaved()
     } finally {
       setSavingLinkedNotes(false)
     }
@@ -537,22 +581,32 @@ export function TodoDetail({
 
         {(!canLink || tab === 'notes') && (
           <div className="mb-5 flex flex-col gap-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-300">Notes</span>
-              <button
-                type="button"
-                onClick={() => setEditingBody((v) => !v)}
-                className="text-xs font-semibold text-fuchsia-600 hover:text-fuchsia-700 hover:underline dark:text-fuchsia-300 dark:hover:text-fuchsia-200"
-              >
-                {editingBody ? 'Done editing' : 'Edit'}
-              </button>
+              {!isNew && notesDirty && (
+                <button
+                  type="button"
+                  aria-label="Save notes"
+                  disabled={savingNotes}
+                  onClick={handleSaveNotes}
+                  className="shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingNotes ? 'Saving...' : 'Save'}
+                </button>
+              )}
             </div>
             <ExpandableNotesEditor
               ref={bodyRef}
               content={bodyOverride ?? todo.body}
-              editable={editingBody}
+              savedContent={todo.body}
+              editable
               toolbar
-              className="min-h-[120px] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+              onDirtyChange={setNotesDirty}
+              className={`min-h-[120px] rounded-lg border bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:bg-white/5 dark:text-slate-100 ${
+                !isNew && notesDirty
+                  ? 'border-fuchsia-400/60 dark:border-fuchsia-400/60'
+                  : 'border-slate-200 dark:border-white/10'
+              }`}
               contentClassName="max-h-[40vh] overflow-y-auto [&_.tiptap]:min-h-[100px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200"
             />
           </div>
@@ -623,23 +677,31 @@ export function TodoDetail({
                     <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {selectedLinkedTodo.title}
                     </span>
-                    <button
-                      type="button"
-                      aria-label={`Save notes for ${selectedLinkedTodo.title}`}
-                      disabled={savingLinkedNotes}
-                      onClick={handleSaveLinkedNotes}
-                      className="shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {savingLinkedNotes ? 'Saving...' : 'Save'}
-                    </button>
+                    {linkedNotesDirty && (
+                      <button
+                        type="button"
+                        aria-label={`Save notes for ${selectedLinkedTodo.title}`}
+                        disabled={savingLinkedNotes}
+                        onClick={handleSaveLinkedNotes}
+                        className="shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingLinkedNotes ? 'Saving...' : 'Save'}
+                      </button>
+                    )}
                   </div>
                   <ExpandableNotesEditor
                     key={todoKey(selectedLinkedTodo)}
                     ref={linkedNotesRef}
                     content={linkedNotesOverrides[todoKey(selectedLinkedTodo)] ?? selectedLinkedTodo.body}
+                    savedContent={selectedLinkedTodo.body}
                     editable
                     toolbar
-                    className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+                    onDirtyChange={setLinkedNotesDirty}
+                    className={`flex-1 overflow-hidden rounded-lg border bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:bg-white/5 dark:text-slate-100 ${
+                      linkedNotesDirty
+                        ? 'border-fuchsia-400/60 dark:border-fuchsia-400/60'
+                        : 'border-slate-200 dark:border-white/10'
+                    }`}
                     contentClassName="h-full overflow-y-auto [&_.tiptap]:min-h-[120px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200"
                   />
                 </>

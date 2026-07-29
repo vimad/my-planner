@@ -283,12 +283,12 @@ function App() {
     }
   }
 
-  // Shared PATCH core for both handleUpdateTodo and handleSaveLinkedTodoField
-  // below - they differ only in whether the currently-open detail popup gets
-  // closed afterwards. Typed against `Partial<TodoSavePatch>` so it covers
-  // every shape callers pass through it: a full TodoSavePatch (handleUpdateTodo),
-  // a body-only patch (handleSaveLinkedTodoField), and a linkedTodoIds-only
-  // patch (passed directly as TodoDetail's onReorderLinkedTodos prop).
+  // Shared PATCH core for both handleUpdateTodo and handleSaveNotes below -
+  // they differ only in whether the currently-open detail popup gets closed
+  // afterwards. Typed against `Partial<TodoSavePatch>` so it covers every
+  // shape callers pass through it: a full TodoSavePatch (handleUpdateTodo),
+  // a body-only patch (handleSaveNotes), and a linkedTodoIds-only patch
+  // (passed directly as TodoDetail's onReorderLinkedTodos prop).
   async function patchTodo(id: string | undefined, patch: Partial<TodoSavePatch>): Promise<boolean> {
     setError(null)
     try {
@@ -310,11 +310,12 @@ function App() {
     if (await patchTodo(id, patch)) setSelectedTodo(null)
   }
 
-  // Saves a single field on *any* todo (used for a linked todo's notes from
-  // within another todo's detail popup) without closing whatever detail
-  // popup is currently open, unlike handleUpdateTodo above which always
-  // clears selectedTodo on success.
-  async function handleSaveLinkedTodoField(id: string, patch: { body: TodoSavePatch['body'] }) {
+  // Saves a single todo's notes body by id - the parent todo's own notes or
+  // a linked todo's notes, both from within TodoDetail's independent
+  // per-notes Save buttons - without closing whatever detail popup is
+  // currently open, unlike handleUpdateTodo above which always clears
+  // selectedTodo on success.
+  async function handleSaveNotes(id: string, patch: { body: TodoSavePatch['body'] }) {
     await patchTodo(id, patch)
   }
 
@@ -591,7 +592,7 @@ function App() {
           todos={todos}
           onClose={() => setSelectedTodo(null)}
           onSave={handleUpdateTodo}
-          onSaveLinkedTodo={handleSaveLinkedTodoField}
+          onSaveNotes={handleSaveNotes}
           onReorderLinkedTodos={patchTodo}
         />
       )}

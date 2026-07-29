@@ -1,0 +1,15 @@
+# 02 — Parent todo's own notes: always editable + dirty indicator + independent Save
+
+**What to build:** In `TodoDetail`, the parent todo's own Notes section stops requiring a click on "Edit" before it can be typed into — it's editable as soon as the popup opens, matching the linked-notes panel's existing always-editable behavior. Using the primitive built in ticket 01, the notes box shows a light accent border and a "Save" button once its content differs from what's actually saved for this todo; both disappear once a save succeeds. This save is independent of the popup's main footer Save/Add button, which keeps behaving exactly as it does today (saves every field, including the current notes body, and closes the popup on success) — this ticket adds no new gating or side effects to it.
+
+**Blocked by:** 01 — RichTextEditor dirty-tracking primitive
+
+**Status:** ready-for-agent
+
+- [ ] `TodoDetail`'s `editingBody` state and the "Edit" / "Done editing" toggle button are removed. For an existing todo, the parent notes `ExpandableNotesEditor` is always `editable`.
+- [ ] For the new-todo ("Add") popup, notes are likewise always editable, with no border or Save button shown there (no id exists yet to save against) — the footer "Add" button remains the only way to persist a new todo's notes.
+- [ ] The parent notes box is passed `savedContent={todo.body}` (the real database value, never the in-memory `bodyOverride`) and `onDirtyChange` wired to local `notesDirty` state; when `bodyOverride` holds a not-yet-saved edit (e.g. after switching away from and back to the Notes tab, which remounts the editor), the box correctly shows as dirty immediately after remount rather than falsely appearing clean.
+- [ ] While `notesDirty` is true, the notes box shows a light border (drawn from the app's existing accent color already used for focus/interactive states, replacing the neutral border) and a small "Save" button appears next to the "Notes" label.
+- [ ] `App.tsx`'s `onSaveLinkedTodo` prop/handler is renamed to a generic name (e.g. `onSaveNotes`) reflecting that it saves a single todo's body by id regardless of whether that todo is the parent or a linked one; no new backend endpoint or new `App.tsx` handler is added. `TodoDetail` calls this same renamed prop, with the parent todo's own `id`, from the new Save button's click handler.
+- [ ] Clicking the new Save button shows a busy/"Saving..." state (mirroring the existing linked-notes Save button's `savingLinkedNotes` pattern), and on success calls the parent notes editor's `markSaved()` handle method so the border/button clear synchronously, without waiting on a background refetch.
+- [ ] New/updated `TodoDetail.test.tsx` cases: the parent notes box is editable immediately on open with no "Edit" button anywhere in the popup; no border/Save button shows when nothing has changed; typing produces both; a successful save (mocked renamed prop) clears both; switching the Notes tab away and back with an unsaved edit still shows dirty after the remount; clicking the footer Save/Add button is unaffected by notes dirty state (same patch shape and close-on-success behavior as before).

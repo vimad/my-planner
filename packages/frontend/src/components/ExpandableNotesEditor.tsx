@@ -11,10 +11,16 @@ type Phase = 'inline' | 'enlarged' | 'collapsing'
 
 interface ExpandableNotesEditorProps {
   content?: JSONContent | JSONContent[] | null
+  // Passed straight through to the wrapped RichTextEditor - see its own
+  // `savedContent`/`onDirtyChange` docs for what they mean. Neither is
+  // interpreted here; ExpandableNotesEditor only owns the enlarge/shrink
+  // chrome, not dirty tracking.
+  savedContent?: JSONContent | JSONContent[] | null
   editable: boolean
   className?: string
   toolbar?: boolean
   contentClassName?: string
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 // Large centered panel, sized to occupy most of the viewport without going
@@ -80,7 +86,10 @@ function ShrinkIcon() {
 // as long as it's popped out, so pulling it into `fixed` positioning never
 // collapses/reflows whatever sits below it in the caller's layout.
 export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, ExpandableNotesEditorProps>(
-  function ExpandableNotesEditor({ content, editable, className, toolbar, contentClassName }, ref) {
+  function ExpandableNotesEditor(
+    { content, savedContent, editable, className, toolbar, contentClassName, onDirtyChange },
+    ref,
+  ) {
     const [phase, setPhase] = useState<Phase>('inline')
     const panelRef = useRef<HTMLDivElement>(null)
     // Last-measured inline rect - captured once at enlarge time and reused
@@ -90,7 +99,14 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
     const originalRectRef = useRef<DOMRect | null>(null)
     const editorRef = useRef<RichTextEditorHandle>(null)
 
-    useImperativeHandle(ref, () => ({ getJSON: () => editorRef.current?.getJSON() ?? null }), [])
+    useImperativeHandle(
+      ref,
+      () => ({
+        getJSON: () => editorRef.current?.getJSON() ?? null,
+        markSaved: () => editorRef.current?.markSaved(),
+      }),
+      [],
+    )
 
     const overlayActive = phase !== 'inline'
 
@@ -253,10 +269,12 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
             <RichTextEditor
               ref={editorRef}
               content={content}
+              savedContent={savedContent}
               editable={editable}
               toolbar={toolbar}
               className={overlayActive ? 'flex h-full min-h-0 flex-col' : undefined}
               contentClassName={overlayActive ? enlargedContentClassName(contentClassName) : contentClassName}
+              onDirtyChange={onDirtyChange}
             />
           </div>
         </div>

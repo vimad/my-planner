@@ -1,10 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
+import type { RichTextEditorHandle } from './RichTextEditor'
 
 const doc = {
   type: 'doc',
   content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello world' }] }],
+}
+
+const otherDoc = {
+  type: 'doc',
+  content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Something else' }] }],
 }
 
 describe('ExpandableNotesEditor', () => {
@@ -88,5 +94,34 @@ describe('ExpandableNotesEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enlarge notes editor' }))
 
     expect(document.querySelector('[contenteditable]')).toHaveAttribute('contenteditable', 'false')
+  })
+
+  describe('dirty-tracking passthrough', () => {
+    it('passes savedContent/onDirtyChange through to the wrapped RichTextEditor', () => {
+      const onDirtyChange = vi.fn()
+      render(<ExpandableNotesEditor content={doc} savedContent={otherDoc} editable onDirtyChange={onDirtyChange} />)
+
+      // A mismatched content/savedContent pair should be reported dirty
+      // immediately, same as RichTextEditor.test.tsx's own coverage of this
+      // - proving the props actually reach the wrapped editor rather than
+      // being swallowed by this wrapper.
+      expect(onDirtyChange).toHaveBeenCalledWith(true)
+    })
+
+    it("proxies markSaved() through the exposed handle, alongside the existing getJSON() proxy", () => {
+      const onDirtyChange = vi.fn()
+      const ref = { current: null as RichTextEditorHandle | null }
+      render(
+        <ExpandableNotesEditor ref={ref} content={doc} savedContent={doc} editable onDirtyChange={onDirtyChange} />,
+      )
+
+      expect(onDirtyChange).not.toHaveBeenCalledWith(true)
+      expect(ref.current?.getJSON()).toEqual(doc)
+
+      // markSaved() itself is exercised end-to-end (baseline reset flipping
+      // dirty back to false) in RichTextEditor.test.tsx - this just checks
+      // the handle proxies the call through rather than dropping it.
+      expect(() => act(() => ref.current?.markSaved())).not.toThrow()
+    })
   })
 })
