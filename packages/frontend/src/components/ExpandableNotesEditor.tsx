@@ -19,9 +19,27 @@ interface ExpandableNotesEditorProps {
 
 // Large centered panel, sized to occupy most of the viewport without going
 // edge-to-edge - visually consistent with TodoDetail's own rounded-2xl/
-// shadow-xl dark-glass popup, but stacked above it (TodoDetail is z-50).
+// shadow-xl dark-glass popup, but stacked above it (TodoDetail is z-50). A
+// fixed (not fit-content) height is deliberate: it's what lets the content
+// area below actually fill the panel via `h-full`/`flex-1` - fit-content
+// sizing here would give descendants an indefinite height to resolve
+// percentages against, no matter what pixel value it renders at.
 const ENLARGED_PANEL_CLASSES =
-  'fixed inset-0 z-[61] m-auto flex h-fit min-h-[50vh] max-h-[85vh] w-[min(92vw,64rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100'
+  'fixed inset-0 z-[61] m-auto flex h-[85vh] w-[min(80vw,56rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100'
+
+// Callers cap the inline content area's height (e.g. `max-h-[40vh]`) so a
+// short popup doesn't grow huge with a long note. That cap has no place in
+// the enlarged panel, which is sized precisely to give the editor more
+// room - so while enlarged, any top-level height/max-height token is
+// swapped for `flex-1 min-h-0`, letting the content area grow to fill the
+// panel (scrolling internally past that) instead of leaving most of a
+// tall panel empty below a still-40vh-capped box. Formatting tokens
+// (list/link styles etc.) are left untouched; arbitrary-variant tokens
+// like `[&_.tiptap]:min-h-[100px]` don't match and are also left alone.
+function enlargedContentClassName(base: string | undefined): string {
+  const kept = (base ?? '').split(/\s+/).filter((token) => token && !/^(max-)?h-/.test(token))
+  return [...kept, 'flex-1', 'min-h-0'].join(' ')
+}
 
 const ICON_BUTTON_CLASSES =
   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-500 shadow-sm transition hover:bg-slate-100 dark:border-white/10 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/20'
@@ -237,7 +255,8 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
               content={content}
               editable={editable}
               toolbar={toolbar}
-              contentClassName={contentClassName}
+              className={overlayActive ? 'flex h-full min-h-0 flex-col' : undefined}
+              contentClassName={overlayActive ? enlargedContentClassName(contentClassName) : contentClassName}
             />
           </div>
         </div>
