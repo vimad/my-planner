@@ -577,6 +577,82 @@ describe('TodoDetail', () => {
       expect(hasListStyling).toBe(true)
     })
 
+    describe('enlarging notes editors', () => {
+      it('renders an enlarge icon for both the parent notes editor and the selected linked todo\'s notes editor', () => {
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+          />,
+        )
+
+        // Parent's own notes editor is on the Notes tab (the default tab).
+        expect(screen.getByRole('button', { name: 'Enlarge notes editor' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+
+        // Now on the Todos tab, only the linked-notes editor's enlarge icon
+        // is rendered (the parent notes editor isn't mounted on this tab).
+        expect(screen.getAllByRole('button', { name: 'Enlarge notes editor' })).toHaveLength(1)
+      })
+
+      it('enlarging the linked todo\'s notes editor does not enlarge the parent notes editor, and vice versa', () => {
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (1)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+
+        fireEvent.click(screen.getByRole('button', { name: 'Enlarge notes editor' }))
+        expect(screen.getByRole('dialog', { name: 'Enlarged notes editor' })).toBeInTheDocument()
+
+        // Switching back to the Notes tab shows the parent's own notes
+        // editor, still collapsed (its own enlarge state is independent).
+        fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+        expect(screen.getByRole('button', { name: 'Enlarge notes editor' })).toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: 'Enlarged notes editor' })).not.toBeInTheDocument()
+      })
+
+      it('resets the linked-notes editor\'s enlarge state to collapsed when a different linked todo is selected', () => {
+        render(
+          <TodoDetail
+            todo={{ ...todo, linkedTodoIds: ['todo-2', 'todo-3'] }}
+            categories={categories}
+            availableTags={[]}
+            todos={allTodos}
+            onClose={() => {}}
+            onSave={vi.fn()}
+            onSaveLinkedTodo={vi.fn()}
+          />,
+        )
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Todos (2)' }))
+        fireEvent.click(screen.getByText('Chase approval from finance'))
+        fireEvent.click(screen.getByRole('button', { name: 'Enlarge notes editor' }))
+        expect(screen.getByRole('dialog', { name: 'Enlarged notes editor' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Get filled EPF form'))
+
+        expect(screen.queryByRole('dialog', { name: 'Enlarged notes editor' })).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Enlarge notes editor' })).toBeInTheDocument()
+      })
+    })
+
     it('preserves unsaved edits to the parent\'s own title when switching to the Todos tab and back', () => {
       render(
         <TodoDetail

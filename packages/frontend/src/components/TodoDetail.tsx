@@ -12,7 +12,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { useRef, useState } from 'react'
 import { getId } from '../utils/getId'
 import type { Category, Todo, TodoPriority, TodoRecurrence } from '../types'
-import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
+import { ExpandableNotesEditor } from './ExpandableNotesEditor'
+import type { RichTextEditorHandle } from './RichTextEditor'
 import { TagInput } from './TagInput'
 
 const PRIORITIES: TodoPriority[] = ['High', 'Medium', 'Low']
@@ -546,7 +547,7 @@ export function TodoDetail({
                 {editingBody ? 'Done editing' : 'Edit'}
               </button>
             </div>
-            <RichTextEditor
+            <ExpandableNotesEditor
               ref={bodyRef}
               content={bodyOverride ?? todo.body}
               editable={editingBody}
@@ -632,7 +633,7 @@ export function TodoDetail({
                       {savingLinkedNotes ? 'Saving...' : 'Save'}
                     </button>
                   </div>
-                  <RichTextEditor
+                  <ExpandableNotesEditor
                     key={todoKey(selectedLinkedTodo)}
                     ref={linkedNotesRef}
                     content={linkedNotesOverrides[todoKey(selectedLinkedTodo)] ?? selectedLinkedTodo.body}
