@@ -135,7 +135,13 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
         }
       }
 
-      // phase === 'collapsing'
+      // Only 'collapsing' plays a transform below - 'inline' has nothing to
+      // animate (and must not fall through here, since finish() below sets
+      // phase back to 'inline', which re-runs this effect; without this
+      // guard that re-run would treat 'inline' as another collapse and
+      // replay the shrink transform a second time, flickering).
+      if (phase !== 'collapsing') return
+
       el.style.transformOrigin = 'top left'
       el.style.transition = `transform ${FLIP_DURATION_MS}ms ease`
       el.style.transform = invertedTransform()
