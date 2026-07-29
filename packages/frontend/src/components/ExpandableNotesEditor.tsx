@@ -58,6 +58,9 @@ function ShrinkIcon() {
 // transform in reverse, and only tears the overlay down (returns to the
 // inline layout) once the transition finishes - via `transitionend`, or a
 // matched-duration timeout as a fallback in case that event doesn't fire.
+// A hidden placeholder (same className) fills the panel's original spot for
+// as long as it's popped out, so pulling it into `fixed` positioning never
+// collapses/reflows whatever sits below it in the caller's layout.
 export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, ExpandableNotesEditorProps>(
   function ExpandableNotesEditor({ content, editable, className, toolbar, contentClassName }, ref) {
     const [phase, setPhase] = useState<Phase>('inline')
@@ -178,6 +181,24 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
             aria-label="Close enlarged notes editor"
             onClick={handleShrink}
             className="fixed inset-0 z-[60] cursor-default bg-black/60"
+          />
+        )}
+        {overlayActive && (
+          // Reserves the panel's original spot in the flow for as long as
+          // it's popped out as a `fixed` overlay (which removes it from
+          // flow and would otherwise collapse this space, reflowing
+          // whatever sits below it in TodoDetail - then reflowing again,
+          // right as the collapse transform lands, producing a visible
+          // jump). An invisible placeholder keeps that space held the whole
+          // time so returning to inline is a no-op for layout, not a
+          // reflow. It's given the originally-measured height explicitly
+          // (rather than relying on `className` alone) because the real
+          // panel's height includes the icon-row header rendered inside
+          // it, which this empty placeholder has no other way to imply.
+          <div
+            aria-hidden="true"
+            className={className}
+            style={{ visibility: 'hidden', height: originalRectRef.current?.height }}
           />
         )}
         <div
