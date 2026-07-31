@@ -20,6 +20,11 @@ export interface ScratchLine {
 export interface ScratchNoteDoc {
   body: ScratchLine[]
   archived: boolean
+  // Set directly (not derived) at creation — unlike Todo, a scratch note has
+  // no categoryId to derive a profile from, since it can exist before ever
+  // being promoted. See the "ScratchNote (changed)" note in
+  // .scratch/profiles/spec.md.
+  profileId: Types.ObjectId
   createdAt: Date
   updatedAt: Date
 }
@@ -37,6 +42,7 @@ const scratchNoteSchema = new Schema<ScratchNoteDoc>(
   {
     body: { type: [lineSchema], default: [] },
     archived: { type: Boolean, default: false },
+    profileId: { type: Schema.Types.ObjectId, ref: 'Profile', required: true },
   },
   { timestamps: true },
 )

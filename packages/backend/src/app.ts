@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { categoriesRouter } from './routes/categories.ts'
+import { profilesRouter } from './routes/profiles.ts'
 import { scratchNotesRouter } from './routes/scratchNotes.ts'
 import { settingsRouter } from './routes/settings.ts'
 import { todosRouter } from './routes/todos.ts'
@@ -20,6 +21,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   })
 
   app.use('/api/categories', categoriesRouter)
+  app.use('/api/profiles', profilesRouter)
   app.use('/api/todos', todosRouter)
   app.use('/api/scratch-notes', scratchNotesRouter)
   app.use('/api/settings', settingsRouter)
