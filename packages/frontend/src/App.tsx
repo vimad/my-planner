@@ -5,6 +5,7 @@ import { CategoryForm, type CategoryFormValues } from './components/CategoryForm
 import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
+import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
@@ -63,6 +64,10 @@ function App() {
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
+  // Swaps the Categories+Agenda section for the Notes view - see the header
+  // tab below. Nothing else on the page (header chrome, the fixed-bottom
+  // Scratchpad bar) is affected by which tab is active, per the Notes spec.
+  const [activeTab, setActiveTab] = useState<'todos' | 'notes'>('todos')
 
   useEffect(() => {
     applyTheme(theme)
@@ -612,6 +617,33 @@ function App() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Here's what's glowing today.</p>
         </div>
         <div className="flex items-center gap-3">
+          <div
+            role="tablist"
+            aria-label="View"
+            className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+          >
+            {(
+              [
+                { key: 'todos', label: 'Todos' },
+                { key: 'notes', label: 'Notes' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                  activeTab === tab.key
+                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           {!profilesLoading && profiles.length > 0 && (
             <ProfileSwitcher
               profiles={profiles}
@@ -632,121 +664,127 @@ function App() {
         </p>
       )}
 
-      <section aria-label="Categories" className="mb-6">
-        <div className="flex flex-wrap items-center gap-3">
-          {(loading || profilesLoading) && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>
-          )}
-          {!loading &&
-            !profilesLoading &&
-            categories.map((category) => (
-              <CategoryChip
-                key={getId(category)}
-                category={category}
-                selected={selectedCategoryIds.includes(String(getId(category)))}
-                onToggleFilter={toggleCategoryFilter}
-                onEdit={setEditingCategory}
-                onDelete={(cat) =>
-                  requestConfirm(`Delete category "${cat.name}"? This cannot be undone.`, () =>
-                    handleDelete(cat),
-                  )
-                }
-              />
-            ))}
-          <button
-            type="button"
-            onClick={() => {
-              setEditingCategory(null)
-              setShowCreateForm((v) => !v)
-            }}
-            className="rounded-full border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-500 hover:bg-white dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/5"
-          >
-            + Add category
-          </button>
-        </div>
+      {activeTab === 'notes' ? (
+        <NotesView activeProfileId={activeProfileId} />
+      ) : (
+        <>
+          <section aria-label="Categories" className="mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {(loading || profilesLoading) && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>
+              )}
+              {!loading &&
+                !profilesLoading &&
+                categories.map((category) => (
+                  <CategoryChip
+                    key={getId(category)}
+                    category={category}
+                    selected={selectedCategoryIds.includes(String(getId(category)))}
+                    onToggleFilter={toggleCategoryFilter}
+                    onEdit={setEditingCategory}
+                    onDelete={(cat) =>
+                      requestConfirm(`Delete category "${cat.name}"? This cannot be undone.`, () =>
+                        handleDelete(cat),
+                      )
+                    }
+                  />
+                ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCategory(null)
+                  setShowCreateForm((v) => !v)
+                }}
+                className="rounded-full border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-500 hover:bg-white dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                + Add category
+              </button>
+            </div>
 
-        {showCreateForm && (
-          <div className="mt-3 max-w-sm">
-            <CategoryForm
-              submitLabel="Add category"
-              onSubmit={handleCreate}
-              onCancel={() => setShowCreateForm(false)}
-            />
-          </div>
-        )}
+            {showCreateForm && (
+              <div className="mt-3 max-w-sm">
+                <CategoryForm
+                  submitLabel="Add category"
+                  onSubmit={handleCreate}
+                  onCancel={() => setShowCreateForm(false)}
+                />
+              </div>
+            )}
 
-        {editingCategory && (
-          <div className="mt-3 max-w-sm">
-            <CategoryForm
-              initialName={editingCategory.name}
-              initialColor={editingCategory.color}
-              submitLabel="Save"
-              onSubmit={(values) => handleRename(getId(editingCategory), values)}
-              onCancel={() => setEditingCategory(null)}
-            />
-          </div>
-        )}
-      </section>
+            {editingCategory && (
+              <div className="mt-3 max-w-sm">
+                <CategoryForm
+                  initialName={editingCategory.name}
+                  initialColor={editingCategory.color}
+                  submitLabel="Save"
+                  onSubmit={(values) => handleRename(getId(editingCategory), values)}
+                  onCancel={() => setEditingCategory(null)}
+                />
+              </div>
+            )}
+          </section>
 
-      <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
-        <MiniCalendar
-          todos={todos}
-          nextOfficeDay={nextOfficeDay}
-          onSetOfficeDay={handleSetOfficeDay}
-          selectedRange={selectedDateRange}
-          onSelectRange={setSelectedDateRange}
-        />
-        <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-          <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search todos by title or body..."
-            aria-label="Search todos"
-            className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
-          />
-          <div className="mb-4 flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={sortByPriority}
-                onChange={(e) => setSortByPriority(e.target.checked)}
-                className="h-3.5 w-3.5 accent-fuchsia-500"
-              />
-              Sort by priority
-            </label>
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={showCompletedOnly}
-                onChange={(e) => setShowCompletedOnly(e.target.checked)}
-                className="h-3.5 w-3.5 accent-fuchsia-500"
-              />
-              Show completed
-            </label>
-          </div>
-          {showCompletedOnly ? (
-            <CompletedTodos
-              todos={visibleTodos}
-              categoriesById={categoriesById}
-              onToggle={handleTodoToggle}
-              onDelete={handleTodoDelete}
-              onOpen={setSelectedTodo}
-            />
-          ) : (
-            <AgendaGroups
-              todos={visibleTodos}
-              categoriesById={categoriesById}
-              onToggle={handleTodoToggle}
-              onDelete={handleTodoDelete}
-              onOpen={setSelectedTodo}
-              sortByPriority={sortByPriority}
+          <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
+            <MiniCalendar
+              todos={todos}
               nextOfficeDay={nextOfficeDay}
+              onSetOfficeDay={handleSetOfficeDay}
+              selectedRange={selectedDateRange}
+              onSelectRange={setSelectedDateRange}
             />
-          )}
-        </div>
-      </section>
+            <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
+              <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search todos by title or body..."
+                aria-label="Search todos"
+                className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+              />
+              <div className="mb-4 flex items-center gap-4">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={sortByPriority}
+                    onChange={(e) => setSortByPriority(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-fuchsia-500"
+                  />
+                  Sort by priority
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={showCompletedOnly}
+                    onChange={(e) => setShowCompletedOnly(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-fuchsia-500"
+                  />
+                  Show completed
+                </label>
+              </div>
+              {showCompletedOnly ? (
+                <CompletedTodos
+                  todos={visibleTodos}
+                  categoriesById={categoriesById}
+                  onToggle={handleTodoToggle}
+                  onDelete={handleTodoDelete}
+                  onOpen={setSelectedTodo}
+                />
+              ) : (
+                <AgendaGroups
+                  todos={visibleTodos}
+                  categoriesById={categoriesById}
+                  onToggle={handleTodoToggle}
+                  onDelete={handleTodoDelete}
+                  onOpen={setSelectedTodo}
+                  sortByPriority={sortByPriority}
+                  nextOfficeDay={nextOfficeDay}
+                />
+              )}
+            </div>
+          </section>
+        </>
+      )}
 
       <Scratchpad
         notes={scratchNotes}

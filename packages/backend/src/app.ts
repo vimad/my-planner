@@ -1,6 +1,8 @@
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { categoriesRouter } from './routes/categories.ts'
+import { noteFoldersRouter } from './routes/noteFolders.ts'
+import { notesRouter } from './routes/notes.ts'
 import { profilesRouter } from './routes/profiles.ts'
 import { scratchNotesRouter } from './routes/scratchNotes.ts'
 import { settingsRouter } from './routes/settings.ts'
@@ -21,6 +23,8 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   })
 
   app.use('/api/categories', categoriesRouter)
+  app.use('/api/note-folders', noteFoldersRouter)
+  app.use('/api/notes', notesRouter)
   app.use('/api/profiles', profilesRouter)
   app.use('/api/todos', todosRouter)
   app.use('/api/scratch-notes', scratchNotesRouter)

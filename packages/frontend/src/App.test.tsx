@@ -1344,4 +1344,56 @@ describe('App', () => {
       expect(optionLabels).not.toContain('Errands')
     })
   })
+
+  // Ticket 05: the header's Todos/Notes tab swaps the Categories+Agenda
+  // section for the Notes view - everything else (header chrome, the
+  // fixed-bottom Scratchpad bar) stays put regardless of which tab is
+  // active.
+  describe('Notes tab', () => {
+    it('swaps the Categories+Agenda area for the Notes view, leaving the header and Scratchpad bar in place', async () => {
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Work')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('tab', { name: 'Todos' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('button', { name: 'Jot something down...' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+      expect(screen.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.queryByText('Work')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '+ Add category' })).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: 'Notes' })).toBeInTheDocument()
+      })
+      // The rest of the page's chrome is unaffected by which tab is active.
+      expect(screen.getByRole('heading', { name: 'My Planner' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Jot something down...' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Todos' }))
+
+      expect(screen.getByText('Work')).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Notes' })).not.toBeInTheDocument()
+    })
+
+    it('fetches the active profile\'s note folders and notes once the Notes tab is opened', async () => {
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Work')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+      await waitFor(() => {
+        const foldersCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/note-folders'))
+        expect(foldersCall).toBeDefined()
+        expect(foldersCall![0]).toContain('profileId=work-profile-id')
+      })
+      const notesCall = fetchMock.mock.calls.find(
+        ([url]) => url.includes('/api/notes') && !url.includes('/api/notes/'),
+      )
+      expect(notesCall).toBeDefined()
+      expect(notesCall![0]).toContain('profileId=work-profile-id')
+    })
+  })
 })

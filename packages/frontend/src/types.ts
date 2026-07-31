@@ -96,3 +96,27 @@ export interface Profile {
   createdAt?: string
   updatedAt?: string
 }
+
+// Notes — a third, durable/organized concept alongside Todos and Scratchpad
+// (see .scratch/notes-section/spec.md). Deliberately minimal: no priority,
+// tags, due dates, or completion. `parentId`/`folderId` are `null` (never
+// `undefined`) for a root-level folder/note, mirroring how the backend
+// always writes an explicit null rather than omitting the field.
+export interface NoteFolder {
+  _id?: string
+  id?: string
+  name: string
+  parentId?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface Note {
+  _id?: string
+  id?: string
+  name: string
+  folderId?: string | null
+  body?: JSONContent | null
+  createdAt?: string
+  updatedAt?: string
+}
