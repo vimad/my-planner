@@ -197,7 +197,10 @@ scratchNotesRouter.post(
       }
 
       const title = extractText(line.content).trim() || 'Untitled'
-      const resolvedCategoryId = categoryId ?? (await resolveDefaultCategoryId())
+      // note.profileId is always set (required field) — a promoted todo's
+      // default category comes from the note's own profile's Uncategorized,
+      // never a global one, now that Uncategorized is per-profile.
+      const resolvedCategoryId = categoryId ?? (await resolveDefaultCategoryId(note.profileId))
 
       const todo = await Todo.create({
         title,

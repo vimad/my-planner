@@ -102,10 +102,10 @@ function App() {
     return activeProfileId ? loadCategories(activeProfileId) : Promise.resolve()
   }
 
-  async function loadTodos() {
+  async function loadTodos(profileId: string) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/todos`)
+      const res = await fetch(`${API_URL}/api/todos?profileId=${encodeURIComponent(profileId)}`)
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       const data = await res.json()
       setTodos(data)
@@ -114,15 +114,26 @@ function App() {
     }
   }
 
-  async function loadTags() {
+  // Mirrors refreshCategories below: every todo mutation/refresh in this
+  // file goes through this wrapper so call sites don't each have to guard
+  // against activeProfileId still being null.
+  function refreshTodos() {
+    return activeProfileId ? loadTodos(activeProfileId) : Promise.resolve()
+  }
+
+  async function loadTags(profileId: string) {
     try {
-      const res = await fetch(`${API_URL}/api/todos/tags`)
+      const res = await fetch(`${API_URL}/api/todos/tags?profileId=${encodeURIComponent(profileId)}`)
       if (!res.ok) return
       const data = await res.json()
       setAvailableTags(data)
     } catch {
       // Autocomplete is a nice-to-have; a failed fetch just leaves it empty.
     }
+  }
+
+  function refreshTags() {
+    return activeProfileId ? loadTags(activeProfileId) : Promise.resolve()
   }
 
   async function loadScratchNotes() {
@@ -154,12 +165,16 @@ function App() {
   // made the category chip row flash back to "Loading categories..." on
   // every add/toggle/delete. The category chip row also waits on
   // `profilesLoading` (see useActiveProfile) since categories can't load
-  // until the active profile has resolved.
+  // until the active profile has resolved. Todos/tags are profile-scoped
+  // (this ticket) so they're loaded by the activeProfileId-keyed effect
+  // below instead of here - scratchNotes/settings aren't (yet - scratchpad
+  // scoping is ticket 05; settings are deliberately global) so they still
+  // load unconditionally on mount.
   useEffect(() => {
     async function bootstrap() {
       setLoading(true)
       try {
-        await Promise.all([loadTodos(), loadTags(), loadScratchNotes(), loadSettings()])
+        await Promise.all([loadScratchNotes(), loadSettings()])
       } finally {
         setLoading(false)
       }
@@ -167,13 +182,19 @@ function App() {
     bootstrap()
   }, [])
 
-  // Categories are scoped to the active profile, which itself resolves
-  // asynchronously (useActiveProfile fetches GET /api/profiles and restores
-  // the saved choice from localStorage) - so the initial load and every
-  // subsequent profile switch both flow through this one effect rather than
-  // the bootstrap effect above.
+  // Categories, todos, and tags are all scoped to the active profile, which
+  // itself resolves asynchronously (useActiveProfile fetches GET
+  // /api/profiles and restores the saved choice from localStorage) - so the
+  // initial load and every subsequent profile switch both flow through this
+  // one effect rather than the bootstrap effect above. Re-running all three
+  // together on every profile switch is what keeps the dashboard, mini
+  // calendar, category summary strip, and tag autocomplete all in sync with
+  // no stale cross-profile data.
   useEffect(() => {
-    if (activeProfileId) loadCategories(activeProfileId)
+    if (!activeProfileId) return
+    loadCategories(activeProfileId)
+    loadTodos(activeProfileId)
+    loadTags(activeProfileId)
   }, [activeProfileId])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
@@ -181,10 +202,13 @@ function App() {
   // the already-loaded `todos`, so the endpoint is exercised end-to-end. An
   // empty query clears searchResults, which makes the agenda fall back to
   // the normal unfiltered `todos` list. `ignore` guards against an in-flight
-  // request from a stale keystroke resolving after a newer one.
+  // request from a stale keystroke resolving after a newer one. Also keyed
+  // on activeProfileId so switching profiles while a search is active
+  // immediately re-runs it scoped to the newly-active profile instead of
+  // leaving the previous profile's stale results on screen.
   useEffect(() => {
     const trimmed = searchQuery.trim()
-    if (!trimmed) {
+    if (!trimmed || !activeProfileId) {
       setSearchResults(null)
       return
     }
@@ -192,7 +216,9 @@ function App() {
     let ignore = false
     async function runSearch() {
       try {
-        const res = await fetch(`${API_URL}/api/todos/search?q=${encodeURIComponent(trimmed)}`)
+        const res = await fetch(
+          `${API_URL}/api/todos/search?profileId=${encodeURIComponent(activeProfileId as string)}&q=${encodeURIComponent(trimmed)}`,
+        )
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         const data = await res.json()
         if (!ignore) setSearchResults(data)
@@ -205,7 +231,7 @@ function App() {
     return () => {
       ignore = true
     }
-  }, [searchQuery])
+  }, [searchQuery, activeProfileId])
 
   // New categories always attach to whichever profile is currently active -
   // there's no manual profile picker on CategoryForm (see the Profiles spec:
@@ -310,16 +336,22 @@ function App() {
 
   // Todo mutations refresh both todos and categories, since category chip
   // remaining/completed counts are computed server-side from real todos.
+  //
+  // Quick-add never lets the user pick a category, so profileId is always
+  // sent - the backend uses it to resolve the active profile's own
+  // Uncategorized category (see resolveDefaultCategoryId in
+  // utils/defaultCategory.ts), never some other profile's.
   async function handleQuickAddTodo(title: string) {
+    if (!activeProfileId) return
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title, profileId: activeProfileId }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), refreshCategories()])
+      await Promise.all([refreshTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -342,7 +374,7 @@ function App() {
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       setDraftTodo(null)
-      await Promise.all([loadTodos(), refreshCategories(), loadTags()])
+      await Promise.all([refreshTodos(), refreshCategories(), refreshTags()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -353,7 +385,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/todos/${id}/toggle`, { method: 'PATCH' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), refreshCategories()])
+      await Promise.all([refreshTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -364,7 +396,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/todos/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), refreshCategories()])
+      await Promise.all([refreshTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -385,7 +417,7 @@ function App() {
         body: JSON.stringify(patch),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), refreshCategories(), loadTags()])
+      await Promise.all([refreshTodos(), refreshCategories(), refreshTags()])
       return true
     } catch (err) {
       setError((err as Error).message)
@@ -455,7 +487,7 @@ function App() {
         body: JSON.stringify({ lineId, ...options }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadScratchNotes(), loadTodos(), refreshCategories()])
+      await Promise.all([loadScratchNotes(), refreshTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }

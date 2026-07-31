@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Todo, type TodoDoc, type TodoPriority, type TodoRecurrence } from '../models/Todo.ts'
 import { resolveDefaultCategoryId } from '../utils/defaultCategory.ts'
+import { resolveCategoryIdsForProfile } from '../utils/profileScope.ts'
 import { tiptapToPlainText } from '../utils/tiptapText.ts'
 import type { TiptapNode } from '../utils/tiptapText.ts'
 
@@ -12,6 +13,10 @@ export const todosRouter = Router()
 interface CreateTodoBody {
   title?: string
   categoryId?: string
+  // Only used to resolve the default (Uncategorized) categoryId when
+  // categoryId itself is omitted — see the POST handler below. Never stored
+  // on the Todo itself (Todo has no direct profileId; see profileScope.ts).
+  profileId?: string
   dueDate?: string | null
   priority?: TodoPriority
   tags?: string[]
@@ -55,13 +60,21 @@ todosRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CreateTodoBody>, res: Response, next: NextFunction) => {
     try {
-      const { title, categoryId, dueDate, priority, tags, body, officeLinked } = req.body
+      const { title, categoryId, profileId, dueDate, priority, tags, body, officeLinked } = req.body
 
       if (!title || !String(title).trim()) {
         return res.status(400).json({ error: 'title is required' })
       }
 
-      const resolvedCategoryId = categoryId ?? (await resolveDefaultCategoryId())
+      // profileId is only needed to resolve the default (Uncategorized)
+      // category when the client doesn't supply one explicitly (quick-add)
+      // — a client that does supply categoryId (e.g. the full TodoDetail
+      // form, which always has one) never needs to send profileId at all.
+      if (!categoryId && !profileId) {
+        return res.status(400).json({ error: 'profileId is required when no categoryId is provided' })
+      }
+
+      const resolvedCategoryId = categoryId ?? (await resolveDefaultCategoryId(profileId as string))
 
       const todo = await Todo.create({
         title: String(title).trim(),
@@ -82,48 +95,93 @@ todosRouter.post(
   },
 )
 
-// GET /api/todos -> list all todos
-todosRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const todos = await Todo.find().sort({ createdAt: -1 })
-    res.json(todos)
-  } catch (err) {
-    next(err)
-  }
-})
-
-// GET /api/todos/tags -> sorted list of distinct tags in use, for autocomplete.
-// Must be registered before any /:id-shaped route so Express's param matcher
-// doesn't swallow the literal "tags" segment as an :id.
-todosRouter.get('/tags', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const tags = await Todo.distinct('tags')
-    const sorted = [...new Set(tags.filter(Boolean))].sort((a, b) => a.localeCompare(b))
-    res.json(sorted)
-  } catch (err) {
-    next(err)
-  }
-})
-
-// GET /api/todos/search?q=... -> case-insensitive search over title and the
-// denormalized bodyText extract (see utils/tiptapText.js). Simple regex
-// match per the spec's explicit v1 guidance (no MongoDB text indexes needed
-// at this data volume). A missing/empty q returns all todos, which is the
-// more useful default for a "type to filter" search box that starts empty.
-// Must be registered before any /:id-shaped route (see /tags above).
+// GET /api/todos?profileId=... -> list a profile's todos. profileId is
+// required (mirrors GET /api/categories's convention) so a caller can never
+// accidentally see another profile's todos by omitting it. Todo has no
+// direct profileId, so scoping goes through resolveCategoryIdsForProfile's
+// categoryId -> Category.profileId join (see utils/profileScope.ts).
 todosRouter.get(
-  '/search',
+  '/',
   async (
-    req: Request<Record<string, never>, unknown, unknown, { q?: string }>,
+    req: Request<Record<string, never>, unknown, unknown, { profileId?: string }>,
     res: Response,
     next: NextFunction,
   ) => {
     try {
+      const { profileId } = req.query
+
+      if (!profileId || typeof profileId !== 'string') {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
+      const categoryIds = await resolveCategoryIdsForProfile(profileId)
+      const todos = await Todo.find({ categoryId: { $in: categoryIds } }).sort({ createdAt: -1 })
+      res.json(todos)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// GET /api/todos/tags?profileId=... -> sorted list of distinct tags in use
+// within a profile, for autocomplete — scoped the same way as GET / above so
+// suggestions never leak another profile's tags. Must be registered before
+// any /:id-shaped route so Express's param matcher doesn't swallow the
+// literal "tags" segment as an :id.
+todosRouter.get(
+  '/tags',
+  async (
+    req: Request<Record<string, never>, unknown, unknown, { profileId?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    try {
+      const { profileId } = req.query
+
+      if (!profileId || typeof profileId !== 'string') {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
+      const categoryIds = await resolveCategoryIdsForProfile(profileId)
+      const tags = await Todo.distinct('tags', { categoryId: { $in: categoryIds } })
+      const sorted = [...new Set(tags.filter(Boolean))].sort((a, b) => a.localeCompare(b))
+      res.json(sorted)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// GET /api/todos/search?profileId=...&q=... -> case-insensitive search over
+// title and the denormalized bodyText extract (see utils/tiptapText.js),
+// scoped to a profile the same way as GET / above. Simple regex match per
+// the spec's explicit v1 guidance (no MongoDB text indexes needed at this
+// data volume). A missing/empty q returns all of the profile's todos, which
+// is the more useful default for a "type to filter" search box that starts
+// empty. Must be registered before any /:id-shaped route (see /tags above).
+todosRouter.get(
+  '/search',
+  async (
+    req: Request<Record<string, never>, unknown, unknown, { q?: string; profileId?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    try {
+      const { profileId } = req.query
+
+      if (!profileId || typeof profileId !== 'string') {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
       const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+      const categoryIds = await resolveCategoryIdsForProfile(profileId)
 
       const filter = q
-        ? { $or: [{ title: { $regex: q, $options: 'i' } }, { bodyText: { $regex: q, $options: 'i' } }] }
-        : {}
+        ? {
+            categoryId: { $in: categoryIds },
+            $or: [{ title: { $regex: q, $options: 'i' } }, { bodyText: { $regex: q, $options: 'i' } }],
+          }
+        : { categoryId: { $in: categoryIds } }
 
       const todos = await Todo.find(filter).sort({ createdAt: -1 })
       res.json(todos)

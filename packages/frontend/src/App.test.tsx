@@ -277,7 +277,10 @@ describe('App', () => {
       const postCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'POST')
       expect(postCall).toBeDefined()
       expect(postCall![0]).toContain('/api/todos')
-      expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ title: 'Buy milk' })
+      expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({
+        title: 'Buy milk',
+        profileId: 'work-profile-id',
+      })
 
       // Category chip counts reflect the follow-up GET /api/categories refetch.
       expect(screen.getByText('2 remaining · 0 completed')).toBeInTheDocument()
@@ -961,6 +964,184 @@ describe('App', () => {
       await waitFor(() => {
         expect(screen.getByText('Errands')).toBeInTheDocument()
       })
+    })
+  })
+
+  // Ticket 04: todos have no direct profileId (derived transitively via
+  // categoryId -> Category.profileId), but every todo-driven view - the
+  // agenda, the mini calendar's due-date markers, quick-add's default
+  // category, and search - must still narrow to the active profile with no
+  // stale cross-profile data left visible after a switch.
+  describe('Todo/dashboard scoping across profiles', () => {
+    const workTodo: Todo = {
+      _id: 'work-todo-id',
+      title: 'Ship feature',
+      categoryId: 'work-cat-id',
+      completed: false,
+      dueDate: '2026-07-28',
+    }
+
+    const personalTodo: Todo = {
+      _id: 'personal-todo-id',
+      title: 'Buy groceries',
+      categoryId: 'personal-cat-id',
+      completed: false,
+      dueDate: '2026-07-29',
+    }
+
+    const workOnlyCategory: Category = {
+      _id: 'work-cat-id',
+      name: 'Deep Work',
+      color: '#4361ee',
+      system: false,
+      remaining: 1,
+      completed: 0,
+    }
+
+    const personalOnlyCategory: Category = {
+      _id: 'personal-cat-id',
+      name: 'Errands',
+      color: '#e85d75',
+      system: false,
+      remaining: 1,
+      completed: 0,
+    }
+
+    const personalProfile: Profile = { _id: 'personal-profile-id', name: 'Personal Profile' }
+
+    // Dispatches every todo-adjacent endpoint (list/search/tags) *and*
+    // categories by the profileId query param it was called with, so a
+    // profile switch is observably scoped end-to-end rather than just
+    // re-requesting the same fixed data.
+    function stubTodoScopedFetch(): FetchMock {
+      return stubFetch((href) => {
+        const profileId = new URL(href, 'http://localhost').searchParams.get('profileId')
+        const isPersonal = profileId === 'personal-profile-id'
+        if (href.includes('/api/todos/search')) return jsonResponse(isPersonal ? [personalTodo] : [workTodo])
+        if (href.includes('/api/todos/tags')) return jsonResponse(isPersonal ? ['errand'] : ['urgent'])
+        if (href.includes('/api/todos')) return jsonResponse(isPersonal ? [personalTodo] : [workTodo])
+        if (href.includes('/api/categories')) {
+          return jsonResponse(isPersonal ? [personalOnlyCategory] : [workOnlyCategory])
+        }
+        if (href.includes('/api/profiles')) return jsonResponse([workProfile, personalProfile])
+        return jsonResponse([])
+      })
+    }
+
+    beforeEach(() => {
+      // Matches MiniCalendar.test.tsx's own convention - fixes "today" so
+      // the mini calendar's due-date markers (asserted below) are
+      // deterministic instead of depending on the real wall clock.
+      // shouldAdvanceTime keeps real timers ticking underneath (needed for
+      // RTL's waitFor, which polls on a real setInterval) while Date()
+      // itself stays pinned.
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      vi.setSystemTime(new Date(2026, 6, 25, 9, 0)) // July 25, 2026
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('shows only the active profile\'s todos in the agenda and mini calendar, re-scoping immediately on switch', async () => {
+      fetchMock = stubTodoScopedFetch()
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Buy groceries')).not.toBeInTheDocument()
+      // Mini calendar's due-date marker follows the same profile-scoped
+      // `todos` state the agenda reads from.
+      expect(screen.getByText('28').querySelector('span')).not.toBeNull()
+      expect(screen.getByText('29').querySelector('span')).toBeNull()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Buy groceries')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
+      expect(screen.getByText('29').querySelector('span')).not.toBeNull()
+      expect(screen.getByText('28').querySelector('span')).toBeNull()
+
+      const todoCalls = fetchMock.mock.calls
+        .filter(([url]) => url.includes('/api/todos') && !url.includes('/search') && !url.includes('/tags'))
+        .map(([url]) => url)
+      expect(todoCalls.some((url) => url.includes('profileId=work-profile-id'))).toBe(true)
+      expect(todoCalls.some((url) => url.includes('profileId=personal-profile-id'))).toBe(true)
+    })
+
+    it('defaults a quick-added todo to the active profile, re-targeting after switching profiles', async () => {
+      fetchMock = stubTodoScopedFetch()
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+      await waitFor(() => {
+        expect(screen.getByText('Buy groceries')).toBeInTheDocument()
+      })
+
+      const newTodo: Todo = {
+        _id: 'new-todo-id',
+        title: 'Call the vet',
+        categoryId: 'personal-uncategorized-id',
+        completed: false,
+        dueDate: null,
+      }
+      fetchMock.mockImplementationOnce(() => jsonResponse(newTodo, true)) // POST /api/todos
+      fetchMock.mockImplementationOnce(() => jsonResponse([personalTodo, newTodo])) // refetch GET /api/todos
+      fetchMock.mockImplementationOnce(() => jsonResponse([personalOnlyCategory])) // refetch GET /api/categories
+
+      fireEvent.change(screen.getByLabelText('New todo title'), { target: { value: 'Call the vet' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Call the vet')).toBeInTheDocument()
+      })
+
+      const postCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'POST')
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({
+        title: 'Call the vet',
+        profileId: 'personal-profile-id',
+      })
+    })
+
+    it('re-scopes search results to the active profile, leaving no stale cross-profile results after switching', async () => {
+      fetchMock = stubTodoScopedFetch()
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: 'feature' } })
+
+      await waitFor(() => {
+        const searchCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/todos/search'))
+        expect(searchCall).toBeDefined()
+        expect(searchCall![0]).toContain('profileId=work-profile-id')
+      })
+      expect(screen.getByText('Ship feature')).toBeInTheDocument()
+      expect(screen.queryByText('Buy groceries')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+
+      await waitFor(() => {
+        const searchCalls = fetchMock.mock.calls.filter(([url]) => url.includes('/api/todos/search'))
+        expect(searchCalls.some(([url]) => url.includes('profileId=personal-profile-id'))).toBe(true)
+      })
+      // The search box still holds "feature", but the results it now shows
+      // come from the newly-active profile, not a stale carry-over from Work.
+      await waitFor(() => {
+        expect(screen.getByText('Buy groceries')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
     })
   })
 })

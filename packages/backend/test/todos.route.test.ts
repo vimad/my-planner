@@ -12,6 +12,7 @@ interface MockedTodoModel {
 
 interface MockedCategoryModel {
   findOne: Mock
+  find: Mock
 }
 
 vi.mock('../src/models/Todo.ts', () => {
@@ -31,6 +32,7 @@ vi.mock('../src/models/Category.ts', () => {
   return {
     Category: {
       findOne: vi.fn(),
+      find: vi.fn(),
     },
   }
 })
@@ -46,10 +48,15 @@ const { createApp } = await import('../src/app.ts')
 describe('Todo routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: resolveCategoryIdsForProfile's Category.find() call resolves
+    // to no categories unless a test overrides it — most GET tests below
+    // only care about the Todo.find/.distinct filter shape it feeds into,
+    // not the specific category ids.
+    Category.find.mockResolvedValue([])
   })
 
   describe('POST /api/todos', () => {
-    it('quick-creates a todo from just a title, defaulting to the Uncategorized category', async () => {
+    it('quick-creates a todo from just a title, defaulting to the active profile\'s Uncategorized category', async () => {
       Category.findOne.mockResolvedValue({ _id: 'uncategorized-id', name: 'Uncategorized' })
       Todo.create.mockResolvedValue({
         _id: 't1',
@@ -60,13 +67,47 @@ describe('Todo routes', () => {
       })
 
       const app = createApp()
-      const res = await request(app).post('/api/todos').send({ title: 'Buy milk' })
+      const res = await request(app).post('/api/todos').send({ title: 'Buy milk', profileId: 'profile-1' })
 
       expect(res.status).toBe(201)
-      expect(Category.findOne).toHaveBeenCalledWith({ name: 'Uncategorized' })
+      expect(Category.findOne).toHaveBeenCalledWith({ name: 'Uncategorized', profileId: 'profile-1' })
       expect(Todo.create).toHaveBeenCalledWith({
         title: 'Buy milk',
         categoryId: 'uncategorized-id',
+        dueDate: null,
+      })
+    })
+
+    it('rejects when neither categoryId nor profileId is provided', async () => {
+      const app = createApp()
+      const res = await request(app).post('/api/todos').send({ title: 'Buy milk' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required when no categoryId is provided' })
+      expect(Category.findOne).not.toHaveBeenCalled()
+      expect(Todo.create).not.toHaveBeenCalled()
+    })
+
+    it("defaults to a different profile's own Uncategorized category when a different profileId is supplied", async () => {
+      Category.findOne.mockResolvedValue({ _id: 'other-uncategorized-id', name: 'Uncategorized' })
+      Todo.create.mockResolvedValue({
+        _id: 't1b',
+        title: 'Water the plants',
+        categoryId: 'other-uncategorized-id',
+        completed: false,
+        dueDate: null,
+      })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/todos')
+        .send({ title: 'Water the plants', profileId: 'profile-2' })
+
+      expect(res.status).toBe(201)
+      expect(Category.findOne).toHaveBeenCalledWith({ name: 'Uncategorized', profileId: 'profile-2' })
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'Water the plants',
+        categoryId: 'other-uncategorized-id',
         dueDate: null,
       })
     })
@@ -124,7 +165,9 @@ describe('Todo routes', () => {
       })
 
       const app = createApp()
-      const res = await request(app).post('/api/todos').send({ title: 'Water the plants' })
+      const res = await request(app)
+        .post('/api/todos')
+        .send({ title: 'Water the plants', profileId: 'profile-1' })
 
       expect(res.status).toBe(201)
       expect(res.body.priority).toBe('Medium')
@@ -198,22 +241,50 @@ describe('Todo routes', () => {
   })
 
   describe('GET /api/todos/tags', () => {
-    it('returns the sorted list of distinct tags in use', async () => {
+    it("returns the sorted list of distinct tags in use within the given profile's categories", async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }, { _id: 'uncategorized-id' }])
       Todo.distinct.mockResolvedValue(['urgent', 'home', 'waiting-on-someone'])
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/tags')
+      const res = await request(app).get('/api/todos/tags').query({ profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(['home', 'urgent', 'waiting-on-someone'])
-      expect(Todo.distinct).toHaveBeenCalledWith('tags')
+      expect(Category.find).toHaveBeenCalledWith({ profileId: 'profile-1' }, { _id: 1 })
+      expect(Todo.distinct).toHaveBeenCalledWith('tags', {
+        categoryId: { $in: ['work-id', 'uncategorized-id'] },
+      })
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/todos/tags')
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Todo.distinct).not.toHaveBeenCalled()
+    })
+
+    it("never suggests another profile's tags — profile A's categories don't leak into profile B's query", async () => {
+      Category.find.mockImplementation(({ profileId }: { profileId: string }) =>
+        Promise.resolve(
+          profileId === 'profile-a' ? [{ _id: 'a-cat-id' }] : [{ _id: 'b-cat-id' }],
+        ),
+      )
+      Todo.distinct.mockResolvedValue([])
+
+      const app = createApp()
+      await request(app).get('/api/todos/tags').query({ profileId: 'profile-b' })
+
+      expect(Todo.distinct).toHaveBeenCalledWith('tags', { categoryId: { $in: ['b-cat-id'] } })
+      expect(Todo.distinct).not.toHaveBeenCalledWith('tags', { categoryId: { $in: ['a-cat-id'] } })
     })
 
     it('is not swallowed by the /:id-shaped routes (route ordering)', async () => {
       Todo.distinct.mockResolvedValue([])
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/tags')
+      const res = await request(app).get('/api/todos/tags').query({ profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       // If /:id had matched first, this would hit findById-style handling
@@ -223,39 +294,75 @@ describe('Todo routes', () => {
   })
 
   describe('GET /api/todos/search', () => {
-    it('matches by title (case-insensitive)', async () => {
+    it('matches by title (case-insensitive), scoped to the given profile', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
       const docs = [{ _id: 't1', title: 'Buy Milk', bodyText: '' }]
       Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/search').query({ q: 'milk' })
+      const res = await request(app)
+        .get('/api/todos/search')
+        .query({ q: 'milk', profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(docs)
       expect(Todo.find).toHaveBeenCalledWith({
+        categoryId: { $in: ['work-id'] },
         $or: [{ title: { $regex: 'milk', $options: 'i' } }, { bodyText: { $regex: 'milk', $options: 'i' } }],
       })
     })
 
     it('matches by the denormalized bodyText extract', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
       const docs = [{ _id: 't2', title: 'Groceries', bodyText: 'remember to buy oat milk' }]
       Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/search').query({ q: 'oat' })
+      const res = await request(app)
+        .get('/api/todos/search')
+        .query({ q: 'oat', profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(docs)
       expect(Todo.find).toHaveBeenCalledWith({
+        categoryId: { $in: ['work-id'] },
         $or: [{ title: { $regex: 'oat', $options: 'i' } }, { bodyText: { $regex: 'oat', $options: 'i' } }],
       })
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/todos/search').query({ q: 'milk' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
+
+    it("never returns another profile's todos — profile A's results stay out of profile B's search", async () => {
+      Category.find.mockImplementation(({ profileId }: { profileId: string }) =>
+        Promise.resolve(
+          profileId === 'profile-a' ? [{ _id: 'a-cat-id' }] : [{ _id: 'b-cat-id' }],
+        ),
+      )
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app).get('/api/todos/search').query({ q: 'milk', profileId: 'profile-b' })
+
+      expect(Todo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: { $in: ['b-cat-id'] } }),
+      )
+      expect(Todo.find).not.toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: { $in: ['a-cat-id'] } }),
+      )
     })
 
     it('is not swallowed by the /:id-shaped routes (route ordering)', async () => {
       Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/search')
+      const res = await request(app).get('/api/todos/search').query({ profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       // If /:id had matched first, Todo.findById would be hit instead.
@@ -263,29 +370,57 @@ describe('Todo routes', () => {
       expect(Todo.findById).not.toHaveBeenCalled()
     })
 
-    it('returns all todos when q is missing or empty', async () => {
+    it('returns all of the profile\'s todos when q is missing or empty', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
       const docs = [{ _id: 't1' }, { _id: 't2' }]
       Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/todos/search').query({ q: '' })
+      const res = await request(app).get('/api/todos/search').query({ q: '', profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(docs)
-      expect(Todo.find).toHaveBeenCalledWith({})
+      expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['work-id'] } })
     })
   })
 
   describe('GET /api/todos', () => {
-    it('lists all todos', async () => {
+    it("lists the given profile's todos", async () => {
+      Category.find.mockResolvedValue([{ _id: 'uncategorized-id' }])
       const docs = [{ _id: 't1', title: 'Buy milk', completed: false, dueDate: null }]
       Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/todos')
+      const res = await request(app).get('/api/todos').query({ profileId: 'profile-1' })
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(docs)
+      expect(Category.find).toHaveBeenCalledWith({ profileId: 'profile-1' }, { _id: 1 })
+      expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['uncategorized-id'] } })
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/todos')
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
+
+    it("never returns another profile's todos", async () => {
+      Category.find.mockImplementation(({ profileId }: { profileId: string }) =>
+        Promise.resolve(
+          profileId === 'profile-a' ? [{ _id: 'a-cat-id' }] : [{ _id: 'b-cat-id' }],
+        ),
+      )
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app).get('/api/todos').query({ profileId: 'profile-b' })
+
+      expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['b-cat-id'] } })
+      expect(Todo.find).not.toHaveBeenCalledWith({ categoryId: { $in: ['a-cat-id'] } })
     })
   })
 
