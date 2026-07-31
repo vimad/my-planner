@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Todo, type TodoDoc, type TodoPriority, type TodoRecurrence } from '../models/Todo.ts'
 import { resolveDefaultCategoryId } from '../utils/defaultCategory.ts'
-import { resolveCategoryIdsForProfile } from '../utils/profileScope.ts'
+import { requireProfileId, resolveCategoryIdsForProfile } from '../utils/profileScope.ts'
 import { tiptapToPlainText } from '../utils/tiptapText.ts'
 import type { TiptapNode } from '../utils/tiptapText.ts'
 
@@ -108,11 +108,8 @@ todosRouter.get(
     next: NextFunction,
   ) => {
     try {
-      const { profileId } = req.query
-
-      if (!profileId || typeof profileId !== 'string') {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
 
       const categoryIds = await resolveCategoryIdsForProfile(profileId)
       const todos = await Todo.find({ categoryId: { $in: categoryIds } }).sort({ createdAt: -1 })
@@ -136,11 +133,8 @@ todosRouter.get(
     next: NextFunction,
   ) => {
     try {
-      const { profileId } = req.query
-
-      if (!profileId || typeof profileId !== 'string') {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
 
       const categoryIds = await resolveCategoryIdsForProfile(profileId)
       const tags = await Todo.distinct('tags', { categoryId: { $in: categoryIds } })
@@ -167,11 +161,8 @@ todosRouter.get(
     next: NextFunction,
   ) => {
     try {
-      const { profileId } = req.query
-
-      if (!profileId || typeof profileId !== 'string') {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
 
       const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
       const categoryIds = await resolveCategoryIdsForProfile(profileId)

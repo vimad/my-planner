@@ -10,6 +10,7 @@ interface MockedCategoryModel {
   create: Mock
   findById: Mock
   findByIdAndUpdate: Mock
+  findOneAndUpdate: Mock
   findByIdAndDelete: Mock
   findOne: Mock
 }
@@ -21,6 +22,7 @@ vi.mock('../src/models/Category.ts', () => {
       create: vi.fn(),
       findById: vi.fn(),
       findByIdAndUpdate: vi.fn(),
+      findOneAndUpdate: vi.fn(),
       findByIdAndDelete: vi.fn(),
       findOne: vi.fn(),
     },
@@ -128,7 +130,7 @@ describe('Category routes', () => {
 
   describe('PATCH /api/categories/:id', () => {
     it('renames a category', async () => {
-      Category.findByIdAndUpdate.mockResolvedValue({
+      Category.findOneAndUpdate.mockResolvedValue({
         _id: '2',
         name: 'Deep Work',
         color: '#4361ee',
@@ -137,60 +139,111 @@ describe('Category routes', () => {
       const app = createApp()
       const res = await request(app)
         .patch('/api/categories/2')
+        .query({ profileId: 'p1' })
         .send({ name: 'Deep Work' })
 
       expect(res.status).toBe(200)
       expect(res.body.name).toBe('Deep Work')
-      expect(Category.findByIdAndUpdate).toHaveBeenCalledWith(
-        '2',
+      expect(Category.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: '2', profileId: 'p1' },
         { name: 'Deep Work' },
         { new: true },
       )
     })
 
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/categories/2').send({ name: 'x' })
+
+      expect(res.status).toBe(400)
+      expect(Category.findOneAndUpdate).not.toHaveBeenCalled()
+    })
+
     it('returns 404 when the category does not exist', async () => {
-      Category.findByIdAndUpdate.mockResolvedValue(null)
+      Category.findOneAndUpdate.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).patch('/api/categories/does-not-exist').send({ name: 'x' })
+      const res = await request(app)
+        .patch('/api/categories/does-not-exist')
+        .query({ profileId: 'p1' })
+        .send({ name: 'x' })
 
       expect(res.status).toBe(404)
+    })
+
+    it('returns 404 when the category belongs to a different profile', async () => {
+      // Mongoose (untested here) is what actually honours the {_id, profileId}
+      // filter - this asserts the route passes the right filter to it.
+      Category.findOneAndUpdate.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/categories/2')
+        .query({ profileId: 'profile-b' })
+        .send({ name: 'Hijacked' })
+
+      expect(res.status).toBe(404)
+      expect(Category.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: '2', profileId: 'profile-b' },
+        { name: 'Hijacked' },
+        { new: true },
+      )
     })
   })
 
   describe('DELETE /api/categories/:id', () => {
     it('deletes a user-created category', async () => {
-      Category.findById.mockResolvedValue({ _id: '2', name: 'Work', system: false })
+      Category.findOne.mockResolvedValue({ _id: '2', name: 'Work', system: false })
       Category.findByIdAndDelete.mockResolvedValue({ _id: '2' })
 
       const app = createApp()
-      const res = await request(app).delete('/api/categories/2')
+      const res = await request(app).delete('/api/categories/2').query({ profileId: 'p1' })
 
       expect(res.status).toBe(204)
+      expect(Category.findOne).toHaveBeenCalledWith({ _id: '2', profileId: 'p1' })
       expect(Category.findByIdAndDelete).toHaveBeenCalledWith('2')
     })
 
     it('rejects deleting the system Uncategorized category', async () => {
-      Category.findById.mockResolvedValue({
+      Category.findOne.mockResolvedValue({
         _id: '1',
         name: 'Uncategorized',
         system: true,
       })
 
       const app = createApp()
-      const res = await request(app).delete('/api/categories/1')
+      const res = await request(app).delete('/api/categories/1').query({ profileId: 'p1' })
 
       expect(res.status).toBe(400)
       expect(Category.findByIdAndDelete).not.toHaveBeenCalled()
     })
 
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).delete('/api/categories/2')
+
+      expect(res.status).toBe(400)
+      expect(Category.findOne).not.toHaveBeenCalled()
+    })
+
     it('returns 404 when the category does not exist', async () => {
-      Category.findById.mockResolvedValue(null)
+      Category.findOne.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).delete('/api/categories/does-not-exist')
+      const res = await request(app).delete('/api/categories/does-not-exist').query({ profileId: 'p1' })
 
       expect(res.status).toBe(404)
+    })
+
+    it('returns 404 when the category belongs to a different profile', async () => {
+      Category.findOne.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app).delete('/api/categories/2').query({ profileId: 'profile-b' })
+
+      expect(res.status).toBe(404)
+      expect(Category.findOne).toHaveBeenCalledWith({ _id: '2', profileId: 'profile-b' })
+      expect(Category.findByIdAndDelete).not.toHaveBeenCalled()
     })
   })
 })

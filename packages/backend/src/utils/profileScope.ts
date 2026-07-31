@@ -1,5 +1,18 @@
 import { Category } from '../models/Category.ts'
 import type { Types } from 'mongoose'
+import type { Response } from 'express'
+
+// Shared guard for the `profileId` required-param check repeated across
+// every profile-scoped route (categories/todos/scratch-notes list & create,
+// plus the id-addressed mutations below) - writes the 400 itself so call
+// sites just do `const profileId = requireProfileId(...); if (!profileId) return`.
+export function requireProfileId(value: unknown, res: Response): string | null {
+  if (!value || typeof value !== 'string') {
+    res.status(400).json({ error: 'profileId is required' })
+    return null
+  }
+  return value
+}
 
 // Shared join used by every Todo-adjacent read that needs profile-scoping:
 // a Todo carries no direct profileId (see the Profiles spec's "derived

@@ -264,11 +264,14 @@ function App() {
   async function handleRename(id: string | undefined, { name, color }: CategoryFormValues) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/categories/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, color }),
-      })
+      const res = await fetch(
+        `${API_URL}/api/categories/${id}?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, color }),
+        },
+      )
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       setEditingCategory(null)
       await refreshCategories()
@@ -280,9 +283,10 @@ function App() {
   async function handleDelete(category: Category) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/categories/${getId(category)}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(
+        `${API_URL}/api/categories/${getId(category)}?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
+        { method: 'DELETE' },
+      )
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await refreshCategories()
     } catch (err) {
@@ -477,11 +481,14 @@ function App() {
   async function handleUpdateScratchNoteLines(id: string, lines: ScratchLine[]) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/scratch-notes/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: lines }),
-      })
+      const res = await fetch(
+        `${API_URL}/api/scratch-notes/${id}?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: lines }),
+        },
+      )
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await refreshScratchNotes()
     } catch (err) {
@@ -507,7 +514,10 @@ function App() {
   async function handleArchiveScratchNote(id: string) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/scratch-notes/${id}/archive`, { method: 'PATCH' })
+      const res = await fetch(
+        `${API_URL}/api/scratch-notes/${id}/archive?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
+        { method: 'PATCH' },
+      )
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await refreshScratchNotes()
     } catch (err) {
@@ -518,7 +528,10 @@ function App() {
   async function handleDeleteScratchNote(id: string) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/scratch-notes/${id}`, { method: 'DELETE' })
+      const res = await fetch(
+        `${API_URL}/api/scratch-notes/${id}?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
+        { method: 'DELETE' },
+      )
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await refreshScratchNotes()
     } catch (err) {

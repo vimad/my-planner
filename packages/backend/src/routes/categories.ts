@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import mongoose from 'mongoose'
 import { Category } from '../models/Category.ts'
+import { requireProfileId } from '../utils/profileScope.ts'
 
 export const categoriesRouter = Router()
 
@@ -52,15 +53,14 @@ categoriesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CategoryBody>, res: Response, next: NextFunction) => {
     try {
-      const { name, color, profileId } = req.body
+      const { name, color } = req.body
 
       if (!name || !color) {
         return res.status(400).json({ error: 'name and color are required' })
       }
 
-      if (!profileId) {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.body.profileId, res)
+      if (!profileId) return
 
       const category = await Category.create({ name, color, profileId })
       res.status(201).json(category)
@@ -75,11 +75,8 @@ categoriesRouter.post(
 // accidentally see another profile's categories by omitting it.
 categoriesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { profileId } = req.query
-
-    if (!profileId || typeof profileId !== 'string') {
-      return res.status(400).json({ error: 'profileId is required' })
-    }
+    const profileId = requireProfileId(req.query.profileId, res)
+    if (!profileId) return
 
     const categories = await Category.find({ profileId }).sort({ createdAt: 1 })
 
@@ -96,17 +93,28 @@ categoriesRouter.get('/', async (req: Request, res: Response, next: NextFunction
   }
 })
 
-// PATCH /api/categories/:id -> rename and/or recolor a category
+// PATCH /api/categories/:id?profileId=... -> rename and/or recolor a
+// category. profileId is required and checked against the category's own
+// profileId (404, not 400/403, so a mismatch reveals nothing about whether
+// the id exists under a different profile) - otherwise a category id from
+// one profile could be renamed/recolored while browsing another.
 categoriesRouter.patch(
   '/:id',
-  async (req: Request<{ id: string }, unknown, CategoryBody>, res: Response, next: NextFunction) => {
+  async (
+    req: Request<{ id: string }, unknown, CategoryBody, { profileId?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
     try {
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
+
       const { name, color } = req.body
       const update: CategoryBody = {}
       if (name !== undefined) update.name = name
       if (color !== undefined) update.color = color
 
-      const category = await Category.findByIdAndUpdate(req.params.id, update, {
+      const category = await Category.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
         new: true,
       })
 
@@ -121,12 +129,17 @@ categoriesRouter.patch(
   },
 )
 
-// DELETE /api/categories/:id -> delete a category (system categories are protected)
+// DELETE /api/categories/:id?profileId=... -> delete a category (system
+// categories are protected). profileId is required and checked against the
+// category's own profileId, same reasoning as PATCH above.
 categoriesRouter.delete(
   '/:id',
-  async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
+  async (req: Request<{ id: string }, unknown, unknown, { profileId?: string }>, res: Response, next: NextFunction) => {
     try {
-      const category = await Category.findById(req.params.id)
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
+
+      const category = await Category.findOne({ _id: req.params.id, profileId })
 
       if (!category) {
         return res.status(404).json({ error: 'Category not found' })

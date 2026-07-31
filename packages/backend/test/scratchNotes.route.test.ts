@@ -5,6 +5,8 @@ interface MockedScratchNoteModel {
   create: Mock
   find: Mock
   findById: Mock
+  findOne: Mock
+  findOneAndUpdate: Mock
   findByIdAndUpdate: Mock
   findByIdAndDelete: Mock
 }
@@ -23,6 +25,8 @@ vi.mock('../src/models/ScratchNote.ts', () => {
       create: vi.fn(),
       find: vi.fn(),
       findById: vi.fn(),
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
       findByIdAndUpdate: vi.fn(),
       findByIdAndDelete: vi.fn(),
     },
@@ -172,11 +176,12 @@ describe('ScratchNote routes', () => {
         ],
         save: vi.fn().mockResolvedValue(undefined),
       }
-      ScratchNote.findById.mockResolvedValue(note)
+      ScratchNote.findOne.mockResolvedValue(note)
 
       const app = createApp()
       const res = await request(app)
         .patch('/api/scratch-notes/note-1')
+        .query({ profileId: 'p1' })
         .send({
           body: [
             { id: 'line-1', content: { type: 'doc', old: false } },
@@ -204,53 +209,92 @@ describe('ScratchNote routes', () => {
       expect(note.save).toHaveBeenCalled()
     })
 
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/scratch-notes/note-1').send({ body: [] })
+
+      expect(res.status).toBe(400)
+      expect(ScratchNote.findOne).not.toHaveBeenCalled()
+    })
+
     it('returns 404 when the note does not exist', async () => {
-      ScratchNote.findById.mockResolvedValue(null)
+      ScratchNote.findOne.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).patch('/api/scratch-notes/does-not-exist').send({ body: [] })
+      const res = await request(app)
+        .patch('/api/scratch-notes/does-not-exist')
+        .query({ profileId: 'p1' })
+        .send({ body: [] })
 
       expect(res.status).toBe(404)
+    })
+
+    it('returns 404 when the note belongs to a different profile', async () => {
+      ScratchNote.findOne.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/scratch-notes/note-1')
+        .query({ profileId: 'profile-b' })
+        .send({ body: [] })
+
+      expect(res.status).toBe(404)
+      expect(ScratchNote.findOne).toHaveBeenCalledWith({ _id: 'note-1', profileId: 'profile-b' })
     })
   })
 
   describe('PATCH /api/scratch-notes/:id/archive', () => {
     it('archives a note by default', async () => {
-      ScratchNote.findByIdAndUpdate.mockResolvedValue({ _id: 'note-1', archived: true })
+      ScratchNote.findOneAndUpdate.mockResolvedValue({ _id: 'note-1', archived: true })
 
       const app = createApp()
-      const res = await request(app).patch('/api/scratch-notes/note-1/archive').send({})
+      const res = await request(app)
+        .patch('/api/scratch-notes/note-1/archive')
+        .query({ profileId: 'p1' })
+        .send({})
 
       expect(res.status).toBe(200)
       expect(res.body.archived).toBe(true)
-      expect(ScratchNote.findByIdAndUpdate).toHaveBeenCalledWith(
-        'note-1',
+      expect(ScratchNote.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'note-1', profileId: 'p1' },
         { archived: true },
         { new: true },
       )
     })
 
     it('unarchives when { archived: false } is sent', async () => {
-      ScratchNote.findByIdAndUpdate.mockResolvedValue({ _id: 'note-1', archived: false })
+      ScratchNote.findOneAndUpdate.mockResolvedValue({ _id: 'note-1', archived: false })
 
       const app = createApp()
       const res = await request(app)
         .patch('/api/scratch-notes/note-1/archive')
+        .query({ profileId: 'p1' })
         .send({ archived: false })
 
       expect(res.status).toBe(200)
-      expect(ScratchNote.findByIdAndUpdate).toHaveBeenCalledWith(
-        'note-1',
+      expect(ScratchNote.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'note-1', profileId: 'p1' },
         { archived: false },
         { new: true },
       )
     })
 
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/scratch-notes/note-1/archive').send({})
+
+      expect(res.status).toBe(400)
+      expect(ScratchNote.findOneAndUpdate).not.toHaveBeenCalled()
+    })
+
     it('returns 404 when the note does not exist', async () => {
-      ScratchNote.findByIdAndUpdate.mockResolvedValue(null)
+      ScratchNote.findOneAndUpdate.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).patch('/api/scratch-notes/does-not-exist/archive').send({})
+      const res = await request(app)
+        .patch('/api/scratch-notes/does-not-exist/archive')
+        .query({ profileId: 'p1' })
+        .send({})
 
       expect(res.status).toBe(404)
     })
@@ -258,23 +302,43 @@ describe('ScratchNote routes', () => {
 
   describe('DELETE /api/scratch-notes/:id', () => {
     it('deletes a note', async () => {
-      ScratchNote.findById.mockResolvedValue({ _id: 'note-1' })
+      ScratchNote.findOne.mockResolvedValue({ _id: 'note-1' })
       ScratchNote.findByIdAndDelete.mockResolvedValue({ _id: 'note-1' })
 
       const app = createApp()
-      const res = await request(app).delete('/api/scratch-notes/note-1')
+      const res = await request(app).delete('/api/scratch-notes/note-1').query({ profileId: 'p1' })
 
       expect(res.status).toBe(204)
+      expect(ScratchNote.findOne).toHaveBeenCalledWith({ _id: 'note-1', profileId: 'p1' })
       expect(ScratchNote.findByIdAndDelete).toHaveBeenCalledWith('note-1')
     })
 
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).delete('/api/scratch-notes/note-1')
+
+      expect(res.status).toBe(400)
+      expect(ScratchNote.findOne).not.toHaveBeenCalled()
+    })
+
     it('returns 404 when the note does not exist', async () => {
-      ScratchNote.findById.mockResolvedValue(null)
+      ScratchNote.findOne.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).delete('/api/scratch-notes/does-not-exist')
+      const res = await request(app).delete('/api/scratch-notes/does-not-exist').query({ profileId: 'p1' })
 
       expect(res.status).toBe(404)
+      expect(ScratchNote.findByIdAndDelete).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when the note belongs to a different profile', async () => {
+      ScratchNote.findOne.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app).delete('/api/scratch-notes/note-1').query({ profileId: 'profile-b' })
+
+      expect(res.status).toBe(404)
+      expect(ScratchNote.findOne).toHaveBeenCalledWith({ _id: 'note-1', profileId: 'profile-b' })
       expect(ScratchNote.findByIdAndDelete).not.toHaveBeenCalled()
     })
   })

@@ -3,6 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { ScratchNote, type ScratchLine } from '../models/ScratchNote.ts'
 import { Todo, type TodoDoc, type TodoPriority } from '../models/Todo.ts'
 import { resolveDefaultCategoryId } from '../utils/defaultCategory.ts'
+import { requireProfileId } from '../utils/profileScope.ts'
 import type { TiptapNode } from '../utils/tiptapText.ts'
 
 export const scratchNotesRouter = Router()
@@ -67,11 +68,8 @@ scratchNotesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CreateScratchNoteBody>, res: Response, next: NextFunction) => {
     try {
-      const { profileId } = req.body
-
-      if (!profileId) {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.body.profileId, res)
+      if (!profileId) return
 
       const body = normalizeNewLines(req.body.body)
       const note = await ScratchNote.create({ body, profileId })
@@ -95,11 +93,8 @@ scratchNotesRouter.get(
     next: NextFunction,
   ) => {
     try {
-      const { profileId } = req.query
-
-      if (!profileId || typeof profileId !== 'string') {
-        return res.status(400).json({ error: 'profileId is required' })
-      }
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
 
       const filter =
         req.query.includeArchived === 'true' ? { profileId } : { profileId, archived: false }
@@ -111,17 +106,26 @@ scratchNotesRouter.get(
   },
 )
 
-// PATCH /api/scratch-notes/:id -> update a note's lines (full body replace,
-// the simplest option per the ticket) and/or its archived flag. When
-// replacing lines, promotedTodoId is always carried over from the existing
-// line with the same id (never trusted from the client) so promotion state
-// can't be clobbered by an unrelated line-content edit; unrecognized ids are
-// treated as brand-new lines.
+// PATCH /api/scratch-notes/:id?profileId=... -> update a note's lines (full
+// body replace, the simplest option per the ticket) and/or its archived
+// flag. profileId is required and checked against the note's own profileId
+// (404 on mismatch) so a note id from one profile can't be edited while
+// browsing another. When replacing lines, promotedTodoId is always carried
+// over from the existing line with the same id (never trusted from the
+// client) so promotion state can't be clobbered by an unrelated
+// line-content edit; unrecognized ids are treated as brand-new lines.
 scratchNotesRouter.patch(
   '/:id',
-  async (req: Request<{ id: string }, unknown, PatchScratchNoteBody>, res: Response, next: NextFunction) => {
+  async (
+    req: Request<{ id: string }, unknown, PatchScratchNoteBody, { profileId?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
     try {
-      const note = await ScratchNote.findById(req.params.id)
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
+
+      const note = await ScratchNote.findOne({ _id: req.params.id, profileId })
 
       if (!note) {
         return res.status(404).json({ error: 'Scratch note not found' })
@@ -151,14 +155,23 @@ scratchNotesRouter.patch(
   },
 )
 
-// PATCH /api/scratch-notes/:id/archive -> soft archive (or unarchive via
-// { archived: false }); defaults to archiving.
+// PATCH /api/scratch-notes/:id/archive?profileId=... -> soft archive (or
+// unarchive via { archived: false }); defaults to archiving. profileId is
+// required and checked against the note's own profileId, same reasoning as
+// the PATCH above.
 scratchNotesRouter.patch(
   '/:id/archive',
-  async (req: Request<{ id: string }, unknown, ArchiveScratchNoteBody>, res: Response, next: NextFunction) => {
+  async (
+    req: Request<{ id: string }, unknown, ArchiveScratchNoteBody, { profileId?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
     try {
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
+
       const archived = req.body.archived !== undefined ? req.body.archived : true
-      const note = await ScratchNote.findByIdAndUpdate(req.params.id, { archived }, { new: true })
+      const note = await ScratchNote.findOneAndUpdate({ _id: req.params.id, profileId }, { archived }, { new: true })
 
       if (!note) {
         return res.status(404).json({ error: 'Scratch note not found' })
@@ -171,21 +184,29 @@ scratchNotesRouter.patch(
   },
 )
 
-// DELETE /api/scratch-notes/:id -> hard delete
-scratchNotesRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
-  try {
-    const note = await ScratchNote.findById(req.params.id)
+// DELETE /api/scratch-notes/:id?profileId=... -> hard delete. profileId is
+// required and checked against the note's own profileId, same reasoning as
+// the PATCH routes above.
+scratchNotesRouter.delete(
+  '/:id',
+  async (req: Request<{ id: string }, unknown, unknown, { profileId?: string }>, res: Response, next: NextFunction) => {
+    try {
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
 
-    if (!note) {
-      return res.status(404).json({ error: 'Scratch note not found' })
+      const note = await ScratchNote.findOne({ _id: req.params.id, profileId })
+
+      if (!note) {
+        return res.status(404).json({ error: 'Scratch note not found' })
+      }
+
+      await ScratchNote.findByIdAndDelete(req.params.id)
+      res.status(204).end()
+    } catch (err) {
+      next(err)
     }
-
-    await ScratchNote.findByIdAndDelete(req.params.id)
-    res.status(204).end()
-  } catch (err) {
-    next(err)
-  }
-})
+  },
+)
 
 // POST /api/scratch-notes/:id/promote -> promote a single line into its own
 // Todo, assigning category/priority/dueDate at that moment (all optional).
