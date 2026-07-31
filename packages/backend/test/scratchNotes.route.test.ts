@@ -62,14 +62,14 @@ describe('ScratchNote routes', () => {
   })
 
   describe('POST /api/scratch-notes', () => {
-    it('creates an empty note when no lines are supplied', async () => {
+    it('creates an empty note attached to the given profileId when no lines are supplied', async () => {
       ScratchNote.create.mockResolvedValue({ _id: 'note-1', body: [], archived: false })
 
       const app = createApp()
-      const res = await request(app).post('/api/scratch-notes').send({})
+      const res = await request(app).post('/api/scratch-notes').send({ profileId: 'profile-1' })
 
       expect(res.status).toBe(201)
-      expect(ScratchNote.create).toHaveBeenCalledWith({ body: [] })
+      expect(ScratchNote.create).toHaveBeenCalledWith({ body: [], profileId: 'profile-1' })
     })
 
     it('creates a note pre-seeded with lines, assigning ids and null promotedTodoId', async () => {
@@ -82,11 +82,12 @@ describe('ScratchNote routes', () => {
       const app = createApp()
       const res = await request(app)
         .post('/api/scratch-notes')
-        .send({ body: [{ id: 'line-1', content: { type: 'doc' } }] })
+        .send({ profileId: 'profile-1', body: [{ id: 'line-1', content: { type: 'doc' } }] })
 
       expect(res.status).toBe(201)
       expect(ScratchNote.create).toHaveBeenCalledWith({
         body: [{ id: 'line-1', content: { type: 'doc' }, promotedTodoId: null }],
+        profileId: 'profile-1',
       })
     })
 
@@ -96,34 +97,68 @@ describe('ScratchNote routes', () => {
       const app = createApp()
       await request(app)
         .post('/api/scratch-notes')
-        .send({ body: [{ content: { type: 'doc' } }] })
+        .send({ profileId: 'profile-1', body: [{ content: { type: 'doc' } }] })
 
       const [{ body: createdLines }] = ScratchNote.create.mock.calls[0]
       expect(createdLines[0].id).toEqual(expect.any(String))
       expect(createdLines[0].id.length).toBeGreaterThan(0)
     })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).post('/api/scratch-notes').send({})
+
+      expect(res.status).toBe(400)
+      expect(ScratchNote.create).not.toHaveBeenCalled()
+    })
   })
 
   describe('GET /api/scratch-notes', () => {
-    it('lists non-archived notes by default', async () => {
+    it('lists a profile\'s non-archived notes by default', async () => {
       const docs = [{ _id: 'note-1', body: [], archived: false }]
       ScratchNote.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/scratch-notes')
+      const res = await request(app).get('/api/scratch-notes?profileId=profile-1')
 
       expect(res.status).toBe(200)
       expect(res.body).toEqual(docs)
-      expect(ScratchNote.find).toHaveBeenCalledWith({ archived: false })
+      expect(ScratchNote.find).toHaveBeenCalledWith({ profileId: 'profile-1', archived: false })
     })
 
     it('includes archived notes when includeArchived=true', async () => {
       ScratchNote.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
 
       const app = createApp()
-      await request(app).get('/api/scratch-notes?includeArchived=true')
+      await request(app).get('/api/scratch-notes?profileId=profile-1&includeArchived=true')
 
-      expect(ScratchNote.find).toHaveBeenCalledWith({})
+      expect(ScratchNote.find).toHaveBeenCalledWith({ profileId: 'profile-1' })
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/scratch-notes')
+
+      expect(res.status).toBe(400)
+      expect(ScratchNote.find).not.toHaveBeenCalled()
+    })
+
+    it('never returns profile A\'s notes when profile B is queried', async () => {
+      // The mocked model doesn't itself filter - this test instead pins down
+      // the observable contract that matters: querying with profile B's id
+      // always issues a query scoped to profile B, never profile A's,
+      // regardless of what's actually stored.
+      ScratchNote.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app).get('/api/scratch-notes?profileId=profile-b')
+
+      expect(ScratchNote.find).toHaveBeenCalledWith(
+        expect.objectContaining({ profileId: 'profile-b' }),
+      )
+      expect(ScratchNote.find).not.toHaveBeenCalledWith(
+        expect.objectContaining({ profileId: 'profile-a' }),
+      )
     })
   })
 

@@ -1144,4 +1144,150 @@ describe('App', () => {
       expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
     })
   })
+
+  // Ticket 05: ScratchNote gains its own required profileId (set directly,
+  // not derived like Todo's) - the scratchpad inbox, note creation, and the
+  // promotion flow's category picker must all narrow to the active profile
+  // with no stale cross-profile data left visible after a switch.
+  describe('Scratchpad scoping across profiles', () => {
+    const personalProfile: Profile = { _id: 'personal-profile-id', name: 'Personal Profile' }
+
+    const workOnlyCategory: Category = {
+      _id: 'work-cat-id',
+      name: 'Deep Work',
+      color: '#4361ee',
+      system: false,
+      remaining: 1,
+      completed: 0,
+    }
+
+    const personalOnlyCategory: Category = {
+      _id: 'personal-cat-id',
+      name: 'Errands',
+      color: '#e85d75',
+      system: false,
+      remaining: 1,
+      completed: 0,
+    }
+
+    const workNote: ScratchNote = {
+      _id: 'work-note-id',
+      createdAt: '2026-07-25T10:00:00.000Z',
+      archived: false,
+      body: [{ id: 'work-line-1', content: null, promotedTodoId: null }],
+    }
+
+    const personalNote: ScratchNote = {
+      _id: 'personal-note-id',
+      createdAt: '2026-07-25T10:00:00.000Z',
+      archived: false,
+      body: [{ id: 'personal-line-1', content: null, promotedTodoId: null }],
+    }
+
+    // Dispatches GET /api/scratch-notes and /api/categories by the profileId
+    // query param each was called with, same pattern as
+    // stubTodoScopedFetch above, so a profile switch is observably scoped
+    // end-to-end rather than just re-requesting the same fixed data.
+    function stubScratchScopedFetch(): FetchMock {
+      return stubFetch((href) => {
+        const profileId = new URL(href, 'http://localhost').searchParams.get('profileId')
+        const isPersonal = profileId === 'personal-profile-id'
+        if (href.includes('/api/scratch-notes')) return jsonResponse(isPersonal ? [personalNote] : [workNote])
+        if (href.includes('/api/categories')) {
+          return jsonResponse(isPersonal ? [personalOnlyCategory] : [workOnlyCategory])
+        }
+        if (href.includes('/api/todos')) return jsonResponse([])
+        if (href.includes('/api/profiles')) return jsonResponse([workProfile, personalProfile])
+        return jsonResponse([])
+      })
+    }
+
+    it('only shows the active profile\'s notes in the scratchpad inbox, re-scoping immediately on switch', async () => {
+      fetchMock = stubScratchScopedFetch()
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Open scratchpad sessions (1)'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Promote personal-line-1')).toBeInTheDocument()
+      })
+      expect(screen.queryByLabelText('Promote work-line-1')).not.toBeInTheDocument()
+
+      const noteCalls = fetchMock.mock.calls
+        .filter(([url]) => url.includes('/api/scratch-notes') && !url.includes('/promote'))
+        .map(([url]) => url)
+      expect(noteCalls.some((url) => url.includes('profileId=work-profile-id'))).toBe(true)
+      expect(noteCalls.some((url) => url.includes('profileId=personal-profile-id'))).toBe(true)
+    })
+
+    it('creates a new scratch note attached to the active profile, re-targeting after switching profiles', async () => {
+      fetchMock = stubScratchScopedFetch()
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      const newNote: ScratchNote = {
+        _id: 'new-note-id',
+        body: [{ id: 'new-line-1', content: null, promotedTodoId: null }],
+        archived: false,
+        createdAt: '2026-07-25T10:05:00.000Z',
+      }
+      fetchMock.mockImplementationOnce(() => jsonResponse(newNote, true)) // POST /api/scratch-notes
+      fetchMock.mockImplementationOnce(() => jsonResponse([personalNote, newNote])) // refetch GET /api/scratch-notes
+
+      fireEvent.click(screen.getByRole('button', { name: 'Jot something down...' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (2)')).toBeInTheDocument()
+      })
+
+      const postCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/scratch-notes') && opts?.method === 'POST',
+      )
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall![1]?.body ?? '{}')).toMatchObject({
+        profileId: 'personal-profile-id',
+      })
+    })
+
+    it('only offers the note\'s own profile\'s categories in the promotion category picker', async () => {
+      fetchMock = stubScratchScopedFetch()
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByLabelText('Open scratchpad sessions (1)')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Open scratchpad sessions (1)'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Promote work-line-1')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Promote work-line-1'))
+      fireEvent.click(screen.getByText('Promote 1 line'))
+
+      const picker = screen.getByLabelText('Promote category')
+      const optionLabels = Array.from(picker.querySelectorAll('option')).map((o) => o.textContent)
+      expect(optionLabels).toEqual(['Deep Work'])
+      expect(optionLabels).not.toContain('Errands')
+    })
+  })
 })

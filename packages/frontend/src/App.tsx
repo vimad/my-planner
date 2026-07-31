@@ -136,16 +136,23 @@ function App() {
     return activeProfileId ? loadTags(activeProfileId) : Promise.resolve()
   }
 
-  async function loadScratchNotes() {
+  async function loadScratchNotes(profileId: string) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/scratch-notes`)
+      const res = await fetch(`${API_URL}/api/scratch-notes?profileId=${encodeURIComponent(profileId)}`)
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       const data = await res.json()
       setScratchNotes(data)
     } catch (err) {
       setError((err as Error).message)
     }
+  }
+
+  // Mirrors refreshCategories/refreshTodos above: every scratch-note
+  // mutation/refresh in this file goes through this wrapper so call sites
+  // don't each have to guard against activeProfileId still being null.
+  function refreshScratchNotes() {
+    return activeProfileId ? loadScratchNotes(activeProfileId) : Promise.resolve()
   }
 
   async function loadSettings() {
@@ -165,16 +172,15 @@ function App() {
   // made the category chip row flash back to "Loading categories..." on
   // every add/toggle/delete. The category chip row also waits on
   // `profilesLoading` (see useActiveProfile) since categories can't load
-  // until the active profile has resolved. Todos/tags are profile-scoped
-  // (this ticket) so they're loaded by the activeProfileId-keyed effect
-  // below instead of here - scratchNotes/settings aren't (yet - scratchpad
-  // scoping is ticket 05; settings are deliberately global) so they still
+  // until the active profile has resolved. Todos/tags/scratchNotes are all
+  // profile-scoped so they're loaded by the activeProfileId-keyed effect
+  // below instead of here - settings are deliberately global, so they still
   // load unconditionally on mount.
   useEffect(() => {
     async function bootstrap() {
       setLoading(true)
       try {
-        await Promise.all([loadScratchNotes(), loadSettings()])
+        await loadSettings()
       } finally {
         setLoading(false)
       }
@@ -182,19 +188,20 @@ function App() {
     bootstrap()
   }, [])
 
-  // Categories, todos, and tags are all scoped to the active profile, which
-  // itself resolves asynchronously (useActiveProfile fetches GET
-  // /api/profiles and restores the saved choice from localStorage) - so the
-  // initial load and every subsequent profile switch both flow through this
-  // one effect rather than the bootstrap effect above. Re-running all three
-  // together on every profile switch is what keeps the dashboard, mini
-  // calendar, category summary strip, and tag autocomplete all in sync with
-  // no stale cross-profile data.
+  // Categories, todos, tags, and scratch notes are all scoped to the active
+  // profile, which itself resolves asynchronously (useActiveProfile fetches
+  // GET /api/profiles and restores the saved choice from localStorage) - so
+  // the initial load and every subsequent profile switch both flow through
+  // this one effect rather than the bootstrap effect above. Re-running all
+  // four together on every profile switch is what keeps the dashboard, mini
+  // calendar, category summary strip, tag autocomplete, and the scratchpad
+  // inbox all in sync with no stale cross-profile data.
   useEffect(() => {
     if (!activeProfileId) return
     loadCategories(activeProfileId)
     loadTodos(activeProfileId)
     loadTags(activeProfileId)
+    loadScratchNotes(activeProfileId)
   }, [activeProfileId])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
@@ -448,16 +455,20 @@ function App() {
   // PATCHing lines onto it - the backend already accepts seeded `body` on
   // create, so there's no need to round-trip and find the new note's id.
   // `lines` is already split one-per-paragraph by Scratchpad's capture bar.
+  // The new note always attaches to the active profile - a scratch note has
+  // no categoryId to derive a profile from (see the Profiles spec), so
+  // profileId is sent directly, same as quick-add's todo creation above.
   async function handleCreateScratchNote(lines: DraftScratchLine[]) {
+    if (!activeProfileId) return
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/scratch-notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: lines }),
+        body: JSON.stringify({ body: lines, profileId: activeProfileId }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await loadScratchNotes()
+      await refreshScratchNotes()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -472,7 +483,7 @@ function App() {
         body: JSON.stringify({ body: lines }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await loadScratchNotes()
+      await refreshScratchNotes()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -487,7 +498,7 @@ function App() {
         body: JSON.stringify({ lineId, ...options }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadScratchNotes(), refreshTodos(), refreshCategories()])
+      await Promise.all([refreshScratchNotes(), refreshTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -498,7 +509,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/scratch-notes/${id}/archive`, { method: 'PATCH' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await loadScratchNotes()
+      await refreshScratchNotes()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -509,7 +520,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/scratch-notes/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await loadScratchNotes()
+      await refreshScratchNotes()
     } catch (err) {
       setError((err as Error).message)
     }

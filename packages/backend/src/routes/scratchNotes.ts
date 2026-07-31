@@ -39,6 +39,7 @@ function normalizeNewLines(lines: unknown): Pick<ScratchLine, 'id' | 'content' |
 
 interface CreateScratchNoteBody {
   body?: unknown
+  profileId?: string
 }
 
 interface PatchScratchNoteBody {
@@ -58,13 +59,22 @@ interface PromoteLineBody {
 }
 
 // POST /api/scratch-notes -> create a note, optionally pre-seeded with lines
-// (or start empty and add lines later via PATCH).
+// (or start empty and add lines later via PATCH). profileId is required in
+// the body, set directly (not derived) at creation - same convention as
+// POST /api/categories, since there's no server-side "active profile"
+// concept; the client already has it in hand.
 scratchNotesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CreateScratchNoteBody>, res: Response, next: NextFunction) => {
     try {
+      const { profileId } = req.body
+
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
       const body = normalizeNewLines(req.body.body)
-      const note = await ScratchNote.create({ body })
+      const note = await ScratchNote.create({ body, profileId })
       res.status(201).json(note)
     } catch (err) {
       next(err)
@@ -72,17 +82,27 @@ scratchNotesRouter.post(
   },
 )
 
-// GET /api/scratch-notes -> list notes, non-archived by default (an inbox,
-// not an archive browser). Pass ?includeArchived=true to see everything.
+// GET /api/scratch-notes?profileId=... -> list a profile's notes,
+// non-archived by default (an inbox, not an archive browser). Pass
+// ?includeArchived=true to see everything. profileId is required (mirrors
+// GET /api/categories and /api/todos's convention) so a caller can never
+// accidentally see another profile's notes by omitting it.
 scratchNotesRouter.get(
   '/',
   async (
-    req: Request<Record<string, never>, unknown, unknown, { includeArchived?: string }>,
+    req: Request<Record<string, never>, unknown, unknown, { includeArchived?: string; profileId?: string }>,
     res: Response,
     next: NextFunction,
   ) => {
     try {
-      const filter = req.query.includeArchived === 'true' ? {} : { archived: false }
+      const { profileId } = req.query
+
+      if (!profileId || typeof profileId !== 'string') {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
+      const filter =
+        req.query.includeArchived === 'true' ? { profileId } : { profileId, archived: false }
       const notes = await ScratchNote.find(filter).sort({ createdAt: -1 })
       res.json(notes)
     } catch (err) {
