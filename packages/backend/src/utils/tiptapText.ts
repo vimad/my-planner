@@ -27,6 +27,13 @@ export function tiptapToPlainText(doc: unknown): string {
     if (typeof n.text === 'string') {
       parts.push(n.text)
     }
+    // dateBadge is an atom node (no `text`/`content`) - pull its date attr
+    // out directly so a date inserted via "@today"/"@date" stays findable
+    // through search, same as any other content.
+    if (n.type === 'dateBadge') {
+      const attrs = n.attrs as { date?: unknown } | undefined
+      if (typeof attrs?.date === 'string') parts.push(attrs.date)
+    }
     if (Array.isArray(n.content)) {
       for (const child of n.content) walk(child)
     }

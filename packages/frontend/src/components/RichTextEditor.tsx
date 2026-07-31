@@ -9,6 +9,7 @@ import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import type { RefObject } from 'react'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { DATE_BADGE_EXTENSIONS } from './dateBadge'
 
 // StarterKit's bundled Link extension makes the link mark `inclusive` when
 // autolink is on, so text typed right after a URL keeps extending the same
@@ -27,6 +28,7 @@ const EXTENSIONS = [
   TaskItem.configure({ nested: true }),
   Underline,
   LinkExtension,
+  ...DATE_BADGE_EXTENSIONS,
 ]
 
 // Marks toggleable from the toolbar - a subset of ToolbarState's keys, kept
