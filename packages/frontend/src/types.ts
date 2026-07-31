@@ -84,3 +84,15 @@ export interface ScratchNote {
   createdAt?: string
   updatedAt?: string
 }
+
+// The coarse grouping layer above Category — see .scratch/profiles/spec.md.
+// `color` is optional (an open styling assumption per the spec); this ticket
+// (02) doesn't render it anywhere yet.
+export interface Profile {
+  _id?: string
+  id?: string
+  name: string
+  color?: string
+  createdAt?: string
+  updatedAt?: string
+}

@@ -38,54 +38,91 @@ describe('Category routes', () => {
   })
 
   describe('POST /api/categories', () => {
-    it('creates a category', async () => {
+    it('creates a category attached to the given profileId', async () => {
       Category.create.mockResolvedValue({
         _id: '1',
         name: 'Work',
         color: '#4361ee',
+        profileId: 'p1',
       })
 
       const app = createApp()
       const res = await request(app)
         .post('/api/categories')
-        .send({ name: 'Work', color: '#4361ee' })
+        .send({ name: 'Work', color: '#4361ee', profileId: 'p1' })
 
       expect(res.status).toBe(201)
-      expect(res.body).toEqual({ _id: '1', name: 'Work', color: '#4361ee' })
-      expect(Category.create).toHaveBeenCalledWith({ name: 'Work', color: '#4361ee' })
+      expect(res.body).toEqual({ _id: '1', name: 'Work', color: '#4361ee', profileId: 'p1' })
+      expect(Category.create).toHaveBeenCalledWith({ name: 'Work', color: '#4361ee', profileId: 'p1' })
     })
 
     it('rejects a missing name or color', async () => {
       const app = createApp()
-      const res = await request(app).post('/api/categories').send({ name: 'Work' })
+      const res = await request(app).post('/api/categories').send({ name: 'Work', profileId: 'p1' })
 
       expect(res.status).toBe(400)
+      expect(Category.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).post('/api/categories').send({ name: 'Work', color: '#4361ee' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
       expect(Category.create).not.toHaveBeenCalled()
     })
   })
 
   describe('GET /api/categories', () => {
-    it('lists categories annotated with remaining/completed counts', async () => {
+    it('lists a profile\'s categories annotated with remaining/completed counts', async () => {
       const docs = [
         {
           _id: '1',
-          toObject: () => ({ _id: '1', name: 'Uncategorized', color: '#94a3b8', system: true }),
+          toObject: () => ({ _id: '1', name: 'Uncategorized', color: '#94a3b8', system: true, profileId: 'p1' }),
         },
         {
           _id: '2',
-          toObject: () => ({ _id: '2', name: 'Work', color: '#4361ee', system: false }),
+          toObject: () => ({ _id: '2', name: 'Work', color: '#4361ee', system: false, profileId: 'p1' }),
         },
       ]
       Category.find.mockReturnValue({ sort: vi.fn().mockResolvedValue(docs) })
 
       const app = createApp()
-      const res = await request(app).get('/api/categories')
+      const res = await request(app).get('/api/categories').query({ profileId: 'p1' })
 
       expect(res.status).toBe(200)
+      expect(Category.find).toHaveBeenCalledWith({ profileId: 'p1' })
       expect(res.body).toEqual([
-        { _id: '1', name: 'Uncategorized', color: '#94a3b8', system: true, remaining: 0, completed: 0 },
-        { _id: '2', name: 'Work', color: '#4361ee', system: false, remaining: 0, completed: 0 },
+        { _id: '1', name: 'Uncategorized', color: '#94a3b8', system: true, profileId: 'p1', remaining: 0, completed: 0 },
+        { _id: '2', name: 'Work', color: '#4361ee', system: false, profileId: 'p1', remaining: 0, completed: 0 },
       ])
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/categories')
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Category.find).not.toHaveBeenCalled()
+    })
+
+    it('never returns another profile\'s categories', async () => {
+      // Category.find is mocked at the model boundary — the assertion below
+      // checks the route passed the *right* filter to it, which is this
+      // route's actual scoping contract; Mongoose itself (untested here) is
+      // responsible for honestly filtering by whatever query it's given.
+      Category.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      const resA = await request(app).get('/api/categories').query({ profileId: 'profile-a' })
+      const resB = await request(app).get('/api/categories').query({ profileId: 'profile-b' })
+
+      expect(resA.status).toBe(200)
+      expect(resB.status).toBe(200)
+      expect(Category.find).toHaveBeenNthCalledWith(1, { profileId: 'profile-a' })
+      expect(Category.find).toHaveBeenNthCalledWith(2, { profileId: 'profile-b' })
     })
   })
 

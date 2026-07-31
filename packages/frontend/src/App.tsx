@@ -5,11 +5,13 @@ import { CategoryForm, type CategoryFormValues } from './components/CategoryForm
 import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
+import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
+import { useActiveProfile } from './hooks/useActiveProfile'
 import { getId } from './utils/getId'
 import { applyTheme, getInitialTheme } from './utils/theme'
 import type { Category, ScratchLine, ScratchNote, Todo } from './types'
@@ -31,6 +33,14 @@ interface PendingConfirm {
 }
 
 function App() {
+  const {
+    profiles,
+    activeProfileId,
+    loading: profilesLoading,
+    error: profileError,
+    setActiveProfileId,
+    createProfile,
+  } = useActiveProfile()
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
   const [scratchNotes, setScratchNotes] = useState<ScratchNote[]>([])
@@ -70,16 +80,24 @@ function App() {
     )
   }
 
-  async function loadCategories() {
+  async function loadCategories(profileId: string) {
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/categories`)
+      const res = await fetch(`${API_URL}/api/categories?profileId=${encodeURIComponent(profileId)}`)
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       const data = await res.json()
       setCategories(data)
     } catch (err) {
       setError((err as Error).message)
     }
+  }
+
+  // Every category mutation/refresh in this file goes through this wrapper
+  // rather than calling loadCategories directly, so call sites don't each
+  // have to guard against activeProfileId still being null (e.g. while the
+  // profile list itself is still loading).
+  function refreshCategories() {
+    return activeProfileId ? loadCategories(activeProfileId) : Promise.resolve()
   }
 
   async function loadTodos() {
@@ -132,18 +150,29 @@ function App() {
   // `loading` only gates this initial bootstrap fetch, not the refetches
   // that follow every todo/category mutation - toggling it on every mutation
   // made the category chip row flash back to "Loading categories..." on
-  // every add/toggle/delete.
+  // every add/toggle/delete. The category chip row also waits on
+  // `profilesLoading` (see useActiveProfile) since categories can't load
+  // until the active profile has resolved.
   useEffect(() => {
     async function bootstrap() {
       setLoading(true)
       try {
-        await Promise.all([loadCategories(), loadTodos(), loadTags(), loadScratchNotes(), loadSettings()])
+        await Promise.all([loadTodos(), loadTags(), loadScratchNotes(), loadSettings()])
       } finally {
         setLoading(false)
       }
     }
     bootstrap()
   }, [])
+
+  // Categories are scoped to the active profile, which itself resolves
+  // asynchronously (useActiveProfile fetches GET /api/profiles and restores
+  // the saved choice from localStorage) - so the initial load and every
+  // subsequent profile switch both flow through this one effect rather than
+  // the bootstrap effect above.
+  useEffect(() => {
+    if (activeProfileId) loadCategories(activeProfileId)
+  }, [activeProfileId])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
   // user types, per ticket 11 — deliberately not client-side filtering of
@@ -176,17 +205,22 @@ function App() {
     }
   }, [searchQuery])
 
+  // New categories always attach to whichever profile is currently active -
+  // there's no manual profile picker on CategoryForm (see the Profiles spec:
+  // a category's profile is fixed at creation, and is inferred from context
+  // rather than chosen explicitly).
   async function handleCreate({ name, color }: CategoryFormValues) {
+    if (!activeProfileId) return
     setError(null)
     try {
       const res = await fetch(`${API_URL}/api/categories`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, color }),
+        body: JSON.stringify({ name, color, profileId: activeProfileId }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       setShowCreateForm(false)
-      await loadCategories()
+      await refreshCategories()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -202,7 +236,7 @@ function App() {
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       setEditingCategory(null)
-      await loadCategories()
+      await refreshCategories()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -215,7 +249,7 @@ function App() {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await loadCategories()
+      await refreshCategories()
     } catch (err) {
       setError((err as Error).message)
     }
@@ -232,7 +266,7 @@ function App() {
         body: JSON.stringify({ title }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), loadCategories()])
+      await Promise.all([loadTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -255,7 +289,7 @@ function App() {
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       setDraftTodo(null)
-      await Promise.all([loadTodos(), loadCategories(), loadTags()])
+      await Promise.all([loadTodos(), refreshCategories(), loadTags()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -266,7 +300,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/todos/${id}/toggle`, { method: 'PATCH' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), loadCategories()])
+      await Promise.all([loadTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -277,7 +311,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/todos/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), loadCategories()])
+      await Promise.all([loadTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -298,7 +332,7 @@ function App() {
         body: JSON.stringify(patch),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadTodos(), loadCategories(), loadTags()])
+      await Promise.all([loadTodos(), refreshCategories(), loadTags()])
       return true
     } catch (err) {
       setError((err as Error).message)
@@ -368,7 +402,7 @@ function App() {
         body: JSON.stringify({ lineId, ...options }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      await Promise.all([loadScratchNotes(), loadTodos(), loadCategories()])
+      await Promise.all([loadScratchNotes(), loadTodos(), refreshCategories()])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -446,26 +480,39 @@ function App() {
 
   return (
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
-      <header className="mb-7 flex items-start justify-between gap-4">
+      <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-3xl font-extrabold text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-300">
             My Planner
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Here's what's glowing today.</p>
         </div>
-        <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
+        <div className="flex items-center gap-3">
+          {!profilesLoading && profiles.length > 0 && (
+            <ProfileSwitcher
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              onSelect={setActiveProfileId}
+              onCreate={createProfile}
+            />
+          )}
+          <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
+        </div>
       </header>
 
-      {error && (
+      {(error || profileError) && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-          Error: {error}
+          Error: {error ?? profileError}
         </p>
       )}
 
       <section aria-label="Categories" className="mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          {loading && <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>}
+          {(loading || profilesLoading) && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>
+          )}
           {!loading &&
+            !profilesLoading &&
             categories.map((category) => (
               <CategoryChip
                 key={getId(category)}

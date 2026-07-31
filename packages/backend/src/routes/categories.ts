@@ -17,6 +17,7 @@ interface CategoryCounts {
 interface CategoryBody {
   name?: string
   color?: string
+  profileId?: string
 }
 
 // Todo model doesn't exist until ticket 07. Compute counts defensively so
@@ -38,18 +39,30 @@ async function getCounts(categoryId: mongoose.Types.ObjectId | string): Promise<
   }
 }
 
-// POST /api/categories -> create a category
+// POST /api/categories -> create a category, attached to the given profileId.
+//
+// profileId is required in the request body rather than resolved server-side
+// (contrast resolveDefaultCategoryId's categoryId fallback in
+// utils/defaultCategory.ts) because there's no server-side "active profile"
+// concept to resolve against — per the Profiles spec, the active profile is
+// pure client-side state (persisted to localStorage), so the client already
+// has it in hand and is the only party that can supply it. This also keeps
+// POST consistent with GET's required `profileId` query param below.
 categoriesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CategoryBody>, res: Response, next: NextFunction) => {
     try {
-      const { name, color } = req.body
+      const { name, color, profileId } = req.body
 
       if (!name || !color) {
         return res.status(400).json({ error: 'name and color are required' })
       }
 
-      const category = await Category.create({ name, color })
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId is required' })
+      }
+
+      const category = await Category.create({ name, color, profileId })
       res.status(201).json(category)
     } catch (err) {
       next(err)
@@ -57,10 +70,18 @@ categoriesRouter.post(
   },
 )
 
-// GET /api/categories -> list all categories with remaining/completed counts
+// GET /api/categories?profileId=... -> list a profile's categories with
+// remaining/completed counts. profileId is required so a caller can never
+// accidentally see another profile's categories by omitting it.
 categoriesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const categories = await Category.find().sort({ createdAt: 1 })
+    const { profileId } = req.query
+
+    if (!profileId || typeof profileId !== 'string') {
+      return res.status(400).json({ error: 'profileId is required' })
+    }
+
+    const categories = await Category.find({ profileId }).sort({ createdAt: 1 })
 
     const withCounts = await Promise.all(
       categories.map(async (category) => {

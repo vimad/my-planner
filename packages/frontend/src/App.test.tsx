@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import App from './App'
-import type { Category, ScratchNote, Todo } from './types'
+import type { Category, Profile, ScratchNote, Todo } from './types'
 import type { JSONContent } from '@tiptap/core'
 
 interface FakeResponse {
@@ -55,12 +55,23 @@ const work: Category = {
   completed: 2,
 }
 
+// The one profile most tests in this file operate within - they don't
+// exercise profile-switching themselves (that's the 'Profile switcher'
+// describe block below), so a single fixed profile keeps the existing
+// category/todo/scratchpad flows unaffected by this ticket's scoping change.
+// Deliberately not named "Work" (or anything else used as a category/todo
+// fixture name below) - the profile switcher renders this name as a tab in
+// the header, and a name collision would make `screen.getByText(...)`
+// ambiguous about whether it matched the profile tab or a category chip.
+const workProfile: Profile = { _id: 'work-profile-id', name: 'Default Profile' }
+
 // Mutable per-test fixtures read live by the default fetch mock below, so
 // individual tests can seed what the initial GET /api/todos returns just by
 // reassigning `todosData` before render().
 let categoriesData: Category[]
 let todosData: Todo[]
 let searchData: Todo[]
+let profilesData: Profile[]
 let fetchMock: FetchMock
 
 describe('App', () => {
@@ -68,18 +79,22 @@ describe('App', () => {
     categoriesData = [uncategorized, work]
     todosData = []
     searchData = []
+    profilesData = [workProfile]
+    localStorage.clear()
     fetchMock = stubFetch((href) => {
       // Checked before the generic '/api/todos' branch below, since
       // '/api/todos/search?...' also contains that substring.
       if (href.includes('/api/todos/search')) return jsonResponse(searchData)
       if (href.includes('/api/todos')) return jsonResponse(todosData)
       if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+      if (href.includes('/api/profiles')) return jsonResponse(profilesData)
       return jsonResponse([])
     })
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    localStorage.clear()
   })
 
   it('renders the dashboard heading', async () => {
@@ -143,7 +158,11 @@ describe('App', () => {
 
     const postCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'POST')
     expect(postCall).toBeDefined()
-    expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ name: 'Personal', color: '#e85d75' })
+    expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({
+      name: 'Personal',
+      color: '#e85d75',
+      profileId: 'work-profile-id',
+    })
   })
 
   it('renames a category', async () => {
@@ -373,6 +392,10 @@ describe('App', () => {
       await waitFor(() => {
         expect(screen.getByText('Buy milk')).toBeInTheDocument()
         expect(screen.getByText('Ship feature')).toBeInTheDocument()
+        // Category chips (the filter targets below) load via their own
+        // effect, scoped to the active profile once it resolves - wait for
+        // them explicitly rather than assuming they're ready alongside todos.
+        expect(screen.getByLabelText('Filter by Uncategorized')).toBeInTheDocument()
       })
 
       fireEvent.click(screen.getByLabelText('Filter by Uncategorized'))
@@ -561,6 +584,7 @@ describe('App', () => {
         if (href.includes('/api/scratch-notes')) return jsonResponse([note])
         if (href.includes('/api/todos')) return jsonResponse(todosData)
         if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+        if (href.includes('/api/profiles')) return jsonResponse(profilesData)
         return jsonResponse([])
       })
 
@@ -616,6 +640,7 @@ describe('App', () => {
         if (href.includes('/api/scratch-notes')) return jsonResponse([note])
         if (href.includes('/api/todos')) return jsonResponse(todosData)
         if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+        if (href.includes('/api/profiles')) return jsonResponse(profilesData)
         return jsonResponse([])
       })
 
@@ -645,6 +670,140 @@ describe('App', () => {
         expect(deleteCall).toBeDefined()
         expect(deleteCall![0]).toContain('/api/scratch-notes/note-1')
       })
+    })
+  })
+
+  describe('Profile switcher', () => {
+    const personalProfile: Profile = { _id: 'personal-profile-id', name: 'Personal Profile' }
+
+    const workOnlyCategory: Category = {
+      _id: 'work-cat-id',
+      name: 'Deep Work',
+      color: '#4361ee',
+      system: false,
+      remaining: 1,
+      completed: 0,
+    }
+
+    const personalOnlyCategory: Category = {
+      _id: 'personal-cat-id',
+      name: 'Errands',
+      color: '#e85d75',
+      system: false,
+      remaining: 2,
+      completed: 0,
+    }
+
+    // Dispatches GET /api/categories by the profileId query param it was
+    // called with, so switching profiles is observably scoped rather than
+    // just re-requesting the same fixed list.
+    function stubProfileScopedFetch(profiles: Profile[]): FetchMock {
+      return stubFetch((href) => {
+        if (href.includes('/api/categories')) {
+          const profileId = new URL(href, 'http://localhost').searchParams.get('profileId')
+          return jsonResponse(profileId === 'personal-profile-id' ? [personalOnlyCategory] : [workOnlyCategory])
+        }
+        if (href.includes('/api/profiles')) return jsonResponse(profiles)
+        if (href.includes('/api/todos')) return jsonResponse([])
+        return jsonResponse([])
+      })
+    }
+
+    it('renders every profile and lets the user pick the active one, re-scoping categories', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Errands')).not.toBeInTheDocument()
+
+      expect(screen.getByRole('tab', { name: 'Default Profile' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tab', { name: 'Personal Profile' })).toHaveAttribute('aria-selected', 'false')
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Errands')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Deep Work')).not.toBeInTheDocument()
+
+      const categoryCalls = fetchMock.mock.calls
+        .filter(([url]) => url.includes('/api/categories'))
+        .map(([url]) => url)
+      expect(categoryCalls.some((url) => url.includes('profileId=personal-profile-id'))).toBe(true)
+      expect(categoryCalls.some((url) => url.includes('profileId=work-profile-id'))).toBe(true)
+    })
+
+    it('persists the active profile to localStorage and restores it on reload', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      const { unmount } = render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Personal Profile' }))
+      await waitFor(() => {
+        expect(screen.getByText('Errands')).toBeInTheDocument()
+      })
+
+      expect(localStorage.getItem('planner-active-profile-id')).toBe('personal-profile-id')
+
+      unmount()
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Errands')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Deep Work')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Personal Profile' })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('falls back to the first profile when the stored profile id no longer exists', async () => {
+      localStorage.setItem('planner-active-profile-id', 'a-deleted-profile-id')
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('tab', { name: 'Default Profile' })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('creates a new profile inline and switches straight into it', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+
+      const sideProject: Profile = { _id: 'side-project-id', name: 'Side Project' }
+      fetchMock.mockImplementationOnce(() => jsonResponse(sideProject, true)) // POST /api/profiles
+      fetchMock.mockImplementationOnce(() => jsonResponse([personalOnlyCategory])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByLabelText('Create new profile'))
+      fireEvent.change(screen.getByLabelText('New profile name'), {
+        target: { value: 'Side Project' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Add profile' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Side Project' })).toBeInTheDocument()
+      })
+      expect(screen.getByRole('tab', { name: 'Side Project' })).toHaveAttribute('aria-selected', 'true')
+
+      const postCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/profiles') && opts?.method === 'POST',
+      )
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ name: 'Side Project' })
+      expect(localStorage.getItem('planner-active-profile-id')).toBe('side-project-id')
     })
   })
 })

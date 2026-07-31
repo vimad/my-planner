@@ -69,7 +69,7 @@ describe('GET /api/categories todo-count wiring', () => {
     vi.spyOn(Todo, 'countDocuments').mockImplementation(countDocumentsImpl)
 
     const app = createApp()
-    const res = await request(app).get('/api/categories')
+    const res = await request(app).get('/api/categories').query({ profileId: 'p1' })
 
     expect(res.status).toBe(200)
     expect(res.body).toEqual([
