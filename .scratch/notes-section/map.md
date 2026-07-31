@@ -2,6 +2,8 @@
 
 A full spec for a new "Notes" feature: durable, named, rich-text notes organized in a nested folder hierarchy, separate from Todos (no completion/priority/due-dates) and separate from Scratchpad (no quick-capture/promotion lifecycle). The spec should be detailed enough to hand off to implementation as its own later effort.
 
+**Reached.** All three tickets are resolved and the remaining small fog (backend API surface, folder rename, note-delete confirm, empty-state copy) was written directly into the compiled spec rather than ticketed further — see [`spec.md`](spec.md).
+
 ## Notes
 
 - Reuses the existing `RichTextEditor` / `ExpandableNotesEditor` editing primitives (`packages/frontend/src/components/RichTextEditor.tsx`, `ExpandableNotesEditor.tsx`) already used for Todo notes — don't design a new editor, only how it's hosted/laid out for Notes.
@@ -18,10 +20,7 @@ A full spec for a new "Notes" feature: durable, named, rich-text notes organized
 
 ## Not yet specified
 
-- Backend REST/schema surface for Folder and Note — follows the existing Category/Todo route+model pattern; now that the view (unified tree, hover Move/Delete, dedicated editor pane) is settled, this is close to specifiable directly rather than needing its own decision ticket.
-- Folder rename affordance — the layout prototype only wired note rename (via the editor pane's name field); folders have no rename UI yet.
-- Whether deleting a single note gets a `requestConfirm` prompt like every other delete in this app (the prototype deletes immediately) — likely just "yes, for consistency," but not yet written down as a decision.
-- Empty-state copy/visuals for an empty Notes view or an empty folder.
+(Empty — the remaining fog was resolved directly into `spec.md` rather than graduating into further tickets.)
 
 ## Out of scope
 
