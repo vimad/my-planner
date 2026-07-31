@@ -12,6 +12,7 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { useActiveProfile } from './hooks/useActiveProfile'
+import { effectiveDueDate, localTodayISO, matchesDateRange, type DateRange } from './utils/dateAgenda'
 import { getId } from './utils/getId'
 import { applyTheme, getInitialTheme } from './utils/theme'
 import type { Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
@@ -59,6 +60,7 @@ function App() {
   const [searchResults, setSearchResults] = useState<Todo[] | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
 
@@ -202,6 +204,9 @@ function App() {
     loadTodos(activeProfileId)
     loadTags(activeProfileId)
     loadScratchNotes(activeProfileId)
+    // A date filter set up in one profile shouldn't silently carry over and
+    // hide todos after switching to another.
+    setSelectedDateRange(null)
   }, [activeProfileId])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
@@ -566,10 +571,20 @@ function App() {
 
   // Category chip filter is an OR across the selected categories, applied on
   // top of search; empty selection means "no filter, show everything".
-  const visibleTodos =
+  const categoryFiltered =
     selectedCategoryIds.length > 0
       ? searchedTodos.filter((t) => selectedCategoryIds.includes(String(t.categoryId)))
       : searchedTodos
+
+  // MiniCalendar's date/range filter narrows on top of search + category,
+  // matched against each todo's effective due date (its real dueDate, or the
+  // shared next office day when office-linked) so office-linked todos
+  // participate the same as any other. A null selectedDateRange means "no
+  // filter, show everything" (matchesDateRange's null-range behavior).
+  const todayISO = localTodayISO()
+  const visibleTodos = categoryFiltered.filter((t) =>
+    matchesDateRange(effectiveDueDate(t, nextOfficeDay, todayISO), selectedDateRange),
+  )
 
   function handleTodoToggle(id: string) {
     const todo = visibleTodos.find((t) => getId(t) === id)
@@ -674,7 +689,13 @@ function App() {
       </section>
 
       <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
-        <MiniCalendar todos={todos} nextOfficeDay={nextOfficeDay} onSetOfficeDay={handleSetOfficeDay} />
+        <MiniCalendar
+          todos={todos}
+          nextOfficeDay={nextOfficeDay}
+          onSetOfficeDay={handleSetOfficeDay}
+          selectedRange={selectedDateRange}
+          onSelectRange={setSelectedDateRange}
+        />
         <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
           <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
           <input

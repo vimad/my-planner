@@ -536,6 +536,60 @@ describe('App', () => {
         expect(screen.getByText('Ship feature')).toBeInTheDocument()
       })
     })
+
+    describe('Calendar date/range filter', () => {
+      beforeEach(() => {
+        // Pins "today" so the days clicked on the mini calendar below
+        // resolve to deterministic ISO strings. shouldAdvanceTime keeps
+        // waitFor's polling (a real setInterval under the hood) working.
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        vi.setSystemTime(new Date(2026, 6, 25, 9, 0)) // July 25, 2026
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('narrows the agenda to todos due within the clicked range, composing with an active category filter', async () => {
+        todosData = [
+          { _id: 'todo-1', title: 'Buy milk', categoryId: 'uncategorized-id', completed: false, dueDate: '2026-07-10' },
+          { _id: 'todo-2', title: 'Ship feature', categoryId: 'work-id', completed: false, dueDate: '2026-07-20' },
+          { _id: 'todo-3', title: 'Water plants', categoryId: 'uncategorized-id', completed: false, dueDate: '2026-07-12' },
+        ]
+
+        render(<App />)
+        await waitFor(() => {
+          expect(screen.getByText('Buy milk')).toBeInTheDocument()
+          expect(screen.getByText('Ship feature')).toBeInTheDocument()
+          expect(screen.getByText('Water plants')).toBeInTheDocument()
+        })
+
+        // First click picks the range start (no filtering yet); second click
+        // on a later day commits the inclusive range.
+        fireEvent.click(screen.getByText('10'))
+        expect(screen.getByText('Ship feature')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('15'))
+
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+        expect(screen.getByText('Water plants')).toBeInTheDocument()
+        expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
+
+        // Composes with the category chip filter (AND, on top of the date
+        // range) rather than either filter overriding the other.
+        fireEvent.click(screen.getByLabelText('Filter by Uncategorized'))
+
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+        expect(screen.getByText('Water plants')).toBeInTheDocument()
+
+        // Clearing the date filter falls back to just the category filter.
+        fireEvent.click(screen.getByRole('button', { name: 'Clear date filter' }))
+
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+        expect(screen.getByText('Water plants')).toBeInTheDocument()
+        expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
+      })
+    })
   })
 
   describe('Scratchpad', () => {

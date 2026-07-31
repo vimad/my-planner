@@ -75,3 +75,24 @@ export function groupLabel(
   if (diffDays > 1 && diffDays <= 7) return 'This week'
   return 'Later'
 }
+
+// An inclusive [start, end] pair of "YYYY-MM-DD" strings, driven by the
+// MiniCalendar date/range filter.
+export interface DateRange {
+  start: string
+  end: string
+}
+
+// Whether a due date falls within a selected range, inclusive of both ends.
+// A null range means "no filter" - everything matches. A null due date can
+// never match a real range, since there's nothing to compare. Plain string
+// comparison is enough here since dueDate/range strings are always
+// zero-padded "YYYY-MM-DD" and therefore already lexically ordered.
+export function matchesDateRange(
+  dueDate: string | null | undefined,
+  range: DateRange | null,
+): boolean {
+  if (!range) return true
+  if (!dueDate) return false
+  return dueDate >= range.start && dueDate <= range.end
+}

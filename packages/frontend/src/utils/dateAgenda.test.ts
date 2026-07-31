@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveDueDate, groupLabel, localTodayISO } from './dateAgenda'
+import { effectiveDueDate, groupLabel, localTodayISO, matchesDateRange } from './dateAgenda'
 
 describe('dateAgenda', () => {
   const today = '2026-07-25'
@@ -83,6 +83,40 @@ describe('dateAgenda', () => {
     it('pads single-digit months and days', () => {
       const date = new Date(2026, 0, 5)
       expect(localTodayISO(date)).toBe('2026-01-05')
+    })
+  })
+
+  describe('matchesDateRange', () => {
+    it('matches everything when the range is null', () => {
+      expect(matchesDateRange(null, null)).toBe(true)
+      expect(matchesDateRange('2026-07-25', null)).toBe(true)
+    })
+
+    it('never matches a null due date against a real range', () => {
+      expect(matchesDateRange(null, { start: '2026-07-01', end: '2026-07-31' })).toBe(false)
+    })
+
+    it('matches a due date inside a multi-day range', () => {
+      expect(matchesDateRange('2026-07-15', { start: '2026-07-01', end: '2026-07-31' })).toBe(true)
+    })
+
+    it('includes both boundary ends of the range', () => {
+      const range = { start: '2026-07-10', end: '2026-07-20' }
+      expect(matchesDateRange('2026-07-10', range)).toBe(true)
+      expect(matchesDateRange('2026-07-20', range)).toBe(true)
+    })
+
+    it('excludes a due date outside the range on either side', () => {
+      const range = { start: '2026-07-10', end: '2026-07-20' }
+      expect(matchesDateRange('2026-07-09', range)).toBe(false)
+      expect(matchesDateRange('2026-07-21', range)).toBe(false)
+    })
+
+    it('matches a single-day range only on that exact day', () => {
+      const range = { start: '2026-07-15', end: '2026-07-15' }
+      expect(matchesDateRange('2026-07-15', range)).toBe(true)
+      expect(matchesDateRange('2026-07-14', range)).toBe(false)
+      expect(matchesDateRange('2026-07-16', range)).toBe(false)
     })
   })
 })
