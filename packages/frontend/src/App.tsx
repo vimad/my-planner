@@ -5,7 +5,10 @@ import { CategoryForm, type CategoryFormValues } from './components/CategoryForm
 import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
-import { ProfileSwitcher } from './components/ProfileSwitcher'
+// PROTOTYPE wiring: swapped from './components/ProfileSwitcher' to compare
+// rename/delete interaction variants against real data. Revert to the
+// import above once a variant is chosen — see ProfileSwitcher.prototype.tsx.
+import { ProfileSwitcherPrototype as ProfileSwitcher } from './components/ProfileSwitcher.prototype'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'
@@ -14,7 +17,7 @@ import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { useActiveProfile } from './hooks/useActiveProfile'
 import { getId } from './utils/getId'
 import { applyTheme, getInitialTheme } from './utils/theme'
-import type { Category, ScratchLine, ScratchNote, Todo } from './types'
+import type { Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -40,6 +43,8 @@ function App() {
     error: profileError,
     setActiveProfileId,
     createProfile,
+    renameProfile,
+    deleteProfile,
   } = useActiveProfile()
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
@@ -252,6 +257,57 @@ function App() {
       await refreshCategories()
     } catch (err) {
       setError((err as Error).message)
+    }
+  }
+
+  async function handleRenameProfile(id: string, name: string) {
+    try {
+      await renameProfile(id, name)
+    } catch {
+      // renameProfile already recorded the failure in profileError, which
+      // the header's error banner renders - nothing further to do here.
+    }
+  }
+
+  // Fetches the profile's own categories (already profile-scoped via
+  // GET /api/categories?profileId=) to build a confirmation message with a
+  // real category count and a real todo count (summed from each category's
+  // remaining+completed, the same counts the category chips already show) -
+  // the smallest way to give the user genuine numbers instead of a vague
+  // "this will also delete everything in it", without adding a new backend
+  // endpoint. Scratch notes have no equivalent count available anywhere in
+  // the API today, so the message names them without a number rather than
+  // over-claiming precision. If the count fetch itself fails, falls back to
+  // a still-explicit (if less precise) warning rather than blocking the
+  // delete entirely.
+  async function handleDeleteProfileRequest(profile: Profile) {
+    const id = getId(profile)
+    if (!id) return
+
+    let message = `Delete "${profile.name}"? This will also delete everything inside it — its categories, todos, and scratch notes. This cannot be undone.`
+    try {
+      const res = await fetch(`${API_URL}/api/categories?profileId=${encodeURIComponent(id)}`)
+      if (res.ok) {
+        const cats: Category[] = await res.json()
+        const categoryCount = cats.length
+        const todoCount = cats.reduce((sum, cat) => sum + (cat.remaining ?? 0) + (cat.completed ?? 0), 0)
+        const categoryLabel = categoryCount === 1 ? 'category' : 'categories'
+        const todoLabel = todoCount === 1 ? 'todo' : 'todos'
+        message = `Delete "${profile.name}"? This will also delete its ${categoryCount} ${categoryLabel} and ${todoCount} ${todoLabel}, plus any scratch notes in it. This cannot be undone.`
+      }
+    } catch {
+      // Keep the generic fallback message above.
+    }
+
+    requestConfirm(message, () => handleDeleteProfile(id))
+  }
+
+  async function handleDeleteProfile(id: string) {
+    try {
+      await deleteProfile(id)
+    } catch {
+      // deleteProfile already recorded the failure in profileError, which
+      // the header's error banner renders - nothing further to do here.
     }
   }
 
@@ -494,6 +550,8 @@ function App() {
               activeProfileId={activeProfileId}
               onSelect={setActiveProfileId}
               onCreate={createProfile}
+              onRename={handleRenameProfile}
+              onDeleteRequest={handleDeleteProfileRequest}
             />
           )}
           <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />

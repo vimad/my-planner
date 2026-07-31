@@ -805,5 +805,156 @@ describe('App', () => {
       expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ name: 'Side Project' })
       expect(localStorage.getItem('planner-active-profile-id')).toBe('side-project-id')
     })
+
+    it('renames a profile from the switcher', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
+      })
+
+      const renamedProfile = { ...workProfile, name: 'Renamed Profile' }
+      fetchMock.mockImplementationOnce(() => jsonResponse(renamedProfile, true)) // PATCH
+
+      fireEvent.click(screen.getByLabelText('Edit Default Profile'))
+      fireEvent.change(screen.getByLabelText('Profile name'), {
+        target: { value: 'Renamed Profile' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Renamed Profile' })).toBeInTheDocument()
+      })
+      expect(screen.queryByRole('tab', { name: 'Default Profile' })).not.toBeInTheDocument()
+
+      const patchCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/profiles/') && opts?.method === 'PATCH',
+      )
+      expect(patchCall).toBeDefined()
+      expect(patchCall![0]).toContain('/api/profiles/work-profile-id')
+      expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({ name: 'Renamed Profile' })
+    })
+
+    it('shows real category/todo counts in the delete confirmation and deletes on confirm', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+
+      // workOnlyCategory carries remaining:1/completed:0 - a single category
+      // with a single todo - so the confirmation should name exactly that.
+      fireEvent.click(screen.getByLabelText('Delete Default Profile'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'Delete "Default Profile"? This will also delete its 1 category and 1 todo, plus any scratch notes in it. This cannot be undone.',
+          ),
+        ).toBeInTheDocument()
+      })
+
+      fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('tab', { name: 'Default Profile' })).not.toBeInTheDocument()
+      })
+
+      const deleteCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/profiles/') && opts?.method === 'DELETE',
+      )
+      expect(deleteCall).toBeDefined()
+      expect(deleteCall![0]).toContain('/api/profiles/work-profile-id')
+    })
+
+    it('does not delete a profile when the confirmation is cancelled', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Deep Work')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Delete Default Profile'))
+      await waitFor(() => {
+        expect(screen.getByText(/^Delete "Default Profile"\?/)).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
+      expect(fetchMock.mock.calls.some(([url, opts]) => url.includes('/api/profiles/') && opts?.method === 'DELETE')).toBe(
+        false,
+      )
+    })
+
+    it('falls back to a generic delete message when the count fetch fails', async () => {
+      fetchMock = stubFetch((href) => {
+        if (href.includes('/api/categories')) return jsonResponse({ error: 'boom' }, false)
+        if (href.includes('/api/profiles')) return jsonResponse([workProfile, personalProfile])
+        if (href.includes('/api/todos')) return jsonResponse([])
+        return jsonResponse([])
+      })
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Delete Default Profile'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'Delete "Default Profile"? This will also delete everything inside it — its categories, todos, and scratch notes. This cannot be undone.',
+          ),
+        ).toBeInTheDocument()
+      })
+    })
+
+    it('disables delete when only one profile remains', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
+      })
+
+      expect(screen.getByLabelText('Delete Default Profile')).toBeDisabled()
+    })
+
+    it('reassigns the active profile and updates localStorage after deleting the active profile', async () => {
+      fetchMock = stubProfileScopedFetch([workProfile, personalProfile])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Default Profile' })).toHaveAttribute('aria-selected', 'true')
+      })
+
+      fireEvent.click(screen.getByLabelText('Delete Default Profile'))
+      await waitFor(() => {
+        expect(screen.getByText(/^Delete "Default Profile"\?/)).toBeInTheDocument()
+      })
+
+      fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Personal Profile' })).toHaveAttribute('aria-selected', 'true')
+      })
+      expect(screen.queryByRole('tab', { name: 'Default Profile' })).not.toBeInTheDocument()
+      expect(localStorage.getItem('planner-active-profile-id')).toBe('personal-profile-id')
+
+      // The now-active profile's own categories load, proving the app is in
+      // a fully valid state rather than just showing the right tab.
+      await waitFor(() => {
+        expect(screen.getByText('Errands')).toBeInTheDocument()
+      })
+    })
   })
 })

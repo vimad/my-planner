@@ -39,6 +39,8 @@ export interface UseActiveProfileResult {
   error: string | null
   setActiveProfileId: (id: string) => void
   createProfile: (name: string) => Promise<void>
+  renameProfile: (id: string, name: string) => Promise<void>
+  deleteProfile: (id: string) => Promise<void>
 }
 
 // Owns the active-profile selection that the rest of the app (category
@@ -121,5 +123,67 @@ export function useActiveProfile(): UseActiveProfileResult {
     [setActiveProfileId],
   )
 
-  return { profiles, activeProfileId, loading, error, setActiveProfileId, createProfile }
+  // Renames (and/or recolors, though this ticket's UI only offers name) a
+  // profile in place - PATCH /api/profiles/:id already supports both fields
+  // (ticket 01), this just never sends `color` today. Updates the local
+  // list from the server's response rather than optimistically splicing in
+  // the client-supplied name, so a server-side normalization would still be
+  // reflected.
+  const renameProfile = useCallback(async (id: string, name: string) => {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/profiles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const updated: Profile = await res.json()
+      setProfiles((prev) => prev.map((profile) => (getId(profile) === id ? updated : profile)))
+    } catch (err) {
+      setError((err as Error).message)
+      throw err
+    }
+  }, [])
+
+  // Deletes a profile (the backend cascade-deletes its Categories, their
+  // Todos, and its ScratchNotes, and 400s if this is the last remaining
+  // profile - see routes/profiles.ts). If the deleted profile was the active
+  // one, lands on whichever profile is now first in the remaining list and
+  // persists that choice, so no dangling profile id is ever left selected or
+  // stored - mirrors the "stored id no longer exists" fallback the initial
+  // load effect above already does.
+  const deleteProfile = useCallback(
+    async (id: string) => {
+      setError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/profiles/${id}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        setProfiles((prev) => {
+          const remaining = prev.filter((profile) => getId(profile) !== id)
+          if (id === activeProfileId) {
+            const fallback = getId(remaining[0]) ?? null
+            setActiveProfileIdState(fallback)
+            if (fallback) writeStoredProfileId(fallback)
+          }
+          return remaining
+        })
+      } catch (err) {
+        setError((err as Error).message)
+        throw err
+      }
+    },
+    [activeProfileId],
+  )
+
+  return {
+    profiles,
+    activeProfileId,
+    loading,
+    error,
+    setActiveProfileId,
+    createProfile,
+    renameProfile,
+    deleteProfile,
+  }
 }
