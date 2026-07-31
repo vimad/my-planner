@@ -16,12 +16,12 @@ pnpm workspace with two packages:
 
 ## Manual/browser verification
 
-The dev database holds the user's real personal todos. When verifying a feature by driving the actual running app (e.g. via the chrome-devtools MCP), never create, edit, link, complete, or delete a real todo:
+The dev database holds the user's real personal todos, spread across real profiles (Work, Personal, ...). When verifying a feature by driving the actual running app (e.g. via the chrome-devtools MCP), never create, edit, link, complete, or delete anything in a real profile:
 
-- Use a category named `Test` for all verification (create it first if it doesn't already exist).
-- Every todo created for a manual test must land in `Test` — via quick-add's category default, or by explicitly setting the category.
-- Never mutate a todo outside the `Test` category — no linking real todos to each other, no editing a real todo's notes/fields, no toggling complete, no deleting. Read-only viewing/opening of real todos is fine.
-- After verifying, delete the `Test`-category todos created for that session so the category is empty again for next time.
+- Use a profile named `Test` for all verification (create it first if it doesn't already exist), and switch into it before doing anything.
+- Everything created for a manual test — categories, todos, scratch notes — should happen inside the `Test` profile. Since the whole profile is disposable and isolated, a separate `Test` category within it isn't needed for most tests; just use whatever category (including that profile's own Uncategorized) makes the scenario easiest to drive.
+- Never switch into or mutate a real profile — no linking real todos, no editing a real todo/note's fields, no toggling complete, no deleting or renaming a real profile/category/todo. Read-only viewing (e.g. confirming a real profile still lists correctly after a change) is fine.
+- No need to clean up after yourself inside the `Test` profile — leave whatever you created there. The user will clear it out manually at some point.
 - If a scenario genuinely requires touching real data (e.g. reproducing a bug that only shows up on a specific real todo), stop and confirm with the user first rather than assuming it's fine.
 
 ## Agent skills
