@@ -5,10 +5,7 @@ import { CategoryForm, type CategoryFormValues } from './components/CategoryForm
 import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MiniCalendar } from './components/MiniCalendar'
-// PROTOTYPE wiring: swapped from './components/ProfileSwitcher' to compare
-// rename/delete interaction variants against real data. Revert to the
-// import above once a variant is chosen — see ProfileSwitcher.prototype.tsx.
-import { ProfileSwitcherPrototype as ProfileSwitcher } from './components/ProfileSwitcher.prototype'
+import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'

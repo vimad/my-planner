@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { getId } from '../utils/getId'
 import type { Profile } from '../types'
 
@@ -16,12 +16,25 @@ interface ProfileSwitcherProps {
   onDeleteRequest: (profile: Profile) => void
 }
 
-// The dashboard header's profile switcher: a tab-like control (per the
-// spec's "same visual tier as the app's top-level chrome" note) listing
-// every profile, each with an inline rename affordance and a delete
-// affordance (disabled - with an explanatory title - when it's the only
-// remaining profile, mirroring the backend's last-profile guard), plus an
-// inline "create a new profile" form.
+function useOutsideClick(onOutside: () => void) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onOutside()
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [onOutside])
+  return ref
+}
+
+// The dashboard header's profile switcher. Switching (the frequent action)
+// is a plain, uncluttered tab row - rename/delete (rare, and delete is
+// destructive) live behind a separate "Manage profiles" panel instead of
+// sitting on the tabs themselves, per a /prototype comparison against two
+// on-tab alternatives (kebab-on-active-tab, hover-reveal-per-tab) - see
+// branch `prototype/profile-switcher-variants` for the full set and why
+// this one won.
 export function ProfileSwitcher({
   profiles,
   activeProfileId,
@@ -32,8 +45,10 @@ export function ProfileSwitcher({
 }: ProfileSwitcherProps) {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [name, setName] = useState('')
+  const [managing, setManaging] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const panelRef = useOutsideClick(() => setManaging(false))
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -44,16 +59,7 @@ export function ProfileSwitcher({
     setShowCreateForm(false)
   }
 
-  // Only one of "create" and "rename" is ever open at a time - opening one
-  // closes the other - so their forms never collide (e.g. both rendering a
-  // "Cancel" button at once).
-  function startCreate() {
-    setEditingId(null)
-    setShowCreateForm(true)
-  }
-
   function startEdit(profile: Profile) {
-    setShowCreateForm(false)
     setEditingId(String(getId(profile)))
     setEditName(profile.name)
   }
@@ -77,7 +83,7 @@ export function ProfileSwitcher({
   const deleteDisabled = profiles.length <= 1
 
   return (
-    <div aria-label="Profile switcher" className="flex flex-wrap items-center gap-2">
+    <div aria-label="Profile switcher" className="relative flex flex-wrap items-center gap-2">
       <div
         role="tablist"
         aria-label="Profiles"
@@ -87,74 +93,21 @@ export function ProfileSwitcher({
           const id = String(getId(profile))
           const active = id === activeProfileId
 
-          if (editingId === id) {
-            return (
-              <form key={id} onSubmit={handleRenameSubmit} className="flex items-center gap-1 px-1">
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  aria-label="Profile name"
-                  autoFocus
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-                />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-              </form>
-            )
-          }
-
           return (
-            <div key={id} className="flex items-center">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => onSelect(id)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-                  active
-                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-                }`}
-              >
-                {profile.name}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startEdit(profile)
-                }}
-                aria-label={`Edit ${profile.name}`}
-                className="rounded-full px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDeleteRequest(profile)
-                }}
-                disabled={deleteDisabled}
-                aria-label={`Delete ${profile.name}`}
-                title={deleteDisabled ? 'At least one profile must always exist' : undefined}
-                className="rounded-full px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
-              >
-                Delete
-              </button>
-            </div>
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelect(id)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                active
+                  ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                  : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+              }`}
+            >
+              {profile.name}
+            </button>
           )
         })}
       </div>
@@ -190,12 +143,98 @@ export function ProfileSwitcher({
       ) : (
         <button
           type="button"
-          onClick={startCreate}
+          onClick={() => setShowCreateForm(true)}
           aria-label="Create new profile"
           className="rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-500 hover:bg-white dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/5"
         >
           + Profile
         </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setManaging((m) => !m)}
+        aria-label="Manage profiles"
+        aria-expanded={managing}
+        className="rounded-full border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10"
+      >
+        ⚙
+      </button>
+
+      {managing && (
+        <div
+          ref={panelRef}
+          aria-label="Manage profiles panel"
+          className="absolute right-0 top-11 z-10 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#1a1626]"
+        >
+          <p className="mb-1 px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Manage profiles
+          </p>
+          {profiles.map((profile) => {
+            const id = String(getId(profile))
+
+            if (editingId === id) {
+              return (
+                <form
+                  key={id}
+                  onSubmit={handleRenameSubmit}
+                  className="flex items-center gap-1 rounded-xl px-2 py-1.5"
+                >
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    aria-label="Profile name"
+                    autoFocus
+                    className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+                  />
+                  <button
+                    type="submit"
+                    className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    Cancel
+                  </button>
+                </form>
+              )
+            }
+
+            return (
+              <div
+                key={id}
+                className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
+              >
+                <span className="truncate text-sm text-slate-700 dark:text-slate-200">{profile.name}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(profile)}
+                    aria-label={`Rename ${profile.name}`}
+                    className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteRequest(profile)}
+                    disabled={deleteDisabled}
+                    aria-label={`Delete ${profile.name}`}
+                    title={deleteDisabled ? 'At least one profile must always exist' : undefined}
+                    className="rounded-lg px-1.5 py-1 text-xs text-red-400 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-red-500/10"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

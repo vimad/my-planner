@@ -817,7 +817,8 @@ describe('App', () => {
       const renamedProfile = { ...workProfile, name: 'Renamed Profile' }
       fetchMock.mockImplementationOnce(() => jsonResponse(renamedProfile, true)) // PATCH
 
-      fireEvent.click(screen.getByLabelText('Edit Default Profile'))
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
+      fireEvent.click(screen.getByLabelText('Rename Default Profile'))
       fireEvent.change(screen.getByLabelText('Profile name'), {
         target: { value: 'Renamed Profile' },
       })
@@ -846,6 +847,7 @@ describe('App', () => {
 
       // workOnlyCategory carries remaining:1/completed:0 - a single category
       // with a single todo - so the confirmation should name exactly that.
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
       fireEvent.click(screen.getByLabelText('Delete Default Profile'))
 
       await waitFor(() => {
@@ -879,6 +881,7 @@ describe('App', () => {
         expect(screen.getByText('Deep Work')).toBeInTheDocument()
       })
 
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
       fireEvent.click(screen.getByLabelText('Delete Default Profile'))
       await waitFor(() => {
         expect(screen.getByText(/^Delete "Default Profile"\?/)).toBeInTheDocument()
@@ -905,6 +908,7 @@ describe('App', () => {
         expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
       })
 
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
       fireEvent.click(screen.getByLabelText('Delete Default Profile'))
 
       await waitFor(() => {
@@ -924,6 +928,7 @@ describe('App', () => {
         expect(screen.getByRole('tab', { name: 'Default Profile' })).toBeInTheDocument()
       })
 
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
       expect(screen.getByLabelText('Delete Default Profile')).toBeDisabled()
     })
 
@@ -935,6 +940,7 @@ describe('App', () => {
         expect(screen.getByRole('tab', { name: 'Default Profile' })).toHaveAttribute('aria-selected', 'true')
       })
 
+      fireEvent.click(screen.getByLabelText('Manage profiles'))
       fireEvent.click(screen.getByLabelText('Delete Default Profile'))
       await waitFor(() => {
         expect(screen.getByText(/^Delete "Default Profile"\?/)).toBeInTheDocument()
