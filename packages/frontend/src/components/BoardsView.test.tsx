@@ -110,8 +110,29 @@ const kitchenBoard: Board = {
   ],
 }
 
+const groceryTodo: Todo = {
+  _id: 't-grocery',
+  title: 'Buy groceries',
+  priority: 'Low',
+  dueDate: '',
+}
+
+const budgetNote: Note = {
+  _id: 'n-budget',
+  name: 'Budget notes',
+  folderId: null,
+}
+
 let notesData: Note[]
 let foldersData: NoteFolder[]
+// Response for GET /api/notes/search specifically - kept separate from
+// `notesData` (the plain notes list BoardsView fetches to resolve/display
+// note cards) so search-and-add tests can hand back a search-specific
+// result set, including deliberately mocking back an already-on-board note
+// (see the "excludes" test below) to prove BoardSearchAndAdd's own
+// client-side exclusion filter works even if a mock/misbehaving backend
+// didn't.
+let noteSearchData: Note[]
 let fetchMock: FetchMock
 
 // Boards themselves are no longer fetched by this component (see ticket 14 -
@@ -121,6 +142,7 @@ let fetchMock: FetchMock
 // catch-all for note PATCH calls individual tests configure themselves.
 function stubNotesAndFoldersFetch(): FetchMock {
   return stubFetch((href) => {
+    if (href.includes('/api/notes/search')) return jsonResponse(noteSearchData)
     if (href.includes('/api/note-folders')) return jsonResponse(foldersData)
     if (href.includes('/api/notes')) return jsonResponse(notesData)
     return jsonResponse([])
@@ -167,6 +189,7 @@ describe('BoardsView', () => {
   beforeEach(() => {
     notesData = [standupNote]
     foldersData = [workFolder, ideasFolder]
+    noteSearchData = []
     fetchMock = stubNotesAndFoldersFetch()
   })
 
@@ -580,6 +603,130 @@ describe('BoardsView', () => {
       await waitFor(() => {
         expect(onReplaceBoardItems).toHaveBeenCalled()
       })
+    })
+  })
+
+  describe('search-and-add', () => {
+    it('filters todo results by title as the user types, excluding items already on the active board', async () => {
+      renderBoards({ todos: [kitchenTodo, groceryTodo] })
+
+      await waitFor(() => {
+        expect(screen.getByText('Order new faucet')).toBeInTheDocument()
+      })
+
+      const input = screen.getByLabelText('Search todos and notes to add')
+
+      // Matches groceryTodo (not yet on the board) - shows up as a result.
+      fireEvent.change(input, { target: { value: 'groc' } })
+      expect(await screen.findByRole('button', { name: 'Add "Buy groceries" to board' })).toBeInTheDocument()
+
+      // Matches kitchenTodo's title, but it's already on the active board -
+      // excluded from results even though the title matches.
+      fireEvent.change(input, { target: { value: 'faucet' } })
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Add "Order new faucet" to board' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('queries GET /api/notes/search with the active board note ids as excludeIds, and excludes already-on-board notes client-side too', async () => {
+      noteSearchData = [budgetNote, standupNote]
+      renderBoards({ todos: [kitchenTodo] })
+
+      await waitFor(() => {
+        expect(screen.getByText('Order new faucet')).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText('Search todos and notes to add'), { target: { value: 'notes' } })
+
+      expect(await screen.findByRole('button', { name: 'Add "Budget notes" to board' })).toBeInTheDocument()
+      // standupNote is already on the active board (see kitchenBoard.items) -
+      // it must not appear even though the mocked search response includes
+      // it, proving BoardSearchAndAdd's own client-side filter (not just the
+      // backend's excludeIds) is doing the work.
+      expect(screen.queryByRole('button', { name: 'Add "Standup notes" to board' })).not.toBeInTheDocument()
+
+      await waitFor(() => {
+        const searchCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/notes/search'))
+        expect(searchCall).toBeDefined()
+        expect(searchCall![0]).toContain('profileId=profile-1')
+        expect(searchCall![0]).toContain('q=notes')
+        expect(searchCall![0]).toContain('excludeIds=n-standup')
+      })
+    })
+
+    it('selecting a todo result and a note result both add the item via onReplaceBoardItems and update the grid', async () => {
+      noteSearchData = [budgetNote]
+      // budgetNote must also be resolvable via BoardsView's own notes fetch
+      // (not just the search response) so the post-rerender grid can render
+      // its card - the search endpoint only feeds the search results list.
+      notesData = [standupNote, budgetNote]
+      fetchMock = stubNotesAndFoldersFetch()
+      const { rerender, props, onReplaceBoardItems } = renderBoards({ todos: [kitchenTodo, groceryTodo] })
+
+      await waitFor(() => {
+        expect(screen.getByText('Order new faucet')).toBeInTheDocument()
+      })
+
+      const input = screen.getByLabelText('Search todos and notes to add')
+
+      fireEvent.change(input, { target: { value: 'groc' } })
+      fireEvent.click(await screen.findByRole('button', { name: 'Add "Buy groceries" to board' }))
+
+      await waitFor(() => {
+        expect(onReplaceBoardItems).toHaveBeenCalledWith('b-kitchen', [
+          ...kitchenBoard.items,
+          { itemType: 'Todo', itemId: 't-grocery' },
+        ])
+      })
+
+      fireEvent.change(input, { target: { value: 'budget' } })
+      fireEvent.click(await screen.findByRole('button', { name: 'Add "Budget notes" to board' }))
+
+      await waitFor(() => {
+        expect(onReplaceBoardItems).toHaveBeenCalledWith('b-kitchen', [
+          ...kitchenBoard.items,
+          { itemType: 'Note', itemId: 'n-budget' },
+        ])
+      })
+
+      // Simulates App.tsx re-rendering once hooks/useBoards' optimistic
+      // update (triggered by onReplaceBoardItems) lands with both additions.
+      const updated: Board = {
+        ...kitchenBoard,
+        items: [...kitchenBoard.items, { itemType: 'Todo', itemId: 't-grocery' }, { itemType: 'Note', itemId: 'n-budget' }],
+      }
+      rerender(<BoardsView {...props} boards={[updated]} todos={[kitchenTodo, groceryTodo]} />)
+
+      expect(screen.getByText('Buy groceries')).toBeInTheDocument()
+      expect(screen.getByText('Budget notes')).toBeInTheDocument()
+    })
+
+    it('caps todo results and note results at 6 each, independently', async () => {
+      const manyTodos: Todo[] = Array.from({ length: 8 }, (_, i) => ({
+        _id: `t-extra-${i}`,
+        title: `Extra todo ${i}`,
+        priority: 'Medium',
+        dueDate: '',
+      }))
+      const manyNotes: Note[] = Array.from({ length: 8 }, (_, i) => ({
+        _id: `n-extra-${i}`,
+        name: `Extra note ${i}`,
+        folderId: null,
+      }))
+      noteSearchData = manyNotes
+
+      renderBoards({ todos: [kitchenTodo, ...manyTodos] })
+
+      await waitFor(() => {
+        expect(screen.getByText('Order new faucet')).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText('Search todos and notes to add'), { target: { value: 'extra' } })
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /^Add "Extra todo \d" to board$/ })).toHaveLength(6)
+      })
+      expect(screen.getAllByRole('button', { name: /^Add "Extra note \d" to board$/ })).toHaveLength(6)
     })
   })
 })

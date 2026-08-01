@@ -10,10 +10,10 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { itemKey } from '../utils/boardItemKey'
+import { boardItemKey, itemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
 import { folderPath } from '../utils/notesTree'
-import type { Board, BoardItem, Category, Note, NoteFolder, Todo } from '../types'
+import type { Board, BoardItem, BoardItemType, Category, Note, NoteFolder, Todo } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
 import type { RichTextEditorHandle } from './RichTextEditor'
@@ -421,6 +421,124 @@ function BoardHeaderActions({ board, onRename, onDeleteRequest }: BoardHeaderAct
   )
 }
 
+interface BoardSearchAndAddProps {
+  activeProfileId: string
+  todos: Todo[]
+  activeBoard: Board
+  onAdd: (itemType: BoardItemType, itemId: string) => void
+}
+
+// Search-and-add bar (ticket 15, .scratch/boards/issues/15-search-and-add.md):
+// queries todos and notes together as the user types, each excluding items
+// already on the active board and capped to 6 results. The todo half is a
+// client-side filter over the already-loaded todosList - mirroring Linked
+// Todos' own link-search exactly (TodoDetail's `results`: title substring
+// match, already-linked excluded, `.slice(0, 6)`), no new backend call. The
+// note half hits the real GET /api/notes/search endpoint (ticket 11) as the
+// user types - the same "real endpoint, `ignore`-guarded effect, no
+// debounce" pattern App.tsx's own todos/search effect already establishes -
+// since notes aren't kept in a full in-memory list the way todos are.
+function BoardSearchAndAdd({ activeProfileId, todos, activeBoard, onAdd }: BoardSearchAndAddProps) {
+  const [query, setQuery] = useState('')
+  const [rawNoteResults, setRawNoteResults] = useState<Note[]>([])
+
+  const activeItemKeys = new Set(activeBoard.items.map(itemKey))
+  const trimmed = query.trim()
+
+  const todoResults = trimmed
+    ? todos
+        .filter((t) => !activeItemKeys.has(boardItemKey('Todo', String(getId(t)))))
+        .filter((t) => t.title.toLowerCase().includes(trimmed.toLowerCase()))
+        .slice(0, 6)
+    : []
+
+  // Re-filtered (and re-capped) client-side even though the server already
+  // applies excludeIds/.limit(6) - so a just-added note disappears from the
+  // list instantly rather than waiting on this effect's next fetch to
+  // resolve, and so a mocked/misbehaving response can't blow past the cap.
+  const noteResults = rawNoteResults
+    .filter((n) => !activeItemKeys.has(boardItemKey('Note', String(getId(n)))))
+    .slice(0, 6)
+
+  useEffect(() => {
+    if (!trimmed) {
+      setRawNoteResults([])
+      return
+    }
+
+    let ignore = false
+    async function runSearch() {
+      const excludeIds = activeBoard.items
+        .filter((item) => item.itemType === 'Note')
+        .map((item) => item.itemId)
+        .join(',')
+      try {
+        const res = await fetch(
+          `${API_URL}/api/notes/search?profileId=${encodeURIComponent(activeProfileId)}&q=${encodeURIComponent(trimmed)}&excludeIds=${encodeURIComponent(excludeIds)}`,
+        )
+        if (!res.ok) return
+        const data = await res.json()
+        if (!ignore) setRawNoteResults(data)
+      } catch {
+        // A failed note search just leaves the note half of the results
+        // empty - the todo half (client-side, can't fail) still works.
+      }
+    }
+    runSearch()
+
+    return () => {
+      ignore = true
+    }
+  }, [trimmed, activeProfileId, activeBoard])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search todos and notes to add..."
+        aria-label="Search todos and notes to add"
+        className="w-full max-w-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+      />
+      {(todoResults.length > 0 || noteResults.length > 0) && (
+        <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-[#1c1330]">
+          {todoResults.map((t) => (
+            <button
+              key={`Todo:${getId(t)}`}
+              type="button"
+              aria-label={`Add "${t.title}" to board`}
+              onClick={() => onAdd('Todo', String(getId(t)))}
+              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <TypeBadge type="Todo" />
+                <span className="truncate">{t.title}</span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">+ Add</span>
+            </button>
+          ))}
+          {noteResults.map((n) => (
+            <button
+              key={`Note:${getId(n)}`}
+              type="button"
+              aria-label={`Add "${n.name}" to board`}
+              onClick={() => onAdd('Note', String(getId(n)))}
+              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <TypeBadge type="Note" />
+                <span className="truncate">{n.name}</span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">+ Add</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface BoardsViewProps {
   activeProfileId: string | null
   // "Active board" lives on Profile (Profile.activeBoardId), not owned by
@@ -559,6 +677,23 @@ export function BoardsView({
   }
 
   const activeBoard = boards.find((b) => String(getId(b)) === activeBoardId) ?? null
+
+  // Appends one item to the active board via the same whole-array-replace
+  // PATCH pattern as everything else here - mirrors handleRemoveItem, just
+  // adding instead of filtering out. Used by BoardSearchAndAdd's result
+  // buttons (ticket 15); the quick-add icon elsewhere in the app goes
+  // through hooks/useBoards' own addItem instead, not this component.
+  async function handleAddItem(itemType: BoardItemType, itemId: string) {
+    if (!activeBoard) return
+    const id = String(getId(activeBoard))
+    const nextItems = [...activeBoard.items, { itemType, itemId }]
+    try {
+      await onReplaceBoardItems(id, nextItems)
+    } catch {
+      // onReplaceBoardItems already rolled back its optimistic update and
+      // recorded the failure in boardsError.
+    }
+  }
 
   async function handleRemoveItem(item: BoardItem) {
     if (!activeBoard) return
@@ -710,6 +845,15 @@ export function BoardsView({
             <>
               {!activeBoard && (
                 <p className="text-sm text-slate-500 dark:text-slate-400">Select a board to view its items.</p>
+              )}
+
+              {activeBoard && activeProfileId && (
+                <BoardSearchAndAdd
+                  activeProfileId={activeProfileId}
+                  todos={todos}
+                  activeBoard={activeBoard}
+                  onAdd={handleAddItem}
+                />
               )}
 
               {activeBoard && activeBoard.items.length === 0 && (
