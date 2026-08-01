@@ -14,6 +14,7 @@ import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
+import { SummaryView } from './components/SummaryView'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
@@ -93,7 +94,7 @@ function App() {
   // header tab below. Nothing else on the page (header chrome, the
   // fixed-bottom Scratchpad bar) is affected by which tab is active, per the
   // Notes spec (Boards follows the same mechanism - see .scratch/boards/spec.md).
-  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards'>('todos')
+  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards' | 'summary'>('todos')
   // Quick-add icon state (ticket 14) - the zero-boards create-first-board
   // prompt, and the arcing fly-to-badge animation's in-flight event/target/
   // pop, all live here since they're triggered from anywhere in the app
@@ -832,6 +833,7 @@ function App() {
                 { key: 'todos', label: 'Todos' },
                 { key: 'notes', label: 'Notes' },
                 { key: 'boards', label: 'Boards' },
+                { key: 'summary', label: 'Summary' },
               ] as const
             ).map((tab) => (
               <button
@@ -893,6 +895,8 @@ function App() {
           onDeleteBoard={deleteBoard}
           onReplaceBoardItems={replaceItems}
         />
+      ) : activeTab === 'summary' ? (
+        <SummaryView activeProfileId={activeProfileId} categories={categories} />
       ) : (
         <>
           <section aria-label="Categories" className="mb-6">

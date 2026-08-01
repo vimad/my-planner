@@ -150,6 +150,49 @@ export interface Board {
   updatedAt?: string
 }
 
+// GET /api/todos/weekly-summary's response shape - see the backend's
+// packages/backend/src/utils/weeklySummaryBuckets.ts (source of truth for
+// this shape) and .scratch/weekly-summary/spec.md. `weekStart`/`weekEnd` and
+// every segment's `date` are local calendar-day strings ("YYYY-MM-DD"), same
+// convention as Todo.dueDate. `categoryId` is bare - the frontend joins it
+// against its own already-loaded `Category[]` for name/color rather than the
+// backend embedding them.
+export interface WeeklySummarySegment {
+  date: string
+  text: string
+}
+
+export interface WeeklySummaryCompletedEntry {
+  id: string
+  title: string
+  completedAt: string
+  lastSegmentBeforeCompletion: WeeklySummarySegment | null
+}
+
+export interface WeeklySummaryActionedEntry {
+  id: string
+  title: string
+  segments: WeeklySummarySegment[]
+}
+
+export interface WeeklySummaryNoActionEntry {
+  id: string
+  title: string
+}
+
+export interface WeeklySummaryCategoryGroup {
+  categoryId: string
+  completed: WeeklySummaryCompletedEntry[]
+  actioned: WeeklySummaryActionedEntry[]
+  noAction: WeeklySummaryNoActionEntry[]
+}
+
+export interface WeeklySummaryResponse {
+  weekStart: string
+  weekEnd: string
+  categories: WeeklySummaryCategoryGroup[]
+}
+
 // Threaded from App.tsx (which owns the active board via hooks/useBoards)
 // down through AgendaGroups/CompletedTodos/NotesView to every quick-add
 // insertion point (TodoItem, NotesView's note row) - see ticket 14
