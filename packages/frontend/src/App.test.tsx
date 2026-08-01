@@ -141,8 +141,8 @@ describe('App', () => {
       expect(screen.getByText('Uncategorized')).toBeInTheDocument()
     })
 
-    expect(screen.queryByLabelText('Delete Uncategorized')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Delete Work')).toBeInTheDocument()
+    expect(screen.queryByLabelText('More actions for Uncategorized')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('More actions for Work')).toBeInTheDocument()
   })
 
   it('creates a new category', async () => {
@@ -197,7 +197,8 @@ describe('App', () => {
     fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // PATCH
     fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized, renamed])) // refetch GET
 
-    fireEvent.click(screen.getByLabelText('Edit Work'))
+    fireEvent.click(screen.getByLabelText('More actions for Work'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
     fireEvent.change(screen.getByLabelText('Category name'), {
       target: { value: 'Deep Work' },
     })
@@ -223,7 +224,8 @@ describe('App', () => {
     fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
     fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized])) // refetch GET
 
-    fireEvent.click(screen.getByLabelText('Delete Work'))
+    fireEvent.click(screen.getByLabelText('More actions for Work'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => {
@@ -242,7 +244,8 @@ describe('App', () => {
       expect(screen.getByText('Work')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByLabelText('Delete Work'))
+    fireEvent.click(screen.getByLabelText('More actions for Work'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
     expect(screen.getByText('Delete category "Work"? This cannot be undone.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))

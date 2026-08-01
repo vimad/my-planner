@@ -896,7 +896,11 @@ function App() {
         />
       ) : (
         <>
-          <section aria-label="Categories" className="mb-6">
+          {/* z-10: each CategoryChip's overflow menu is position:absolute and
+              needs to paint above the Agenda section below it - without this,
+              the chip's own backdrop-blur traps the menu in a losing stacking
+              context. */}
+          <section aria-label="Categories" className="relative z-10 mb-6">
             <div className="flex flex-wrap items-center gap-3">
               {(loading || profilesLoading) && (
                 <p className="text-sm text-slate-500 dark:text-slate-400">Loading categories...</p>
