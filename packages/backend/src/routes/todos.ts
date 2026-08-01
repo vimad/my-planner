@@ -200,6 +200,7 @@ todosRouter.patch('/:id/toggle', async (req: Request<{ id: string }>, res: Respo
 
     const wasCompleted = todo.completed
     todo.completed = !todo.completed
+    todo.completedAt = todo.completed ? new Date() : null
     await todo.save()
 
     if (!wasCompleted && todo.completed && todo.recurrence && todo.dueDate) {
@@ -212,6 +213,7 @@ todosRouter.patch('/:id/toggle', async (req: Request<{ id: string }>, res: Respo
         bodyText: todo.bodyText,
         recurrence: todo.recurrence,
         completed: false,
+        completedAt: null,
         dueDate: advanceDueDate(todo.dueDate, todo.recurrence.pattern),
       })
     }

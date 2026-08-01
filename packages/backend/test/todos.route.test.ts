@@ -426,7 +426,13 @@ describe('Todo routes', () => {
 
   describe('PATCH /api/todos/:id/toggle', () => {
     it('flips completed from false to true', async () => {
-      const doc = { _id: 't1', title: 'Buy milk', completed: false, save: vi.fn().mockResolvedValue(undefined) }
+      const doc = {
+        _id: 't1',
+        title: 'Buy milk',
+        completed: false,
+        completedAt: null,
+        save: vi.fn().mockResolvedValue(undefined),
+      }
       Todo.findById.mockResolvedValue(doc)
 
       const app = createApp()
@@ -435,10 +441,18 @@ describe('Todo routes', () => {
       expect(res.status).toBe(200)
       expect(res.body.completed).toBe(true)
       expect(doc.save).toHaveBeenCalled()
+      expect(res.body.completedAt).toBeTruthy()
+      expect(new Date(res.body.completedAt).toString()).not.toBe('Invalid Date')
     })
 
     it('flips completed from true back to false (reopen)', async () => {
-      const doc = { _id: 't1', title: 'Buy milk', completed: true, save: vi.fn().mockResolvedValue(undefined) }
+      const doc = {
+        _id: 't1',
+        title: 'Buy milk',
+        completed: true,
+        completedAt: new Date('2026-07-30T00:00:00.000Z'),
+        save: vi.fn().mockResolvedValue(undefined),
+      }
       Todo.findById.mockResolvedValue(doc)
 
       const app = createApp()
@@ -446,6 +460,7 @@ describe('Todo routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.completed).toBe(false)
+      expect(res.body.completedAt).toBe(null)
     })
 
     it('returns 404 when the todo does not exist', async () => {
@@ -468,6 +483,7 @@ describe('Todo routes', () => {
         recurrence: { pattern: 'daily' },
         dueDate: '2026-07-25',
         completed: false,
+        completedAt: null,
         save: vi.fn().mockResolvedValue(undefined),
       }
       Todo.findById.mockResolvedValue(doc)
@@ -486,6 +502,7 @@ describe('Todo routes', () => {
         body: { type: 'doc', content: [] },
         recurrence: { pattern: 'daily' },
         completed: false,
+        completedAt: null,
         dueDate: '2026-07-26',
       })
     })
@@ -501,6 +518,7 @@ describe('Todo routes', () => {
         recurrence: { pattern: 'weekly' },
         dueDate: '2026-07-25',
         completed: false,
+        completedAt: null,
         save: vi.fn().mockResolvedValue(undefined),
       }
       Todo.findById.mockResolvedValue(doc)
@@ -510,7 +528,7 @@ describe('Todo routes', () => {
       await request(app).patch('/api/todos/t1/toggle')
 
       expect(Todo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ dueDate: '2026-08-01' }),
+        expect.objectContaining({ dueDate: '2026-08-01', completedAt: null }),
       )
     })
 
@@ -525,6 +543,7 @@ describe('Todo routes', () => {
         recurrence: { pattern: 'monthly' },
         dueDate: '2026-07-25',
         completed: false,
+        completedAt: null,
         save: vi.fn().mockResolvedValue(undefined),
       }
       Todo.findById.mockResolvedValue(doc)
@@ -534,7 +553,7 @@ describe('Todo routes', () => {
       await request(app).patch('/api/todos/t1/toggle')
 
       expect(Todo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ dueDate: '2026-08-25' }),
+        expect.objectContaining({ dueDate: '2026-08-25', completedAt: null }),
       )
     })
 

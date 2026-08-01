@@ -16,6 +16,7 @@ export interface TodoDoc {
   title: string
   categoryId: Types.ObjectId
   completed: boolean
+  completedAt: Date | null
   dueDate: string | null
   priority: TodoPriority
   tags: string[]
@@ -59,6 +60,7 @@ const todoSchema = new Schema<TodoDoc>(
     title: { type: String, required: true },
     categoryId: { type: Schema.Types.ObjectId, ref: 'Category', required: true },
     completed: { type: Boolean, default: false },
+    completedAt: { type: Date, default: null },
     dueDate: { type: String, default: null },
     priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium' },
     tags: { type: [String], default: [] },
