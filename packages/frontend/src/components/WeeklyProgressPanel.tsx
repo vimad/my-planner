@@ -26,7 +26,7 @@ export function WeeklyProgressPanel({ activeProfileId, categories }: WeeklyProgr
 
   return (
     <>
-      <div className="w-full shrink-0 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/5 lg:w-64">
+      <div className="sticky top-6 max-h-[calc(100vh-3rem)] w-full shrink-0 self-start overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/5 lg:w-64">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white">Weekly progress</h3>
           <button

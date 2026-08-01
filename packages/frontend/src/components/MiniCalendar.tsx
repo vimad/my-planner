@@ -95,7 +95,7 @@ export function MiniCalendar({
   }
 
   return (
-    <div className="w-full shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md sm:w-56">
+    <div className="sticky top-6 w-full shrink-0 self-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md sm:w-56">
       <div className="mb-3 flex items-center justify-between">
         <button
           type="button"
