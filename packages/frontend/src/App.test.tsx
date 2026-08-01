@@ -31,8 +31,20 @@ function jsonResponse(body: unknown, ok = true): Promise<FakeResponse> {
 // Stubs global fetch with a fake that dispatches on the request URL, and
 // returns the underlying mock so individual tests can queue further one-off
 // responses (mockImplementationOnce) or inspect calls afterward.
+//
+// GET /api/todos/weekly-summary is intercepted here, ahead of every handler
+// below, with a fixed well-formed empty response - WeeklyProgressPanel
+// (App.tsx's Agenda section) fetches it unconditionally on every mount/
+// profile switch, and none of the handlers below (nor the tests using them)
+// care about its contents, so it'd otherwise need repeating in each one.
 function stubFetch(handler: (url: string) => Promise<FakeResponse>): FetchMock {
-  const mock: FetchMock = vi.fn((url) => handler(String(url)))
+  const mock: FetchMock = vi.fn((url) => {
+    const href = String(url)
+    if (href.includes('/api/todos/weekly-summary')) {
+      return jsonResponse({ weekStart: '2024-01-01', weekEnd: '2024-01-07', categories: [] })
+    }
+    return handler(href)
+  })
   vi.stubGlobal('fetch', mock)
   return mock
 }
@@ -850,6 +862,14 @@ describe('App', () => {
 
       const sideProject: Profile = { _id: 'side-project-id', name: 'Side Project' }
       fetchMock.mockImplementationOnce(() => jsonResponse(sideProject, true)) // POST /api/profiles
+      // WeeklyProgressPanel is a child of App, so its own effect (the
+      // useWeeklySummary fetch below) fires before App's own activeProfileId
+      // effect (React fires child passive effects before parent ones) -
+      // hence this one lands ahead of the categories refetch it's paired
+      // with despite being declared second in App.tsx's own effect.
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ weekStart: '2024-01-01', weekEnd: '2024-01-07', categories: [] }),
+      ) // refetch GET /api/todos/weekly-summary
       fetchMock.mockImplementationOnce(() => jsonResponse([personalOnlyCategory])) // refetch GET /api/categories
 
       fireEvent.click(screen.getByLabelText('Create new profile'))

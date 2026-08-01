@@ -27,9 +27,11 @@ export interface UseWeeklySummaryResult {
   goToThisWeek: () => void
 }
 
-// Fetch-on-mount/on-profile-change data source for the Summary tab, mirroring
-// hooks/useBoards' profile-keyed effect. Week navigation state (`date`) also
-// lives here rather than in SummaryView, same "fetch-triggering state lives
+// Fetch-on-mount/on-profile-change data source for weekly progress
+// (WeeklyProgressPanel's compact view and its SummaryView slide-over, both
+// in App.tsx's Agenda section), mirroring hooks/useBoards' profile-keyed
+// effect. Week navigation state (`date`) also lives here rather than in
+// SummaryView, same "fetch-triggering state lives
 // in the hook" convention - prev/next/this-week just move `date` by a week
 // and let the effect below re-fetch.
 export function useWeeklySummary(activeProfileId: string | null): UseWeeklySummaryResult {

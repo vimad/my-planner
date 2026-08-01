@@ -14,10 +14,10 @@ import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
-import { SummaryView } from './components/SummaryView'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
+import { WeeklyProgressPanel } from './components/WeeklyProgressPanel'
 import { useActiveProfile } from './hooks/useActiveProfile'
 import { useBoards } from './hooks/useBoards'
 import { itemKey } from './utils/boardItemKey'
@@ -94,7 +94,7 @@ function App() {
   // header tab below. Nothing else on the page (header chrome, the
   // fixed-bottom Scratchpad bar) is affected by which tab is active, per the
   // Notes spec (Boards follows the same mechanism - see .scratch/boards/spec.md).
-  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards' | 'summary'>('todos')
+  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards'>('todos')
   // Quick-add icon state (ticket 14) - the zero-boards create-first-board
   // prompt, and the arcing fly-to-badge animation's in-flight event/target/
   // pop, all live here since they're triggered from anywhere in the app
@@ -833,7 +833,6 @@ function App() {
                 { key: 'todos', label: 'Todos' },
                 { key: 'notes', label: 'Notes' },
                 { key: 'boards', label: 'Boards' },
-                { key: 'summary', label: 'Summary' },
               ] as const
             ).map((tab) => (
               <button
@@ -895,8 +894,6 @@ function App() {
           onDeleteBoard={deleteBoard}
           onReplaceBoardItems={replaceItems}
         />
-      ) : activeTab === 'summary' ? (
-        <SummaryView activeProfileId={activeProfileId} categories={categories} />
       ) : (
         <>
           <section aria-label="Categories" className="mb-6">
@@ -955,66 +952,69 @@ function App() {
             )}
           </section>
 
-          <section aria-label="Agenda" className="flex flex-col gap-4 sm:flex-row">
-            <MiniCalendar
-              todos={todos}
-              nextOfficeDay={nextOfficeDay}
-              onSetOfficeDay={handleSetOfficeDay}
-              selectedRange={selectedDateRange}
-              onSelectRange={setSelectedDateRange}
-            />
-            <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-              <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search todos by title or body..."
-                aria-label="Search todos"
-                className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+          <section aria-label="Agenda" className="flex flex-col gap-4 lg:flex-row">
+            <div className="flex flex-1 flex-col gap-4 sm:flex-row">
+              <MiniCalendar
+                todos={todos}
+                nextOfficeDay={nextOfficeDay}
+                onSetOfficeDay={handleSetOfficeDay}
+                selectedRange={selectedDateRange}
+                onSelectRange={setSelectedDateRange}
               />
-              <div className="mb-4 flex items-center gap-4">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={sortByPriority}
-                    onChange={(e) => setSortByPriority(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-fuchsia-500"
+              <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
+                <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search todos by title or body..."
+                  aria-label="Search todos"
+                  className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+                />
+                <div className="mb-4 flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={sortByPriority}
+                      onChange={(e) => setSortByPriority(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-fuchsia-500"
+                    />
+                    Sort by priority
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={showCompletedOnly}
+                      onChange={(e) => setShowCompletedOnly(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-fuchsia-500"
+                    />
+                    Show completed
+                  </label>
+                </div>
+                {showCompletedOnly ? (
+                  <CompletedTodos
+                    todos={visibleTodos}
+                    categoriesById={categoriesById}
+                    onToggle={handleTodoToggle}
+                    onDelete={handleTodoDelete}
+                    onOpen={setSelectedTodo}
+                    boardQuickAdd={boardQuickAdd}
                   />
-                  Sort by priority
-                </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={showCompletedOnly}
-                    onChange={(e) => setShowCompletedOnly(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-fuchsia-500"
+                ) : (
+                  <AgendaGroups
+                    todos={visibleTodos}
+                    categoriesById={categoriesById}
+                    onToggle={handleTodoToggle}
+                    onDelete={handleTodoDelete}
+                    onOpen={setSelectedTodo}
+                    boardQuickAdd={boardQuickAdd}
+                    sortByPriority={sortByPriority}
+                    nextOfficeDay={nextOfficeDay}
                   />
-                  Show completed
-                </label>
+                )}
               </div>
-              {showCompletedOnly ? (
-                <CompletedTodos
-                  todos={visibleTodos}
-                  categoriesById={categoriesById}
-                  onToggle={handleTodoToggle}
-                  onDelete={handleTodoDelete}
-                  onOpen={setSelectedTodo}
-                  boardQuickAdd={boardQuickAdd}
-                />
-              ) : (
-                <AgendaGroups
-                  todos={visibleTodos}
-                  categoriesById={categoriesById}
-                  onToggle={handleTodoToggle}
-                  onDelete={handleTodoDelete}
-                  onOpen={setSelectedTodo}
-                  boardQuickAdd={boardQuickAdd}
-                  sortByPriority={sortByPriority}
-                  nextOfficeDay={nextOfficeDay}
-                />
-              )}
             </div>
+            <WeeklyProgressPanel activeProfileId={activeProfileId} categories={categories} />
           </section>
         </>
       )}

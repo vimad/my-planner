@@ -146,8 +146,9 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
   )
 }
 
-// Fourth top-level tab (see App.tsx) - ports the validated "Category
-// Dashboard" prototype (branch prototype/weekly-summary-view,
+// The full weekly-progress breakdown, rendered inside WeeklyProgressPanel's
+// expanded slide-over (see App.tsx's Agenda section) - ports the validated
+// "Category Dashboard" prototype (branch prototype/weekly-summary-view,
 // VariantCategoryDashboard.tsx) onto the real
 // GET /api/todos/weekly-summary endpoint via hooks/useWeeklySummary.
 export function SummaryView({ activeProfileId, categories }: SummaryViewProps) {
