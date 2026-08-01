@@ -38,11 +38,13 @@ Skills to use while resolving tickets: `/research` (research tickets), `/prototy
 ## Decisions so far
 
 - [Weekly-summary compute strategy: on-demand vs precomputed](issues/01-compute-strategy-research.md) — compute on-demand at request time, zero persisted derived state, no new indexes. The walk costs microseconds to sub-millisecond even at 20x scale (empirically benchmarked), dwarfed by the already-unindexed `COLLSCAN` this app's queries already run today; precomputing couldn't even skip the per-request rollup (week navigation is arbitrary) and would add real sync surface for negligible savings. Full findings: `.scratch/weekly-summary/research-compute-strategy.md` on branch `research/weekly-summary-compute-strategy`.
+- [Weekly progress summary: view design & entry point](issues/02-view-and-entry-point-prototype.md) — **Variant A won: a 4th "Summary" tab**, category-first expandable cards with rollup counts, multi-segment lists under actioned todos, a completed-item carry-over hint, and prev/next + "this week" week navigation. Two alternatives (shortcut+slide-over overlay; day-column "Weekly Board") were built and rejected. Full prototype on branch `prototype/weekly-summary-view` (not merged).
+- [Weekly summary API request/response contract](issues/03-api-contract.md) — `GET /api/todos/weekly-summary?profileId=&date=` on the existing `todosRouter`; backend snaps `date` to that week's Monday and returns `{ weekStart, weekEnd, categories }`, each category keyed by bare `categoryId` (frontend joins to its already-loaded `/api/categories`), buckets trimmed to only the fields Variant A renders, empty categories omitted.
+- [Assemble weekly-summary spec.md](issues/04-assemble-spec.md) — `.scratch/weekly-summary/spec.md` assembled from the three tickets above plus the map's settled Notes; the destination artifact, `Status: ready-for-agent`, no new decisions made.
 
 ## Not yet specified
 
-- **Stuck/stalled indicator** (idea 1 from charting): flagging todos in "no action taken this week" that also had no action in prior week(s), to distinguish "just started" from "genuinely stalled." Explicitly deferred by the user pending a look at the prototype — revisit once the core view has shape.
-- Any further insight angles that emerge once the prototype is in hand ("prototypes might give me more clarity when I see those features" — user's words).
+(none — the frontier is clear; the destination spec is assembled at `.scratch/weekly-summary/spec.md`. The stuck/stalled indicator idea and any further post-launch insight angles are carried forward there as deferred follow-up candidates, not live fog on this map.)
 
 ## Out of scope
 
