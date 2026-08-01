@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgendaGroups } from './components/AgendaGroups'
 import { BoardsTabBadge } from './components/BoardsTabBadge'
 import { BoardsView } from './components/BoardsView'
+import { BoardSwitcherModal } from './components/BoardSwitcherModal'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm, type CategoryFormValues } from './components/CategoryForm'
 import { CompletedTodos } from './components/CompletedTodos'
@@ -104,6 +105,12 @@ function App() {
     label: string
   } | null>(null)
   const [flyEvent, setFlyEvent] = useState<FlyEvent | null>(null)
+  // Global "switch active board" palette (Ctrl+A - see the window-level
+  // keydown effect below), independent of `activeTab`: switching the active
+  // board doesn't need the Boards tab open, the same way `activeBoardId`
+  // itself is read/set from anywhere in the app already (quick-add icon,
+  // BoardsTabBadge).
+  const [showBoardSwitcher, setShowBoardSwitcher] = useState(false)
   const [badgeBumped, setBadgeBumped] = useState(false)
   const badgeRef = useRef<HTMLSpanElement>(null)
   const bumpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -111,6 +118,56 @@ function App() {
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Global Ctrl+A shortcut for opening the board-switcher palette. Skipped
+  // while focus is in a text field/editor (including tiptap's
+  // contentEditable) so the browser's native "select all text" still works
+  // everywhere it normally would - this shortcut only fires when nothing
+  // editable has focus. Also skipped while any other modal is already open
+  // (confirm dialog, the zero-boards create prompt, a todo detail panel) so
+  // it never stacks on top of one of those.
+  useEffect(() => {
+    function isEditableTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false
+      if (target.isContentEditable) return true
+      return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT'
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== 'a' || !e.ctrlKey || e.metaKey || e.altKey) return
+      if (isEditableTarget(e.target)) return
+      if (pendingConfirm || pendingQuickAdd || selectedTodo || draftTodo) return
+      e.preventDefault()
+      setShowBoardSwitcher(true)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingConfirm, pendingQuickAdd, selectedTodo, draftTodo])
+
+  // Selecting a board from the palette reuses the exact same mutation
+  // BoardsView's own BoardSwitcher and the tab-embedded switcher use (see
+  // handleSetActiveBoardId above) - there's still only one "set the active
+  // board" code path, just another entry point into it.
+  function handleSelectBoardFromSwitcher(id: string) {
+    handleSetActiveBoardId(id)
+    setShowBoardSwitcher(false)
+  }
+
+  // Creates a board from the palette, activates it, then closes - mirrors
+  // BoardsView's own handleCreateBoard (a freshly created board has nothing
+  // else that could be "active"), just triggered from the global palette
+  // instead of the Boards tab's inline switcher.
+  async function handleCreateBoardForSwitcher(name: string) {
+    if (!activeProfileId) return
+    try {
+      const created = await createBoard(name)
+      await setActiveBoardId(activeProfileId, String(getId(created)))
+      setShowBoardSwitcher(false)
+    } catch {
+      // createBoard/setActiveBoardId already record their own failure in
+      // boardsError/profileError.
+    }
+  }
 
   // Gates a destructive/hard-to-undo action (delete, mark complete) behind
   // an explicit confirm click. `run` fires only if the user confirms.
@@ -1013,6 +1070,16 @@ function App() {
           itemLabel={pendingQuickAdd.label}
           onCreate={handleCreateBoardForQuickAdd}
           onCancel={() => setPendingQuickAdd(null)}
+        />
+      )}
+
+      {showBoardSwitcher && (
+        <BoardSwitcherModal
+          boards={boards}
+          activeBoardId={activeBoardId}
+          onSelect={handleSelectBoardFromSwitcher}
+          onCreate={handleCreateBoardForSwitcher}
+          onClose={() => setShowBoardSwitcher(false)}
         />
       )}
 
