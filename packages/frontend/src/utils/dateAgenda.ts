@@ -36,7 +36,7 @@ export function localTodayISO(date: Date = new Date()): string {
 
 // Parses a "YYYY-MM-DD" string into a local midnight Date, entirely via
 // local constructor arguments (no UTC parsing involved).
-function parseLocalDate(dateStr: string): Date {
+export function parseLocalDate(dateStr: string): Date {
   const [year, month, day] = dateStr.split('-').map(Number)
   return new Date(year, month - 1, day)
 }

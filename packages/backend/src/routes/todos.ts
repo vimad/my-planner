@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Category } from '../models/Category.ts'
 import { Todo, type TodoDoc, type TodoPriority, type TodoRecurrence } from '../models/Todo.ts'
 import { resolveDefaultCategoryId } from '../utils/defaultCategory.ts'
+import { addDays, mondayOf, parseLocalDate, toLocalDateString } from '../utils/localDate.ts'
 import { requireProfileId, resolveCategoryIdsForProfile } from '../utils/profileScope.ts'
 import { tiptapToPlainText } from '../utils/tiptapText.ts'
 import type { TiptapNode } from '../utils/tiptapText.ts'
@@ -183,39 +184,6 @@ todosRouter.get(
     }
   },
 )
-
-// Local calendar-day helpers for the weekly-summary route's `date` query
-// param, mirroring advanceDueDate's day-shift-bug precedent above: parse via
-// new Date(y, m-1, d) and serialize via getFullYear/getMonth/getDate (local
-// time), never new Date(dateString) or toISOString() (UTC, can shift the
-// day).
-function parseLocalDate(iso: string): Date {
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-
-function toLocalDateString(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function addDays(iso: string, days: number): string {
-  const date = parseLocalDate(iso)
-  date.setDate(date.getDate() + days)
-  return toLocalDateString(date)
-}
-
-// Monday of the week containing `iso`. getDay() is 0=Sun..6=Sat, so Sunday
-// needs a -6 day shift back to the prior Monday rather than the +1-Monday
-// math that works for Mon-Sat.
-function mondayOf(iso: string): string {
-  const date = parseLocalDate(iso)
-  const dow = date.getDay()
-  const diffToMonday = dow === 0 ? -6 : 1 - dow
-  return addDays(iso, diffToMonday)
-}
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 

@@ -3,6 +3,7 @@
 // definitions". Pure function - no Mongoose, no I/O; the route layer is
 // responsible for loading todos and shaping them into WeeklySummaryTodoInput
 // (stringifying `_id`/categoryId) before calling this.
+import { toLocalDateString } from './localDate.ts'
 import type { TiptapNode } from './tiptapText.ts'
 import { parseWeeklySummarySegments, type WeeklySummarySegment } from './weeklySummarySegments.ts'
 
@@ -37,23 +38,11 @@ export interface WeeklySummaryNoActionEntry {
   title: string
 }
 
-export interface WeeklySummaryCategoryBucket {
+export interface WeeklySummaryCategoryGroup {
   categoryId: string
   completed: WeeklySummaryCompletedEntry[]
   actioned: WeeklySummaryActionedEntry[]
   noAction: WeeklySummaryNoActionEntry[]
-}
-
-// completedAt is a real Date (an exact instant), but weekStart/weekEnd and
-// every segment's date are local calendar-day strings - converting via
-// getFullYear/getMonth/getDate (never toISOString, which is UTC and can
-// shift the day) mirrors the day-shift-bug precedent around advanceDueDate
-// in routes/todos.ts.
-function toLocalDateString(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 // Most-recent segment dated strictly before `completedDate`, searched across
@@ -74,12 +63,12 @@ function findLastSegmentBeforeCompletion(
 export function computeWeeklySummaryBuckets(
   todos: WeeklySummaryTodoInput[],
   week: WeeklySummaryWeek,
-): WeeklySummaryCategoryBucket[] {
+): WeeklySummaryCategoryGroup[] {
   const { weekStart, weekEnd } = week
-  const categories: WeeklySummaryCategoryBucket[] = []
-  const categoryIndex = new Map<string, WeeklySummaryCategoryBucket>()
+  const categories: WeeklySummaryCategoryGroup[] = []
+  const categoryIndex = new Map<string, WeeklySummaryCategoryGroup>()
 
-  function bucketFor(categoryId: string): WeeklySummaryCategoryBucket {
+  function bucketFor(categoryId: string): WeeklySummaryCategoryGroup {
     let bucket = categoryIndex.get(categoryId)
     if (!bucket) {
       bucket = { categoryId, completed: [], actioned: [], noAction: [] }

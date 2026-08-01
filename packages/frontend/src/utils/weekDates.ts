@@ -1,15 +1,11 @@
 // Local calendar-day date math for the Summary tab's week navigation and
-// display formatting - mirrors the backend's identical helpers in
-// packages/backend/src/routes/todos.ts (the weekly-summary route) and the
-// validated prototype's mockData.ts, both of which parse/serialize via
-// getFullYear/getMonth/getDate (local time), never new Date(dateString) or
-// toISOString() (UTC, can shift the day) - see dateAgenda.ts's identical
-// convention for dueDate.
-
-function parseLocalDate(iso: string): Date {
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
+// display formatting - mirrors the backend's identical helpers
+// (packages/backend/src/utils/localDate.ts) and the validated prototype's
+// mockData.ts, all of which parse/serialize via getFullYear/getMonth/
+// getDate (local time), never new Date(dateString) or toISOString() (UTC,
+// can shift the day). Reuses dateAgenda.ts's parseLocalDate rather than
+// redefining it.
+import { parseLocalDate } from './dateAgenda'
 
 export function addDays(iso: string, days: number): string {
   const date = parseLocalDate(iso)
