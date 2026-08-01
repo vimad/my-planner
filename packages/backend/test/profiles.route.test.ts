@@ -158,6 +158,28 @@ describe('Profile routes', () => {
 
       expect(res.status).toBe(404)
     })
+
+    it('switches the active board (client sends activeBoardId from the Boards-view switcher)', async () => {
+      Profile.findByIdAndUpdate.mockResolvedValue({ _id: 'p1', name: 'Work', activeBoardId: 'b2' })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/profiles/p1').send({ activeBoardId: 'b2' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.activeBoardId).toBe('b2')
+      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: 'b2' }, { new: true })
+    })
+
+    it('clears the active board via activeBoardId: null', async () => {
+      Profile.findByIdAndUpdate.mockResolvedValue({ _id: 'p1', name: 'Work', activeBoardId: null })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/profiles/p1').send({ activeBoardId: null })
+
+      expect(res.status).toBe(200)
+      expect(res.body.activeBoardId).toBeNull()
+      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: null }, { new: true })
+    })
   })
 
   describe('DELETE /api/profiles/:id', () => {

@@ -7,6 +7,7 @@ import {
   descendantFolderIds,
   folderDestroyCounts,
   folderName,
+  folderPath,
 } from './notesTree'
 
 const recipes: NoteFolder = { _id: 'f-recipes', name: 'Recipes', parentId: null }
@@ -105,5 +106,23 @@ describe('folderName', () => {
 
   it('falls back to "Root" for an id that matches no known folder', () => {
     expect(folderName(folders, 'does-not-exist')).toBe('Root')
+  })
+})
+
+describe('folderPath', () => {
+  it('returns "Root" for a null folder id', () => {
+    expect(folderPath(folders, null)).toBe('Root')
+  })
+
+  it('returns just the folder name for a root-level folder', () => {
+    expect(folderPath(folders, 'f-recipes')).toBe('Recipes')
+  })
+
+  it('joins the full ancestor chain with " / " for a nested folder', () => {
+    expect(folderPath(folders, 'f-work-ideas')).toBe('Work / Ideas')
+  })
+
+  it('falls back to "Root" for an id that matches no known folder', () => {
+    expect(folderPath(folders, 'does-not-exist')).toBe('Root')
   })
 })

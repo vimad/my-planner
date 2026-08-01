@@ -41,6 +41,8 @@ export interface UseActiveProfileResult {
   createProfile: (name: string) => Promise<void>
   renameProfile: (id: string, name: string) => Promise<void>
   deleteProfile: (id: string) => Promise<void>
+  setActiveBoardId: (profileId: string, boardId: string | null) => Promise<Profile>
+  refreshProfiles: () => Promise<void>
 }
 
 // Owns the active-profile selection that the rest of the app (category
@@ -176,6 +178,53 @@ export function useActiveProfile(): UseActiveProfileResult {
     [activeProfileId],
   )
 
+  // Persists which board is "active" for a profile (the board the Boards
+  // view shows for it) - PATCH /api/profiles/:id already supports
+  // `activeBoardId` (see .scratch/boards/spec.md). Lives here rather than
+  // being owned by BoardsView itself so the canonical `profiles` list stays
+  // in sync: without this, switching away from a profile and back within
+  // the same session would show the stale pre-switch board, since nothing
+  // else would have updated this hook's own copy of that profile.
+  const setActiveBoardId = useCallback(async (profileId: string, boardId: string | null) => {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/profiles/${profileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeBoardId: boardId }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const updated: Profile = await res.json()
+      setProfiles((prev) => prev.map((profile) => (getId(profile) === profileId ? updated : profile)))
+      return updated
+    } catch (err) {
+      setError((err as Error).message)
+      throw err
+    }
+  }, [])
+
+  // Re-fetches the profiles list without touching activeProfileId/loading -
+  // used after an action elsewhere that may have changed a profile
+  // server-side in a way this hook has no other way of learning about.
+  // Deleting a board is the motivating case (see routes/boards.ts's DELETE
+  // handler, which falls `Profile.activeBoardId` back to another board, or
+  // null, server-side): BoardsView calls this afterwards so `activeProfile`
+  // (and the `activeBoardId` prop derived from it) picks up whatever the
+  // backend actually did, rather than the frontend guessing. A full re-run
+  // of the initial `load()` effect would also re-resolve activeProfileId
+  // from localStorage and flip `loading` true, flashing the whole app's
+  // "Loading..." state for no reason here.
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/profiles`)
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const data: Profile[] = await res.json()
+      setProfiles(data)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }, [])
+
   return {
     profiles,
     activeProfileId,
@@ -185,5 +234,7 @@ export function useActiveProfile(): UseActiveProfileResult {
     createProfile,
     renameProfile,
     deleteProfile,
+    setActiveBoardId,
+    refreshProfiles,
   }
 }

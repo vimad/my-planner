@@ -87,12 +87,15 @@ export interface ScratchNote {
 
 // The coarse grouping layer above Category — see .scratch/profiles/spec.md.
 // `color` is optional (an open styling assumption per the spec); this ticket
-// (02) doesn't render it anywhere yet.
+// (02) doesn't render it anywhere yet. `activeBoardId` is null (never
+// undefined once a Profile round-trips through the API) for a profile with
+// no active board — see .scratch/boards/spec.md's Data Model section.
 export interface Profile {
   _id?: string
   id?: string
   name: string
   color?: string
+  activeBoardId?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -119,4 +122,52 @@ export interface Note {
   body?: JSONContent | null
   createdAt?: string
   updatedAt?: string
+}
+
+// Boards - a persistent, named collection of existing todos/notes, built by
+// attaching items from wherever they normally live (see
+// .scratch/boards/spec.md). Strictly link-only: a Board never owns/creates a
+// Todo or Note, only references one by id.
+export type BoardItemType = 'Todo' | 'Note'
+
+export interface BoardItem {
+  itemType: BoardItemType
+  // A dangling itemId (its Todo/Note since deleted elsewhere) is left in
+  // place rather than cleaned up - see the backend BoardDoc comment. Callers
+  // resolving against a Todo[]/Note[] list are responsible for tolerating a
+  // lookup miss (the dangling-ref ghost card).
+  itemId: string
+}
+
+export interface Board {
+  _id?: string
+  id?: string
+  name: string
+  // Flat, ordered, no-cascade reference list - array position is display
+  // order, no separate order field (mirrors Todo.linkedTodoIds).
+  items: BoardItem[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+// Threaded from App.tsx (which owns the active board via hooks/useBoards)
+// down through AgendaGroups/CompletedTodos/NotesView to every quick-add
+// insertion point (TodoItem, NotesView's note row) - see ticket 14
+// (.scratch/boards/issues/14-quick-add-icon-and-badge.md). One shared value
+// object rather than a resolved-boolean-per-row prop, so intermediate
+// components that render many rows only have to thread one thing down.
+// Optional on every consumer so a component test can render a row in
+// isolation (no Boards context at all) and just get no icon rendered.
+export interface BoardQuickAddState {
+  // `${itemType}:${itemId}` keys currently on the active board - see
+  // utils/boardItemKey.ts. A Set, not a per-row boolean, so this can be
+  // computed once in App.tsx and handed down unchanged.
+  activeItemKeys: Set<string>
+  // Adds the item to the active board (or, if zero boards exist yet, opens
+  // App.tsx's create-first-board prompt instead - see the spec's zero-boards
+  // case). `originEl` is the clicked icon's own button element, read for its
+  // bounding rect to anchor the arcing fly-to-badge animation.
+  onAdd: (itemType: BoardItemType, itemId: string, label: string, originEl: HTMLElement) => void
+  // Removes the item from the active board instantly - no reverse animation.
+  onRemove: (itemType: BoardItemType, itemId: string) => void
 }

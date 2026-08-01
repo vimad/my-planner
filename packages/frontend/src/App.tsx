@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgendaGroups } from './components/AgendaGroups'
+import { BoardsTabBadge } from './components/BoardsTabBadge'
+import { BoardsView } from './components/BoardsView'
 import { CategoryChip } from './components/CategoryChip'
 import { CategoryForm, type CategoryFormValues } from './components/CategoryForm'
 import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { CreateBoardPrompt } from './components/CreateBoardPrompt'
+import { FlyToBoardsBadge, type FlyEvent } from './components/FlyToBoardsBadge'
 import { MiniCalendar } from './components/MiniCalendar'
 import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
@@ -13,10 +17,12 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { useActiveProfile } from './hooks/useActiveProfile'
+import { useBoards } from './hooks/useBoards'
+import { itemKey } from './utils/boardItemKey'
 import { effectiveDueDate, localTodayISO, matchesDateRange, type DateRange } from './utils/dateAgenda'
 import { getId } from './utils/getId'
 import { applyTheme, getInitialTheme } from './utils/theme'
-import type { Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
+import type { BoardItemType, BoardQuickAddState, Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -44,7 +50,25 @@ function App() {
     createProfile,
     renameProfile,
     deleteProfile,
+    setActiveBoardId,
+    refreshProfiles,
   } = useActiveProfile()
+  // Boards themselves are owned here (not by BoardsView) so the quick-add
+  // icon (TodoItem/NotesView) and the Boards tab badge - both siblings of
+  // BoardsView, needing the same active board's data regardless of which
+  // tab is open - read/mutate the exact same state BoardsView itself does.
+  // See ticket 14 (.scratch/boards/issues/14-quick-add-icon-and-badge.md).
+  const {
+    boards,
+    loading: boardsLoading,
+    error: boardsError,
+    createBoard,
+    renameBoard,
+    deleteBoard,
+    replaceItems,
+    addItem,
+    removeItem,
+  } = useBoards(activeProfileId)
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
   const [scratchNotes, setScratchNotes] = useState<ScratchNote[]>([])
@@ -64,10 +88,25 @@ function App() {
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
-  // Swaps the Categories+Agenda section for the Notes view - see the header
-  // tab below. Nothing else on the page (header chrome, the fixed-bottom
-  // Scratchpad bar) is affected by which tab is active, per the Notes spec.
-  const [activeTab, setActiveTab] = useState<'todos' | 'notes'>('todos')
+  // Swaps the Categories+Agenda section for the Notes/Boards view - see the
+  // header tab below. Nothing else on the page (header chrome, the
+  // fixed-bottom Scratchpad bar) is affected by which tab is active, per the
+  // Notes spec (Boards follows the same mechanism - see .scratch/boards/spec.md).
+  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards'>('todos')
+  // Quick-add icon state (ticket 14) - the zero-boards create-first-board
+  // prompt, and the arcing fly-to-badge animation's in-flight event/target/
+  // pop, all live here since they're triggered from anywhere in the app
+  // (any todo/note row) and land on the Boards tab in the header, both
+  // outside BoardsView itself.
+  const [pendingQuickAdd, setPendingQuickAdd] = useState<{
+    itemType: BoardItemType
+    itemId: string
+    label: string
+  } | null>(null)
+  const [flyEvent, setFlyEvent] = useState<FlyEvent | null>(null)
+  const [badgeBumped, setBadgeBumped] = useState(false)
+  const badgeRef = useRef<HTMLSpanElement>(null)
+  const bumpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     applyTheme(theme)
@@ -355,6 +394,93 @@ function App() {
     }
   }
 
+  // Switches which board the Boards view shows for the active profile - see
+  // .scratch/boards/spec.md's "active board" concept. A no-op if no profile
+  // is active yet; errors are already recorded in profileError by
+  // setActiveBoardId itself, so nothing further to do here either.
+  async function handleSetActiveBoardId(boardId: string) {
+    if (!activeProfileId) return
+    try {
+      await setActiveBoardId(activeProfileId, boardId)
+    } catch {
+      // setActiveBoardId already recorded the failure in profileError.
+    }
+  }
+
+  // After BoardsView deletes a board, DELETE /api/boards/:id may have
+  // fallen `Profile.activeBoardId` back to another board (or null)
+  // server-side (see routes/boards.ts). Re-fetching profiles here - rather
+  // than BoardsView guessing which board is now active - is what makes
+  // `activeProfile?.activeBoardId` below reflect that fallback.
+  async function handleBoardDeleted() {
+    await refreshProfiles()
+  }
+
+  // Quick-add icon click (see ticket 14 / the Boards spec's "Quick-add icon"
+  // section). Zero boards yet: opens the create-first-board prompt instead
+  // of silently auto-creating one. Otherwise: fires the arcing fly-to-badge
+  // animation from the clicked icon's own element and adds the item to the
+  // active board directly - no picker. A no-op if boards exist but none is
+  // active yet (there's nothing to add to); in practice this shouldn't
+  // happen since creating a board always activates it (see BoardsView's
+  // handleCreateBoard) and deleting the active board always falls back to
+  // another board or null (see routes/boards.ts).
+  function handleQuickAdd(itemType: BoardItemType, itemId: string, label: string, originEl: HTMLElement) {
+    if (boards.length === 0) {
+      setPendingQuickAdd({ itemType, itemId, label })
+      return
+    }
+    const currentActiveBoardId = activeProfile?.activeBoardId ?? null
+    if (!currentActiveBoardId) return
+    setFlyEvent({ fromRect: originEl.getBoundingClientRect() })
+    addItem(currentActiveBoardId, itemType, itemId).catch(() => {
+      // addItem already recorded the failure in boardsError - just make sure
+      // the in-flight ghost doesn't hang around with nowhere to land.
+      setFlyEvent(null)
+    })
+  }
+
+  // Removing is instant, no reverse animation, per spec.
+  function handleQuickRemove(itemType: BoardItemType, itemId: string) {
+    const currentActiveBoardId = activeProfile?.activeBoardId ?? null
+    if (!currentActiveBoardId) return
+    removeItem(currentActiveBoardId, itemType, itemId).catch(() => {
+      // removeItem already recorded the failure in boardsError.
+    })
+  }
+
+  // Creates the first board from the zero-boards quick-add prompt, activates
+  // it, then adds the item that triggered the prompt in the first place -
+  // the same createBoard mutation BoardsView's own BoardSwitcher uses, just
+  // triggered from a modal instead of an inline dropdown form (see
+  // CreateBoardPrompt's doc comment). No fly animation here - the prompt is
+  // a modal, not anchored to the icon that opened it, unlike the ordinary
+  // add-with-existing-boards path above.
+  async function handleCreateBoardForQuickAdd(name: string) {
+    if (!pendingQuickAdd || !activeProfileId) return
+    const { itemType, itemId } = pendingQuickAdd
+    try {
+      const created = await createBoard(name)
+      const createdId = String(getId(created))
+      await setActiveBoardId(activeProfileId, createdId)
+      await addItem(createdId, itemType, itemId)
+      setPendingQuickAdd(null)
+    } catch {
+      // createBoard/setActiveBoardId/addItem already record their own
+      // errors - leave the prompt open so the user can retry.
+    }
+  }
+
+  // Fires once the fly-to-badge ghost lands (see FlyToBoardsBadge) - clears
+  // the in-flight event and bumps the badge's brief pop, per spec
+  // ("increments the badge with a brief pop").
+  function handleFlyComplete() {
+    setFlyEvent(null)
+    setBadgeBumped(true)
+    if (bumpTimeoutRef.current) clearTimeout(bumpTimeoutRef.current)
+    bumpTimeoutRef.current = setTimeout(() => setBadgeBumped(false), 300)
+  }
+
   // Todo mutations refresh both todos and categories, since category chip
   // remaining/completed counts are computed server-side from real todos.
   //
@@ -569,6 +695,28 @@ function App() {
     categories.map((category) => [String(getId(category)), category]),
   )
 
+  // Resolved once here (rather than inside BoardsView) since App.tsx already
+  // owns the profiles list - see .scratch/boards/spec.md's "active board
+  // lives on Profile" decision.
+  const activeProfile = profiles.find((profile) => getId(profile) === activeProfileId) ?? null
+  const activeBoardId = activeProfile?.activeBoardId ?? null
+  const activeBoard = boards.find((b) => getId(b) === activeBoardId) ?? null
+
+  // `${itemType}:${itemId}` membership set for the active board - the
+  // quick-add icon's resting-vs-filled state everywhere it's rendered
+  // (TodoItem, NotesView's note row) reads off this single Set rather than
+  // each row computing its own membership check against `boards`.
+  const activeItemKeys = useMemo(
+    () => new Set((activeBoard?.items ?? []).map(itemKey)),
+    [activeBoard],
+  )
+
+  const boardQuickAdd: BoardQuickAddState = {
+    activeItemKeys,
+    onAdd: handleQuickAdd,
+    onRemove: handleQuickRemove,
+  }
+
   // While a search query is active, the agenda shows the backend search
   // results instead of the unfiltered `todos` — `todos` itself stays
   // unfiltered so MiniCalendar and category counts are unaffected by search.
@@ -626,6 +774,7 @@ function App() {
               [
                 { key: 'todos', label: 'Todos' },
                 { key: 'notes', label: 'Notes' },
+                { key: 'boards', label: 'Boards' },
               ] as const
             ).map((tab) => (
               <button
@@ -640,7 +789,11 @@ function App() {
                     : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
                 }`}
               >
-                {tab.label}
+                {tab.key === 'boards' ? (
+                  <BoardsTabBadge ref={badgeRef} label={tab.label} count={activeBoard?.items.length ?? 0} bumped={badgeBumped} />
+                ) : (
+                  tab.label
+                )}
               </button>
             ))}
           </div>
@@ -665,7 +818,24 @@ function App() {
       )}
 
       {activeTab === 'notes' ? (
-        <NotesView activeProfileId={activeProfileId} />
+        <NotesView activeProfileId={activeProfileId} boardQuickAdd={boardQuickAdd} />
+      ) : activeTab === 'boards' ? (
+        <BoardsView
+          activeProfileId={activeProfileId}
+          activeBoardId={activeBoardId}
+          onSetActiveBoardId={handleSetActiveBoardId}
+          onBoardDeleted={handleBoardDeleted}
+          todos={todos}
+          categories={categories}
+          onSaveTodoBody={handleSaveNotes}
+          boards={boards}
+          boardsLoading={boardsLoading}
+          boardsError={boardsError}
+          onCreateBoard={createBoard}
+          onRenameBoard={renameBoard}
+          onDeleteBoard={deleteBoard}
+          onReplaceBoardItems={replaceItems}
+        />
       ) : (
         <>
           <section aria-label="Categories" className="mb-6">
@@ -769,6 +939,7 @@ function App() {
                   onToggle={handleTodoToggle}
                   onDelete={handleTodoDelete}
                   onOpen={setSelectedTodo}
+                  boardQuickAdd={boardQuickAdd}
                 />
               ) : (
                 <AgendaGroups
@@ -777,6 +948,7 @@ function App() {
                   onToggle={handleTodoToggle}
                   onDelete={handleTodoDelete}
                   onOpen={setSelectedTodo}
+                  boardQuickAdd={boardQuickAdd}
                   sortByPriority={sortByPriority}
                   nextOfficeDay={nextOfficeDay}
                 />
@@ -835,6 +1007,16 @@ function App() {
           }}
         />
       )}
+
+      {pendingQuickAdd && (
+        <CreateBoardPrompt
+          itemLabel={pendingQuickAdd.label}
+          onCreate={handleCreateBoardForQuickAdd}
+          onCancel={() => setPendingQuickAdd(null)}
+        />
+      )}
+
+      <FlyToBoardsBadge flyEvent={flyEvent} targetRef={badgeRef} onComplete={handleFlyComplete} />
     </main>
   )
 }

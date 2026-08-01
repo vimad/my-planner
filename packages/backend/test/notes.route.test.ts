@@ -152,6 +152,83 @@ describe('Note routes', () => {
     })
   })
 
+  describe('GET /api/notes/search', () => {
+    it('matches by name (case-insensitive), scoped to the given profile', async () => {
+      const docs = [{ _id: 'n1', name: 'Recipe Book', profileId: 'p1' }]
+      const limit = vi.fn().mockResolvedValue(docs)
+      Note.find.mockReturnValue({ sort: vi.fn().mockReturnValue({ limit }) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/notes/search').query({ q: 'recipe', profileId: 'p1' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(docs)
+      expect(Note.find).toHaveBeenCalledWith({ profileId: 'p1', name: { $regex: 'recipe', $options: 'i' } })
+      expect(limit).toHaveBeenCalledWith(6)
+    })
+
+    it('returns the profile\'s notes unfiltered when q is missing or empty', async () => {
+      const docs = [{ _id: 'n1' }, { _id: 'n2' }]
+      const limit = vi.fn().mockResolvedValue(docs)
+      Note.find.mockReturnValue({ sort: vi.fn().mockReturnValue({ limit }) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/notes/search').query({ q: '', profileId: 'p1' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(docs)
+      expect(Note.find).toHaveBeenCalledWith({ profileId: 'p1' })
+    })
+
+    it('excludes excludeIds via $nin before the cap is applied', async () => {
+      const limit = vi.fn().mockResolvedValue([])
+      Note.find.mockReturnValue({ sort: vi.fn().mockReturnValue({ limit }) })
+
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/notes/search')
+        .query({ profileId: 'p1', excludeIds: 'n1,n2' })
+
+      expect(res.status).toBe(200)
+      expect(Note.find).toHaveBeenCalledWith({ profileId: 'p1', _id: { $nin: ['n1', 'n2'] } })
+    })
+
+    it('caps results to 6, sorted by createdAt descending', async () => {
+      const limit = vi.fn().mockResolvedValue([])
+      const sort = vi.fn().mockReturnValue({ limit })
+      Note.find.mockReturnValue({ sort })
+
+      const app = createApp()
+      await request(app).get('/api/notes/search').query({ profileId: 'p1' })
+
+      expect(sort).toHaveBeenCalledWith({ createdAt: -1 })
+      expect(limit).toHaveBeenCalledWith(6)
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/notes/search').query({ q: 'recipe' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Note.find).not.toHaveBeenCalled()
+    })
+
+    it('is not swallowed by the /:id-shaped routes (route ordering)', async () => {
+      const limit = vi.fn().mockResolvedValue([])
+      Note.find.mockReturnValue({ sort: vi.fn().mockReturnValue({ limit }) })
+
+      const app = createApp()
+      const res = await request(app).get('/api/notes/search').query({ profileId: 'p1' })
+
+      expect(res.status).toBe(200)
+      // If /:id had matched first, Note.findOne would be hit instead (via
+      // the PATCH/DELETE handlers' ownership check) rather than Note.find.
+      expect(Note.find).toHaveBeenCalled()
+      expect(Note.findOne).not.toHaveBeenCalled()
+    })
+  })
+
   describe('PATCH /api/notes/:id', () => {
     it('renames a note', async () => {
       Note.findOneAndUpdate.mockResolvedValue({ _id: '2', name: 'New Name' })

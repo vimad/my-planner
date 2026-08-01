@@ -1,5 +1,5 @@
 import { getId } from '../utils/getId'
-import type { Category, Todo } from '../types'
+import type { BoardQuickAddState, Category, Todo } from '../types'
 import { TodoItem } from './TodoItem'
 
 interface CompletedTodosProps {
@@ -8,6 +8,8 @@ interface CompletedTodosProps {
   onToggle: (id: string) => void
   onDelete: (id: string) => void
   onOpen?: (todo: Todo) => void
+  // Threaded straight through to TodoItem - see TodoItem's own doc comment.
+  boardQuickAdd?: BoardQuickAddState
 }
 
 // Flat list of completed todos, most recently completed first. Unlike
@@ -15,7 +17,7 @@ interface CompletedTodosProps {
 // meaning anything once a todo is done - it's just a browsable history,
 // shown behind the "Show completed" toggle so it doesn't clutter the
 // everyday agenda view.
-export function CompletedTodos({ todos, categoriesById, onToggle, onDelete, onOpen }: CompletedTodosProps) {
+export function CompletedTodos({ todos, categoriesById, onToggle, onDelete, onOpen, boardQuickAdd }: CompletedTodosProps) {
   const completed = todos
     .filter((t) => t.completed)
     .sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
@@ -34,6 +36,7 @@ export function CompletedTodos({ todos, categoriesById, onToggle, onDelete, onOp
           onToggle={onToggle}
           onDelete={onDelete}
           onOpen={onOpen}
+          boardQuickAdd={boardQuickAdd}
         />
       ))}
     </div>

@@ -1,6 +1,6 @@
 import { effectiveDueDate, GROUP_ORDER, groupLabel, localTodayISO } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
-import type { Category, Todo, TodoPriority } from '../types'
+import type { BoardQuickAddState, Category, Todo, TodoPriority } from '../types'
 import { TodoItem } from './TodoItem'
 
 const PRIORITY_RANK: Record<TodoPriority, number> = { High: 0, Medium: 1, Low: 2 }
@@ -19,6 +19,8 @@ interface AgendaGroupsProps {
   onOpen?: (todo: Todo) => void
   sortByPriority?: boolean
   nextOfficeDay?: string | null
+  // Threaded straight through to TodoItem - see TodoItem's own doc comment.
+  boardQuickAdd?: BoardQuickAddState
 }
 
 // Groups open (non-completed) todos into Overdue / Today / Tomorrow / This
@@ -36,6 +38,7 @@ export function AgendaGroups({
   onOpen,
   sortByPriority = false,
   nextOfficeDay = null,
+  boardQuickAdd,
 }: AgendaGroupsProps) {
   const todayISO = localTodayISO()
   const open = todos.filter((t) => !t.completed)
@@ -72,6 +75,7 @@ export function AgendaGroups({
                 onToggle={onToggle}
                 onDelete={onDelete}
                 onOpen={onOpen}
+                boardQuickAdd={boardQuickAdd}
               />
             ))}
           </div>

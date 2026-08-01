@@ -68,3 +68,29 @@ export function folderName(folders: NoteFolder[], folderId: string | null): stri
   if (folderId === null) return 'Root'
   return folders.find((folder) => String(getId(folder)) === folderId)?.name ?? 'Root'
 }
+
+// Full ancestor-chain path for a folder, walking `parentId` up to the root
+// and joining with " / " (e.g. "Work / Ideas") - the "client assembles the
+// hierarchy" convention this module already follows for the tree pane,
+// extended to a note card's header (Boards feature - see
+// .scratch/boards/spec.md's note-card header decision). Root-level (null)
+// resolves to "Root", same as folderName above; an id that no longer matches
+// any known folder (dangling reference) also falls back to "Root" rather
+// than throwing, since a broken chain shouldn't crash the card it labels.
+// Guards against a cyclical parentId chain (shouldn't happen, but a bad
+// manual DB edit could produce one) by capping the walk at the number of
+// folders that exist.
+export function folderPath(folders: NoteFolder[], folderId: string | null): string {
+  if (folderId === null) return 'Root'
+  const chain: string[] = []
+  let currentId: string | null = folderId
+  const seen = new Set<string>()
+  while (currentId !== null && !seen.has(currentId) && chain.length <= folders.length) {
+    const folder = folders.find((f) => String(getId(f)) === currentId)
+    if (!folder) break
+    seen.add(currentId)
+    chain.unshift(folder.name)
+    currentId = folder.parentId ?? null
+  }
+  return chain.length > 0 ? chain.join(' / ') : 'Root'
+}

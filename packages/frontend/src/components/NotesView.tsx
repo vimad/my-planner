@@ -8,10 +8,11 @@ import {
   folderName,
   type TreeEntry,
 } from '../utils/notesTree'
-import type { Note, NoteFolder } from '../types'
+import type { BoardQuickAddState, Note, NoteFolder } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
 import { MoveToFolderPicker } from './MoveToFolderPicker'
+import { QuickAddIcon } from './QuickAddIcon'
 import type { RichTextEditorHandle } from './RichTextEditor'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
@@ -52,6 +53,10 @@ interface TreeRowProps {
   onRequestDeleteNote: (note: Note) => void
   onRequestDeleteFolder: (folder: NoteFolder) => void
   onRenameFolder: (id: string, name: string) => void
+  // Quick-add icon insertion point (ticket 14) - note rows only, per spec
+  // (folders don't get one). Optional so tests can render the tree without
+  // wiring up Boards state at all.
+  boardQuickAdd?: BoardQuickAddState
 }
 
 // One row of the unified folder+note tree, recursing into a folder's own
@@ -75,6 +80,7 @@ function TreeRow({
   onRequestDeleteNote,
   onRequestDeleteFolder,
   onRenameFolder,
+  boardQuickAdd,
 }: TreeRowProps) {
   const [open, setOpen] = useState(true)
   const [renaming, setRenaming] = useState(false)
@@ -89,6 +95,15 @@ function TreeRow({
         style={{ paddingLeft: `${depth * 14 + 20}px` }}
         className={`group mb-0.5 flex items-center rounded-lg pr-2 text-sm ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}
       >
+        {/* Placement rule (see the Boards spec + ticket 14): this MUST sit
+            before the flex-1 note-name button below, not after it and not
+            between it and the hover-reveal Move/Delete group. Hovering the
+            row pops ROW_ACTIONS_CONTAINER_CLASSES into the flex layout,
+            shrinking the flex-1 button and shifting every sibling *after*
+            it sideways - a click aimed at an icon placed after flex-1 can
+            land on the now-shifted Delete button instead (reproduced live
+            in the prototype). Nothing before flex-1 ever moves. */}
+        {boardQuickAdd && <QuickAddIcon itemType="Note" itemId={id} label={note.name} quickAdd={boardQuickAdd} />}
         <button type="button" onClick={() => onSelectNote(note)} className="flex-1 py-1.5 text-left">
           {note.name}
         </button>
@@ -211,6 +226,7 @@ function TreeRow({
             onRequestDeleteNote={onRequestDeleteNote}
             onRequestDeleteFolder={onRequestDeleteFolder}
             onRenameFolder={onRenameFolder}
+            boardQuickAdd={boardQuickAdd}
           />
         ))}
     </div>
@@ -289,6 +305,10 @@ function NoteEditorPane({ note, onSave }: NoteEditorPaneProps) {
 
 interface NotesViewProps {
   activeProfileId: string | null
+  // Quick-add icon insertion point (ticket 14) - threaded straight through
+  // to every note row's TreeRow. Optional so existing tests can render this
+  // view without wiring up Boards state at all.
+  boardQuickAdd?: BoardQuickAddState
 }
 
 interface PendingConfirm {
@@ -317,7 +337,7 @@ interface PendingConfirm {
 // state a confirm here would need - the folders/notes arrays for computing a
 // folder's cascade-delete count - so lifting it up would just be an extra
 // hop for no benefit).
-export function NotesView({ activeProfileId }: NotesViewProps) {
+export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
   const [folders, setFolders] = useState<NoteFolder[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
@@ -630,6 +650,7 @@ export function NotesView({ activeProfileId }: NotesViewProps) {
                 onRequestDeleteNote={requestDeleteNote}
                 onRequestDeleteFolder={requestDeleteFolder}
                 onRenameFolder={handleRenameFolder}
+                boardQuickAdd={boardQuickAdd}
               />
             ))}
           </div>

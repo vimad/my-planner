@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
+import { boardsRouter } from './routes/boards.ts'
 import { categoriesRouter } from './routes/categories.ts'
 import { noteFoldersRouter } from './routes/noteFolders.ts'
 import { notesRouter } from './routes/notes.ts'
@@ -22,6 +23,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
     res.json({ status: 'ok' })
   })
 
+  app.use('/api/boards', boardsRouter)
   app.use('/api/categories', categoriesRouter)
   app.use('/api/note-folders', noteFoldersRouter)
   app.use('/api/notes', notesRouter)

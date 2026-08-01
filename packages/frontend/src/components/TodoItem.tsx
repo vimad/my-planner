@@ -1,6 +1,7 @@
 import { getId } from '../utils/getId'
 import { linkify } from '../utils/linkify'
-import type { Category, Todo, TodoPriority } from '../types'
+import type { BoardQuickAddState, Category, Todo, TodoPriority } from '../types'
+import { QuickAddIcon } from './QuickAddIcon'
 
 const PRIORITY_BADGE_STYLES: Record<TodoPriority, string> = {
   High: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
@@ -15,11 +16,18 @@ interface TodoItemProps {
   onToggle: (id: string) => void
   onDelete: (id: string) => void
   onOpen?: (todo: Todo) => void
+  // The one shared insertion point for the Boards quick-add icon (see ticket
+  // 14, .scratch/boards/issues/14-quick-add-icon-and-badge.md) - covers the
+  // main agenda, CompletedTodos, and todo search results, all of which
+  // render through this component. Optional so a test (or any other future
+  // caller) can render a row without wiring up Boards state at all and just
+  // get no icon.
+  boardQuickAdd?: BoardQuickAddState
 }
 
-// Clicking the row (but not the checkbox or delete button) opens the todo
-// detail view via `onOpen`, when provided.
-export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpen }: TodoItemProps) {
+// Clicking the row (but not the checkbox, delete button, or quick-add icon)
+// opens the todo detail view via `onOpen`, when provided.
+export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpen, boardQuickAdd }: TodoItemProps) {
   const id = String(getId(todo))
   const priority = todo.priority ?? 'Medium'
 
@@ -79,6 +87,9 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
       >
         {priority}
       </span>
+      {boardQuickAdd && (
+        <QuickAddIcon itemType="Todo" itemId={id} label={todo.title} quickAdd={boardQuickAdd} />
+      )}
       <button
         type="button"
         aria-label={`Delete ${todo.title}`}

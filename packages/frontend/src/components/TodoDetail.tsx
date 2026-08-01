@@ -15,6 +15,7 @@ import type { Category, Todo, TodoPriority, TodoRecurrence } from '../types'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
 import type { RichTextEditorHandle } from './RichTextEditor'
 import { TagInput } from './TagInput'
+import { TodoSummaryHeader } from './TodoSummaryHeader'
 
 const PRIORITIES: TodoPriority[] = ['High', 'Medium', 'Low']
 
@@ -28,12 +29,6 @@ const RECURRENCE_OPTIONS: { value: RecurrenceOptionValue; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
 ]
-
-const PRIORITY_BADGE_STYLES: Record<TodoPriority, string> = {
-  High: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
-  Medium: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  Low: 'bg-slate-200 text-slate-600 dark:bg-slate-500/20 dark:text-slate-300',
-}
 
 function todoKey(todo: Todo): string {
   return String(getId(todo))
@@ -121,31 +116,13 @@ interface CollapsedHeaderProps {
 
 // Compact read-only stand-in for the editable header, shown on the Todos tab
 // so the widened linking workspace doesn't compete with a full edit form the
-// user isn't using in that moment.
+// user isn't using in that moment. The display bits themselves live in the
+// shared TodoSummaryHeader (also reused by Board todo-cards); this just adds
+// the Close affordance a board card has no use for.
 function CollapsedHeader({ title, priority, dueDate, category, onClose }: CollapsedHeaderProps) {
   return (
     <div className="mb-3 flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PRIORITY_BADGE_STYLES[priority]}`}
-          >
-            {priority}
-          </span>
-          {dueDate && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
-              Due {dueDate}
-            </span>
-          )}
-          {category && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: category.color }} />
-              {category.name}
-            </span>
-          )}
-        </div>
-      </div>
+      <TodoSummaryHeader title={title} priority={priority} dueDate={dueDate} category={category} />
       <button
         type="button"
         aria-label="Close"

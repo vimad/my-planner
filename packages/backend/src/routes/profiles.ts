@@ -13,6 +13,7 @@ export const profilesRouter = Router()
 interface ProfileBody {
   name?: string
   color?: string
+  activeBoardId?: string | null
 }
 
 // POST /api/profiles -> create a profile, seeding its own per-profile
@@ -48,15 +49,19 @@ profilesRouter.get('/', async (req: Request, res: Response, next: NextFunction) 
   }
 })
 
-// PATCH /api/profiles/:id -> rename and/or recolor a profile
+// PATCH /api/profiles/:id -> rename, recolor, and/or switch the active board
+// (client sends activeBoardId when the user picks a different board from the
+// Boards-view switcher dropdown; null clears it, mirroring the "no active
+// board" state a fresh profile starts in).
 profilesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, ProfileBody>, res: Response, next: NextFunction) => {
     try {
-      const { name, color } = req.body
+      const { name, color, activeBoardId } = req.body
       const update: ProfileBody = {}
       if (name !== undefined) update.name = name
       if (color !== undefined) update.color = color
+      if (activeBoardId !== undefined) update.activeBoardId = activeBoardId
 
       const profile = await Profile.findByIdAndUpdate(req.params.id, update, {
         new: true,

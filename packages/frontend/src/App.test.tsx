@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import App from './App'
-import type { Category, Profile, ScratchNote, Todo } from './types'
+import type { Board, Category, Profile, ScratchNote, Todo } from './types'
 import type { JSONContent } from '@tiptap/core'
 
 interface FakeResponse {
@@ -72,6 +72,12 @@ let categoriesData: Category[]
 let todosData: Todo[]
 let searchData: Todo[]
 let profilesData: Profile[]
+// Boards themselves (see ticket 14 - hooks/useBoards, App.tsx's own state)
+// are empty by default across the whole suite so the Boards tab
+// badge/quick-add icon are inert no-ops for every test that doesn't care
+// about them; the dedicated 'Boards quick-add + badge' describe block below
+// overrides this per test.
+let boardsData: Board[]
 let fetchMock: FetchMock
 
 describe('App', () => {
@@ -80,6 +86,7 @@ describe('App', () => {
     todosData = []
     searchData = []
     profilesData = [workProfile]
+    boardsData = []
     localStorage.clear()
     fetchMock = stubFetch((href) => {
       // Checked before the generic '/api/todos' branch below, since
@@ -87,6 +94,7 @@ describe('App', () => {
       if (href.includes('/api/todos/search')) return jsonResponse(searchData)
       if (href.includes('/api/todos')) return jsonResponse(todosData)
       if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+      if (href.includes('/api/boards')) return jsonResponse(boardsData)
       if (href.includes('/api/profiles')) return jsonResponse(profilesData)
       return jsonResponse([])
     })
@@ -1394,6 +1402,222 @@ describe('App', () => {
       )
       expect(notesCall).toBeDefined()
       expect(notesCall![0]).toContain('profileId=work-profile-id')
+    })
+  })
+
+  // Ticket 14: the quick-add pin icon (every todo/note row, via TodoItem/
+  // NotesView) and the Boards tab's own toggle badge are both driven by the
+  // same lifted board state App.tsx owns (hooks/useBoards) - see
+  // .scratch/boards/issues/14-quick-add-icon-and-badge.md. These tests drive
+  // the icon from the ordinary agenda (AgendaGroups -> TodoItem is the one
+  // shared insertion point that also covers CompletedTodos/search) and
+  // assert the Boards tab badge reacts, proving the two stay in sync
+  // end-to-end without needing to open the Boards tab at all.
+  describe('Boards quick-add + badge', () => {
+    const boardOne: Board = {
+      _id: 'board-1',
+      name: 'Board One',
+      items: [{ itemType: 'Todo', itemId: 'todo-1' }],
+    }
+
+    const todoOne: Todo = {
+      _id: 'todo-1',
+      title: 'On the board already',
+      categoryId: 'uncategorized-id',
+      completed: false,
+      dueDate: null,
+    }
+
+    const todoTwo: Todo = {
+      _id: 'todo-2',
+      title: 'Not on the board yet',
+      categoryId: 'uncategorized-id',
+      completed: false,
+      dueDate: null,
+    }
+
+    function stubBoardsAwareFetch(profile: Profile, boards: Board[]): FetchMock {
+      return stubFetch((href) => {
+        if (href.includes('/api/todos/search')) return jsonResponse(searchData)
+        if (href.includes('/api/todos')) return jsonResponse(todosData)
+        if (href.includes('/api/categories')) return jsonResponse(categoriesData)
+        if (href.includes('/api/boards')) return jsonResponse(boards)
+        if (href.includes('/api/profiles')) return jsonResponse([profile])
+        return jsonResponse([])
+      })
+    }
+
+    function boardsTab() {
+      return screen.getByRole('tab', { name: /Boards/ })
+    }
+
+    it("shows the Boards tab badge reflecting the active board's item count, regardless of which tab is open", async () => {
+      const profileWithBoard: Profile = { ...workProfile, activeBoardId: 'board-1' }
+      todosData = [todoOne]
+      fetchMock = stubBoardsAwareFetch(profileWithBoard, [boardOne])
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('On the board already')).toBeInTheDocument()
+      })
+
+      // Still on the Todos tab - the badge must reflect the active board's
+      // count regardless of which tab is actually open.
+      expect(screen.getByRole('tab', { name: 'Todos' })).toHaveAttribute('aria-selected', 'true')
+      expect(within(boardsTab()).getByText('1')).toBeInTheDocument()
+    })
+
+    it('renders the quick-add icon on a todo row, filled when it is on the active board and outline otherwise', async () => {
+      const profileWithBoard: Profile = { ...workProfile, activeBoardId: 'board-1' }
+      todosData = [todoOne, todoTwo]
+      fetchMock = stubBoardsAwareFetch(profileWithBoard, [boardOne])
+
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Not on the board yet')).toBeInTheDocument()
+      })
+
+      expect(
+        screen.getByLabelText('Remove "On the board already" from the active board'),
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByLabelText('Add "Not on the board yet" to the active board')).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+    })
+
+    it('clicking an outline quick-add icon adds the todo to the active board (PATCH /api/boards/:id) and increments the badge count', async () => {
+      const profileWithBoard: Profile = { ...workProfile, activeBoardId: 'board-1' }
+      todosData = [todoOne, todoTwo]
+      fetchMock = stubBoardsAwareFetch(profileWithBoard, [boardOne])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Not on the board yet')).toBeInTheDocument()
+      })
+      expect(within(boardsTab()).getByText('1')).toBeInTheDocument()
+
+      const updatedBoard: Board = { ...boardOne, items: [...boardOne.items, { itemType: 'Todo', itemId: 'todo-2' }] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(updatedBoard, true)) // PATCH /api/boards/board-1
+
+      fireEvent.click(screen.getByLabelText('Add "Not on the board yet" to the active board'))
+
+      await waitFor(() => {
+        const patchCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/boards/board-1') && opts?.method === 'PATCH',
+        )
+        expect(patchCall).toBeDefined()
+        expect(patchCall![0]).toContain('profileId=work-profile-id')
+        expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({
+          items: [
+            { itemType: 'Todo', itemId: 'todo-1' },
+            { itemType: 'Todo', itemId: 'todo-2' },
+          ],
+        })
+      })
+
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText('Remove "Not on the board yet" from the active board'),
+        ).toHaveAttribute('aria-pressed', 'true')
+      })
+      await waitFor(() => {
+        expect(within(boardsTab()).getByText('2')).toBeInTheDocument()
+      })
+    })
+
+    it('clicking a filled quick-add icon removes the todo from the active board instantly and decrements the badge count', async () => {
+      const profileWithBoard: Profile = { ...workProfile, activeBoardId: 'board-1' }
+      todosData = [todoOne]
+      fetchMock = stubBoardsAwareFetch(profileWithBoard, [boardOne])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText('Remove "On the board already" from the active board'),
+        ).toBeInTheDocument()
+      })
+      expect(within(boardsTab()).getByText('1')).toBeInTheDocument()
+
+      const updatedBoard: Board = { ...boardOne, items: [] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(updatedBoard, true)) // PATCH /api/boards/board-1
+
+      fireEvent.click(screen.getByLabelText('Remove "On the board already" from the active board'))
+
+      await waitFor(() => {
+        const patchCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/boards/board-1') && opts?.method === 'PATCH',
+        )
+        expect(patchCall).toBeDefined()
+        expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({ items: [] })
+      })
+
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText('Add "On the board already" to the active board'),
+        ).toHaveAttribute('aria-pressed', 'false')
+      })
+      await waitFor(() => {
+        expect(within(boardsTab()).getByText('0')).toBeInTheDocument()
+      })
+    })
+
+    it('zero-boards: clicking the quick-add icon prompts to name and create the first board, then adds the item to it', async () => {
+      todosData = [todoOne]
+      fetchMock = stubBoardsAwareFetch(workProfile, [])
+
+      render(<App />)
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText('Add "On the board already" to the active board'),
+        ).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByLabelText('Add "On the board already" to the active board'))
+
+      expect(screen.getByRole('dialog', { name: 'Create your first board' })).toBeInTheDocument()
+
+      const createdBoard: Board = { _id: 'board-new', name: 'Kitchen', items: [] }
+      const activatedProfile: Profile = { ...workProfile, activeBoardId: 'board-new' }
+      const boardWithItem: Board = { ...createdBoard, items: [{ itemType: 'Todo', itemId: 'todo-1' }] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(createdBoard, true)) // POST /api/boards
+      fetchMock.mockImplementationOnce(() => jsonResponse([createdBoard])) // refetch GET /api/boards (inside createBoard)
+      fetchMock.mockImplementationOnce(() => jsonResponse(activatedProfile, true)) // PATCH /api/profiles/:id
+      fetchMock.mockImplementationOnce(() => jsonResponse(boardWithItem, true)) // PATCH /api/boards/board-new
+
+      fireEvent.change(screen.getByLabelText('New board name'), { target: { value: 'Kitchen' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Create board' }))
+
+      await waitFor(() => {
+        const postCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'POST')
+        expect(postCall).toBeDefined()
+        expect(postCall![0]).toContain('/api/boards')
+        expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ name: 'Kitchen', profileId: 'work-profile-id' })
+      })
+
+      await waitFor(() => {
+        const profilePatch = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/profiles/work-profile-id') && opts?.method === 'PATCH',
+        )
+        expect(profilePatch).toBeDefined()
+        expect(JSON.parse(profilePatch![1]?.body ?? '{}')).toEqual({ activeBoardId: 'board-new' })
+      })
+
+      await waitFor(() => {
+        const itemPatch = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/boards/board-new') && opts?.method === 'PATCH',
+        )
+        expect(itemPatch).toBeDefined()
+        expect(JSON.parse(itemPatch![1]?.body ?? '{}')).toEqual({
+          items: [{ itemType: 'Todo', itemId: 'todo-1' }],
+        })
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Create your first board' })).not.toBeInTheDocument()
+      })
     })
   })
 })
