@@ -60,7 +60,7 @@ export function WeeklyProgressPanel({ activeProfileId, categories }: WeeklyProgr
                     </span>
                   </span>
                   <span className="shrink-0 text-slate-400 dark:text-slate-500">
-                    {group.actioned.length + group.completed.length}
+                    {group.completed.length} completed
                   </span>
                 </li>
               )
