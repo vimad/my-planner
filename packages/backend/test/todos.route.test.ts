@@ -1,5 +1,5 @@
 import request from 'supertest'
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 interface MockedTodoModel {
   find: Mock
@@ -421,6 +421,209 @@ describe('Todo routes', () => {
 
       expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['b-cat-id'] } })
       expect(Todo.find).not.toHaveBeenCalledWith({ categoryId: { $in: ['a-cat-id'] } })
+    })
+  })
+
+  describe('GET /api/todos/weekly-summary', () => {
+    // Category.find is hit two different ways by this route: once via
+    // resolveCategoryIdsForProfile (called with a { _id: 1 } projection, for
+    // scoping the Todo query) and once directly with .sort({ createdAt: 1 })
+    // chained (for category walk order). Both go through the same mocked
+    // Category.find, so distinguish by whether a projection arg was passed.
+    function mockCategories(categories: { _id: string }[]) {
+      Category.find.mockImplementation((_query: unknown, projection?: unknown) => {
+        if (projection) return Promise.resolve(categories)
+        return { sort: vi.fn().mockResolvedValue(categories) }
+      })
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('rejects a missing profileId', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/todos/weekly-summary')
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'profileId is required' })
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
+
+    it('defaults to the week containing the server current date when date is omitted', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 6, 30, 10, 0, 0)) // Thu 2026-07-30, local
+      mockCategories([])
+      Todo.find.mockResolvedValue([])
+
+      const app = createApp()
+      const res = await request(app).get('/api/todos/weekly-summary').query({ profileId: 'profile-1' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.weekStart).toBe('2026-07-27')
+      expect(res.body.weekEnd).toBe('2026-08-02')
+    })
+
+    it('snaps a mid-week date to that week\'s Monday/Sunday', async () => {
+      mockCategories([])
+      Todo.find.mockResolvedValue([])
+
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: '2026-07-29' }) // Wednesday
+
+      expect(res.status).toBe(200)
+      expect(res.body.weekStart).toBe('2026-07-27')
+      expect(res.body.weekEnd).toBe('2026-08-02')
+    })
+
+    it('rejects a malformed date', async () => {
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: 'not-a-date' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'date must be a valid YYYY-MM-DD date' })
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
+
+    it('rejects a date that rolls over to a different calendar day (e.g. Feb 30)', async () => {
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: '2026-02-30' })
+
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ error: 'date must be a valid YYYY-MM-DD date' })
+      expect(Todo.find).not.toHaveBeenCalled()
+    })
+
+    it('omits a category with zero todos in all three buckets while including one with activity', async () => {
+      mockCategories([{ _id: 'empty-cat' }, { _id: 'active-cat' }])
+      Todo.find.mockResolvedValue([
+        {
+          _id: 't1',
+          title: 'Renew AWS cert',
+          categoryId: 'active-cat',
+          completedAt: null,
+          body: null,
+        },
+      ])
+
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: '2026-07-29' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.categories).toHaveLength(1)
+      expect(res.body.categories[0].categoryId).toBe('active-cat')
+    })
+
+    it("follows Category.find(...).sort({ createdAt: 1 })'s order, not the order todos come back in", async () => {
+      mockCategories([{ _id: 'cat-first' }, { _id: 'cat-second' }])
+      Todo.find.mockResolvedValue([
+        { _id: 't2', title: 'Second cat todo', categoryId: 'cat-second', completedAt: null, body: null },
+        { _id: 't1', title: 'First cat todo', categoryId: 'cat-first', completedAt: null, body: null },
+      ])
+
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: '2026-07-29' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.categories.map((c: { categoryId: string }) => c.categoryId)).toEqual([
+        'cat-first',
+        'cat-second',
+      ])
+    })
+
+    it('matches the spec contract shape exactly for a populated week', async () => {
+      mockCategories([{ _id: 'cat-1' }])
+      Todo.find.mockResolvedValue([
+        {
+          _id: 'todo-completed',
+          title: 'Renew passport',
+          categoryId: 'cat-1',
+          completedAt: new Date(2026, 6, 30, 9, 0, 0), // local 2026-07-30
+          body: {
+            type: 'doc',
+            content: [
+              { type: 'paragraph', content: [{ type: 'dateBadge', attrs: { date: '2026-07-18' } }] },
+              { type: 'paragraph', content: [{ type: 'text', text: 'Booked the appointment for next week.' }] },
+            ],
+          },
+        },
+        {
+          _id: 'todo-actioned',
+          title: '1:1 notes follow-up with Sam',
+          categoryId: 'cat-1',
+          completedAt: null,
+          body: {
+            type: 'doc',
+            content: [
+              { type: 'paragraph', content: [{ type: 'dateBadge', attrs: { date: '2026-07-27' } }] },
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Sam wants a written proposal before the next 1:1.' }],
+              },
+              { type: 'paragraph', content: [{ type: 'dateBadge', attrs: { date: '2026-07-30' } }] },
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Drafted proposal, waiting on his read-through.' }],
+              },
+            ],
+          },
+        },
+        {
+          _id: 'todo-noaction',
+          title: 'Renew AWS cert',
+          categoryId: 'cat-1',
+          completedAt: null,
+          body: null,
+        },
+      ])
+
+      const app = createApp()
+      const res = await request(app)
+        .get('/api/todos/weekly-summary')
+        .query({ profileId: 'profile-1', date: '2026-07-29' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual({
+        weekStart: '2026-07-27',
+        weekEnd: '2026-08-02',
+        categories: [
+          {
+            categoryId: 'cat-1',
+            completed: [
+              {
+                id: 'todo-completed',
+                title: 'Renew passport',
+                completedAt: '2026-07-30',
+                lastSegmentBeforeCompletion: {
+                  date: '2026-07-18',
+                  text: 'Booked the appointment for next week.',
+                },
+              },
+            ],
+            actioned: [
+              {
+                id: 'todo-actioned',
+                title: '1:1 notes follow-up with Sam',
+                segments: [
+                  { date: '2026-07-27', text: 'Sam wants a written proposal before the next 1:1.' },
+                  { date: '2026-07-30', text: 'Drafted proposal, waiting on his read-through.' },
+                ],
+              },
+            ],
+            noAction: [{ id: 'todo-noaction', title: 'Renew AWS cert' }],
+          },
+        ],
+      })
     })
   })
 

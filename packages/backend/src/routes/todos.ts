@@ -1,9 +1,11 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
+import { Category } from '../models/Category.ts'
 import { Todo, type TodoDoc, type TodoPriority, type TodoRecurrence } from '../models/Todo.ts'
 import { resolveDefaultCategoryId } from '../utils/defaultCategory.ts'
 import { requireProfileId, resolveCategoryIdsForProfile } from '../utils/profileScope.ts'
 import { tiptapToPlainText } from '../utils/tiptapText.ts'
 import type { TiptapNode } from '../utils/tiptapText.ts'
+import { computeWeeklySummaryBuckets, type WeeklySummaryTodoInput } from '../utils/weeklySummaryBuckets.ts'
 
 export const todosRouter = Router()
 
@@ -176,6 +178,111 @@ todosRouter.get(
 
       const todos = await Todo.find(filter).sort({ createdAt: -1 })
       res.json(todos)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// Local calendar-day helpers for the weekly-summary route's `date` query
+// param, mirroring advanceDueDate's day-shift-bug precedent above: parse via
+// new Date(y, m-1, d) and serialize via getFullYear/getMonth/getDate (local
+// time), never new Date(dateString) or toISOString() (UTC, can shift the
+// day).
+function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function addDays(iso: string, days: number): string {
+  const date = parseLocalDate(iso)
+  date.setDate(date.getDate() + days)
+  return toLocalDateString(date)
+}
+
+// Monday of the week containing `iso`. getDay() is 0=Sun..6=Sat, so Sunday
+// needs a -6 day shift back to the prior Monday rather than the +1-Monday
+// math that works for Mon-Sat.
+function mondayOf(iso: string): string {
+  const date = parseLocalDate(iso)
+  const dow = date.getDay()
+  const diffToMonday = dow === 0 ? -6 : 1 - dow
+  return addDays(iso, diffToMonday)
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// new Date(2026, 1, 30) silently rolls over to March instead of throwing, so
+// validity means the round-tripped y/m/d match what was parsed, not just
+// that the Date constructor didn't throw.
+function isValidCalendarDate(iso: string): boolean {
+  if (!ISO_DATE_RE.test(iso)) return false
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = parseLocalDate(iso)
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+}
+
+// GET /api/todos/weekly-summary?profileId=...&date=... -> a profile's
+// per-category weekly progress summary (completed/actioned/no-action todos)
+// for the Mon-Sun week containing `date` (or the week containing the
+// server's current date when `date` is omitted). Must be registered before
+// any /:id-shaped route (see /tags above).
+todosRouter.get(
+  '/weekly-summary',
+  async (
+    req: Request<Record<string, never>, unknown, unknown, { profileId?: string; date?: string }>,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    try {
+      const profileId = requireProfileId(req.query.profileId, res)
+      if (!profileId) return
+
+      const rawDate = req.query.date
+      let anchor: string
+      if (rawDate) {
+        if (!isValidCalendarDate(rawDate)) {
+          return res.status(400).json({ error: 'date must be a valid YYYY-MM-DD date' })
+        }
+        anchor = rawDate
+      } else {
+        anchor = toLocalDateString(new Date())
+      }
+
+      const weekStart = mondayOf(anchor)
+      const weekEnd = addDays(weekStart, 6)
+
+      const categoryIds = await resolveCategoryIdsForProfile(profileId)
+      const categories = await Category.find({ profileId }).sort({ createdAt: 1 })
+      const todos = await Todo.find({ categoryId: { $in: categoryIds } })
+
+      const todoInputs: WeeklySummaryTodoInput[] = todos.map((todo) => ({
+        id: todo._id.toString(),
+        title: todo.title,
+        categoryId: todo.categoryId.toString(),
+        completedAt: todo.completedAt,
+        body: todo.body,
+      }))
+
+      const buckets = computeWeeklySummaryBuckets(todoInputs, { weekStart, weekEnd })
+      const bucketByCategoryId = new Map(buckets.map((bucket) => [bucket.categoryId, bucket]))
+
+      const responseCategories = categories
+        .map((category) => bucketByCategoryId.get((category._id ?? category.id).toString()))
+        .filter(
+          (bucket): bucket is (typeof buckets)[number] =>
+            bucket !== undefined &&
+            bucket.completed.length + bucket.actioned.length + bucket.noAction.length > 0,
+        )
+
+      res.json({ weekStart, weekEnd, categories: responseCategories })
     } catch (err) {
       next(err)
     }
