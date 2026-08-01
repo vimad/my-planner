@@ -1,0 +1,32 @@
+## Destination
+
+A detailed UI/data-model spec for **Boards** — a new top-level view where you build named, persistent collections ("boards") of existing todos and notes, browse a board's contents as a 3-per-row grid of small cards, and add items to a board either from a global add-icon on any todo/note row or via search-and-link from within the Boards view itself. Boards coexist with, and are unrelated to, the existing per-todo Linked Todos feature. The spec should be detailed enough to hand off to implementation as its own later effort.
+
+## Notes
+
+- Reuses existing primitives throughout: `RichTextEditor`/`ExpandableNotesEditor` (including their built-in unsaved-changes indicator from `notes-dirty-indicator` — light border + conditional Save button while content differs from what's saved) for card editors; the Linked-Todos collapsed-header style for todo card headers; the drag-to-reorder interaction from `reorder-linked-todos` for card ordering.
+- No router — Boards is a third tab alongside the existing Todos/Notes tab bar in `App.tsx` (`activeTab` state), not a separate page.
+- Existing REST convention: one route file + Mongoose model per entity, scoped by `profileId` (see `packages/backend/src/{models,routes}/{Category,Todo,ScratchNote}.ts`) — assume Board follows the same convention.
+- Existing reference-list precedent: `Todo.linkedTodoIds` (flat array of ObjectId refs, no-cascade, frontend tolerates dangling refs) is the model for how a Board references todos/notes.
+- Use `/prototype` for the two UI-shape tickets, `/grilling` for the two backend-design tickets, `/domain-modeling` if "Board" as a term needs recording into `CONTEXT.md`.
+- Once every ticket is resolved and the fog below is empty, compile Decisions-so-far into `.scratch/boards/spec.md` — that document, not this map, is the destination artifact.
+
+## Decisions so far
+
+- [Scope & relationship to existing features](issues/01-scope-relation-to-existing-features.md) — working name "Boards"; a wholly separate concept from Linked Todos (not a generalization/replacement); link-only (no item creation from within Boards); no lifecycle assumption (durable and short-lived boards both fine).
+- [Add-to-board & active-board mechanics](issues/02-add-to-board-and-active-board-mechanics.md) — a quick-add icon on every todo/note row adds directly to the single active board with a fly-to-toggle animation; "active" and "currently viewed in Boards view" are the same concept; zero boards prompts to create one; an item can belong to multiple boards at once.
+- [Boards view UI shape](issues/03-boards-view-ui-shape.md) — Boards is a third header tab (toggle badge as shortcut); cards show a compact header (todo: Linked-Todos-style summary; note: title + folder path) + Todo/Note badge + inline editor (reusing `ExpandableNotesEditor`'s expand and dirty-indicator as-is); board switching via a header dropdown + "New board"; cards manually drag-reordered per board.
+- [Notes search scope decision](issues/04-notes-search-scope-decision.md) — approved building a new, scoped notes-search capability to power the Boards "add to board" search bar only; the main app's existing todo-only search box is untouched.
+- [Board grid & card design](issues/05-board-grid-and-card-design-prototype.md) — Variant B (always-open dense editor, full rich-text toolbar) won over expand-on-click and preview-on-demand; card content area must use a concrete `max-h` + `overflow-y-auto` (not `h-full`) or it grows unbounded instead of scrolling — a real `ExpandableNotesEditor` gotcha worth remembering elsewhere too. Grid/switcher/drag-reorder/empty-states/dangling-ref placeholder all validated together. Prototype captured to branch `prototype/boards-grid-card-variants`.
+- [Quick-add icon and toggle-animation prototype](issues/06-quick-add-icon-and-toggle-animation-prototype.md) — Variant A (pin icon, arcing fly, corner-chip badge on the Boards tab) won over a plus/check-straight-fly-inline-count variant and a ribbon-flourish-badge-dot variant; icon appears consistently everywhere required (agenda/`CompletedTodos`/search results share one `TodoItem` insertion point, Notes tree has its own) with no omissions found. Real bug found and fixed live: placing the icon after a flex-1 element with hover-reveal siblings (Notes row's Move/Delete) lets hover-triggered reflow shift the icon out from under a click — fixed by placing it before the flex-1 element instead, a generally-applicable rule beyond Boards. Prototype captured to branch `prototype/boards-quick-add-icon-variants`.
+
+## Not yet specified
+
+- Bulk actions on a board (multi-select add from search results, moving/copying an item from one board to another in one step) — not raised yet; may surface once the quick-add-icon prototype (ticket 06) makes the single-item flow concrete.
+- Any practical cap on the number of boards or items per board — not raised; revisit if the grid/dropdown prototypes suggest one is needed.
+
+## Out of scope
+
+- Generalizing/replacing the existing Linked Todos feature with Boards — ruled out while resolving [Scope & relationship to existing features](issues/01-scope-relation-to-existing-features.md); Linked Todos stays exactly as-is, Boards is a wholly separate concept.
+- Creating brand-new todos/notes from within the Boards view (quick-add-style item creation) — ruled out while resolving [Scope & relationship to existing features](issues/01-scope-relation-to-existing-features.md); Boards is link-only, attaching only existing items.
+- An actual text diff / track-changes view of note edits — ruled out while resolving [Boards view UI shape](issues/03-boards-view-ui-shape.md) in favor of reusing the existing unsaved-changes indicator (border + conditional Save button).
