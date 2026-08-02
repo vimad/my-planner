@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { useWeeklySummary } from '../hooks/useWeeklySummary'
 import { localTodayISO } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
 import { formatSegmentDate, formatWeekRange } from '../utils/weekDates'
 import type {
   Category,
+  Todo,
   WeeklySummaryActionedEntry,
   WeeklySummaryCategoryGroup,
   WeeklySummaryCompletedEntry,
@@ -18,14 +19,47 @@ interface SummaryViewProps {
   // (see the categories-fetch comment on BoardsView for the app's general
   // convention here).
   categories: Category[]
+  // Already loaded by App.tsx too - joined against the response's bare
+  // `id` fields so every row can open the real TodoDetail edit modal.
+  todos: Todo[]
+  onOpenTodo: (todo: Todo) => void
   // Set when rendered inside WeeklyProgressPanel's slide-over, to put a
   // close button in the header next to the week picker.
   onClose?: () => void
 }
 
-function ActionedTodoRow({ entry, todayISO }: { entry: WeeklySummaryActionedEntry; todayISO: string }) {
+// Rows aren't natively focusable/clickable elements (they're <li>s, kept
+// that way for existing layout/tests), so Enter/Space needs wiring by hand
+// to match native button activation.
+function onRowKeyDown(handler: () => void) {
+  return (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handler()
+    }
+  }
+}
+
+const rowInteractiveClasses =
+  'cursor-pointer transition-colors hover:bg-black/10 dark:hover:bg-black/30'
+
+function ActionedTodoRow({
+  entry,
+  todayISO,
+  onOpen,
+}: {
+  entry: WeeklySummaryActionedEntry
+  todayISO: string
+  onOpen: () => void
+}) {
   return (
-    <li className="rounded-lg bg-black/5 p-2.5 dark:bg-black/20">
+    <li
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={onRowKeyDown(onOpen)}
+      className={`rounded-lg bg-black/5 p-2.5 dark:bg-black/20 ${rowInteractiveClasses}`}
+    >
       <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{entry.title}</p>
       <ul className="mt-1.5 space-y-1">
         {entry.segments.map((segment, i) => (
@@ -41,9 +75,23 @@ function ActionedTodoRow({ entry, todayISO }: { entry: WeeklySummaryActionedEntr
   )
 }
 
-function CompletedTodoRow({ entry, todayISO }: { entry: WeeklySummaryCompletedEntry; todayISO: string }) {
+function CompletedTodoRow({
+  entry,
+  todayISO,
+  onOpen,
+}: {
+  entry: WeeklySummaryCompletedEntry
+  todayISO: string
+  onOpen: () => void
+}) {
   return (
-    <li className="rounded-lg bg-black/5 px-2.5 py-1.5 dark:bg-black/20">
+    <li
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={onRowKeyDown(onOpen)}
+      className={`rounded-lg bg-black/5 px-2.5 py-1.5 dark:bg-black/20 ${rowInteractiveClasses}`}
+    >
       <div className="flex items-center gap-1.5">
         <span className="text-emerald-500 dark:text-emerald-400">✓</span>
         <p className="text-sm font-medium text-slate-500 line-through decoration-slate-400 dark:text-slate-300 dark:decoration-slate-500">
@@ -62,9 +110,15 @@ function CompletedTodoRow({ entry, todayISO }: { entry: WeeklySummaryCompletedEn
   )
 }
 
-function NoActionPill({ entry }: { entry: WeeklySummaryNoActionEntry }) {
+function NoActionPill({ entry, onOpen }: { entry: WeeklySummaryNoActionEntry; onOpen: () => void }) {
   return (
-    <li className="rounded-full border border-slate-200 bg-black/5 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-black/20 dark:text-slate-400">
+    <li
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={onRowKeyDown(onOpen)}
+      className={`rounded-full border border-slate-200 bg-black/5 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-black/20 dark:text-slate-400 ${rowInteractiveClasses}`}
+    >
       {entry.title}
     </li>
   )
@@ -76,9 +130,10 @@ interface CategoryCardProps {
   expanded: boolean
   onToggle: () => void
   todayISO: string
+  onOpenTodo: (id: string) => void
 }
 
-function CategoryCard({ group, category, expanded, onToggle, todayISO }: CategoryCardProps) {
+function CategoryCard({ group, category, expanded, onToggle, todayISO, onOpenTodo }: CategoryCardProps) {
   const { actioned, noAction, completed } = group
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-white/5">
@@ -112,7 +167,12 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
               </h3>
               <ul className="space-y-2">
                 {actioned.map((entry) => (
-                  <ActionedTodoRow key={entry.id} entry={entry} todayISO={todayISO} />
+                  <ActionedTodoRow
+                    key={entry.id}
+                    entry={entry}
+                    todayISO={todayISO}
+                    onOpen={() => onOpenTodo(entry.id)}
+                  />
                 ))}
               </ul>
             </div>
@@ -125,7 +185,12 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
               </h3>
               <ul className="space-y-1">
                 {completed.map((entry) => (
-                  <CompletedTodoRow key={entry.id} entry={entry} todayISO={todayISO} />
+                  <CompletedTodoRow
+                    key={entry.id}
+                    entry={entry}
+                    todayISO={todayISO}
+                    onOpen={() => onOpenTodo(entry.id)}
+                  />
                 ))}
               </ul>
             </div>
@@ -138,7 +203,7 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
               </h3>
               <ul className="flex flex-wrap gap-1.5">
                 {noAction.map((entry) => (
-                  <NoActionPill key={entry.id} entry={entry} />
+                  <NoActionPill key={entry.id} entry={entry} onOpen={() => onOpenTodo(entry.id)} />
                 ))}
               </ul>
             </div>
@@ -154,7 +219,7 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
 // "Category Dashboard" prototype (branch prototype/weekly-summary-view,
 // VariantCategoryDashboard.tsx) onto the real
 // GET /api/todos/weekly-summary endpoint via hooks/useWeeklySummary.
-export function SummaryView({ activeProfileId, categories, onClose }: SummaryViewProps) {
+export function SummaryView({ activeProfileId, categories, todos, onOpenTodo, onClose }: SummaryViewProps) {
   const { data, loading, error, isCurrentWeek, goToPrevWeek, goToNextWeek, goToThisWeek } =
     useWeeklySummary(activeProfileId)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -175,6 +240,15 @@ export function SummaryView({ activeProfileId, categories, onClose }: SummaryVie
   const categoriesById: Record<string, Category> = Object.fromEntries(
     categories.map((c) => [String(getId(c)), c]),
   )
+  const todosById: Record<string, Todo> = Object.fromEntries(todos.map((t) => [String(getId(t)), t]))
+
+  // A row's id can point at a todo the caller's `todos` list doesn't have
+  // (e.g. it was deleted after the week's data was fetched) - silently do
+  // nothing rather than open a broken modal.
+  function handleOpenTodo(id: string) {
+    const todo = todosById[id]
+    if (todo) onOpenTodo(todo)
+  }
 
   return (
     <section aria-label="Summary" className="flex flex-col gap-4">
@@ -245,6 +319,7 @@ export function SummaryView({ activeProfileId, categories, onClose }: SummaryVie
               expanded={expanded.has(group.categoryId)}
               onToggle={() => toggle(group.categoryId)}
               todayISO={todayISO}
+              onOpenTodo={handleOpenTodo}
             />
           ))}
         </div>

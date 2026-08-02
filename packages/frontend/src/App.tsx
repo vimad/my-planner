@@ -1018,7 +1018,12 @@ function App() {
                 )}
               </div>
             </div>
-            <WeeklyProgressPanel activeProfileId={activeProfileId} categories={categories} />
+            <WeeklyProgressPanel
+              activeProfileId={activeProfileId}
+              categories={categories}
+              todos={todos}
+              onOpenTodo={setSelectedTodo}
+            />
           </section>
         </>
       )}

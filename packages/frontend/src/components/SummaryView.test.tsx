@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { localTodayISO } from '../utils/dateAgenda'
 import { addDays, formatSegmentDate, mondayOf } from '../utils/weekDates'
-import type { Category, WeeklySummaryResponse } from '../types'
+import type { Category, Todo, WeeklySummaryResponse } from '../types'
 import { SummaryView } from './SummaryView'
 
 interface FakeResponse {
@@ -33,6 +33,17 @@ const personalCategory: Category = { _id: 'cat-personal', name: 'Personal', colo
 // proves an unmatched category in the prop is harmless (see the ticket's
 // last acceptance criterion).
 const unusedCategory: Category = { _id: 'cat-unused', name: 'Unused', color: '#22c55e' }
+
+// Matches the ids referenced by thisWeekResponse/lastWeekResponse below, so
+// row clicks can be resolved to a real Todo for the onOpenTodo assertions.
+const todos: Todo[] = [
+  { _id: 'todo-completed', title: 'Ship Q3 roadmap deck' },
+  { _id: 'todo-actioned', title: '1:1 notes follow-up with Sam' },
+  { _id: 'todo-noaction-1', title: 'Renew AWS cert' },
+  { _id: 'todo-noaction-2', title: 'Write incident postmortem' },
+  { _id: 'todo-completed-2', title: 'Renew passport' },
+  { _id: 'todo-old', title: 'Old carryover item' },
+]
 
 // All dates below are derived from the real "today" (never hardcoded/faked)
 // so this suite passes regardless of which day it actually runs on - the
@@ -138,6 +149,8 @@ describe('SummaryView', () => {
       <SummaryView
         activeProfileId="profile-1"
         categories={[workCategory, personalCategory, unusedCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
       />,
     )
 
@@ -152,14 +165,28 @@ describe('SummaryView', () => {
   })
 
   it('shows a rollup line with counts derived from array lengths', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     expect(await screen.findByText('1 actioned · 2 no-action · 1 completed')).toBeInTheDocument()
     expect(screen.getByText('0 actioned · 0 no-action · 1 completed')).toBeInTheDocument()
   })
 
   it('expands a category card to reveal its three bucket sections', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Work')
     expect(screen.queryByText('Action taken this week')).not.toBeInTheDocument()
@@ -172,7 +199,14 @@ describe('SummaryView', () => {
   })
 
   it('renders every segment of an actioned todo as its own row, not just the latest', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Work')
     fireEvent.click(screen.getByText('Work'))
@@ -182,7 +216,14 @@ describe('SummaryView', () => {
   })
 
   it('shows the completion badge and Last update line when lastSegmentBeforeCompletion is present', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Work')
     fireEvent.click(screen.getByText('Work'))
@@ -193,7 +234,14 @@ describe('SummaryView', () => {
   })
 
   it('renders no Last update line when lastSegmentBeforeCompletion is null', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Personal')
     fireEvent.click(screen.getByText('Personal'))
@@ -203,7 +251,14 @@ describe('SummaryView', () => {
   })
 
   it('renders no-action todos as plain pills', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Work')
     fireEvent.click(screen.getByText('Work'))
@@ -213,8 +268,59 @@ describe('SummaryView', () => {
     expect(screen.getByText('Write incident postmortem')).toBeInTheDocument()
   })
 
+  it('opens the matching todo from onOpenTodo when a row in any bucket is clicked', async () => {
+    const onOpenTodo = vi.fn()
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={onOpenTodo}
+      />,
+    )
+
+    await screen.findByText('Work')
+    fireEvent.click(screen.getByText('Work'))
+
+    fireEvent.click(screen.getByText('1:1 notes follow-up with Sam'))
+    expect(onOpenTodo).toHaveBeenCalledWith(todos.find((t) => t._id === 'todo-actioned'))
+
+    fireEvent.click(screen.getByText('Ship Q3 roadmap deck'))
+    expect(onOpenTodo).toHaveBeenCalledWith(todos.find((t) => t._id === 'todo-completed'))
+
+    fireEvent.click(screen.getByText('Renew AWS cert'))
+    expect(onOpenTodo).toHaveBeenCalledWith(todos.find((t) => t._id === 'todo-noaction-1'))
+
+    expect(onOpenTodo).toHaveBeenCalledTimes(3)
+  })
+
+  it('does nothing when a row is clicked whose id has no match in the todos prop', async () => {
+    const onOpenTodo = vi.fn()
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={[]}
+        onOpenTodo={onOpenTodo}
+      />,
+    )
+
+    await screen.findByText('Work')
+    fireEvent.click(screen.getByText('Work'))
+    fireEvent.click(screen.getByText('Renew AWS cert'))
+
+    expect(onOpenTodo).not.toHaveBeenCalled()
+  })
+
   it('re-fetches with an updated date on prev/next, and "This week" only appears on a non-current week', async () => {
-    render(<SummaryView activeProfileId="profile-1" categories={[workCategory, personalCategory]} />)
+    render(
+      <SummaryView
+        activeProfileId="profile-1"
+        categories={[workCategory, personalCategory]}
+        todos={todos}
+        onOpenTodo={vi.fn()}
+      />,
+    )
 
     await screen.findByText('Work')
     expect(screen.queryByText('This week')).not.toBeInTheDocument()

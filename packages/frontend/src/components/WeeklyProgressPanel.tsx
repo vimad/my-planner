@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { useWeeklySummary } from '../hooks/useWeeklySummary'
 import { getId } from '../utils/getId'
 import { SummaryView } from './SummaryView'
-import type { Category } from '../types'
+import type { Category, Todo } from '../types'
 
 interface WeeklyProgressPanelProps {
   activeProfileId: string | null
   // Already loaded by App.tsx - see SummaryView's own doc comment on this
   // same prop for the app's general convention here.
   categories: Category[]
+  todos: Todo[]
+  onOpenTodo: (todo: Todo) => void
 }
 
 // Persistent companion to the Agenda showing condensed per-category weekly
@@ -16,7 +18,7 @@ interface WeeklyProgressPanelProps {
 // slide-over. Placed here rather than as a top-level tab (see the validated
 // prototype/summary-placement branch) since weekly progress is a
 // todos-related view, not a peer section of the app.
-export function WeeklyProgressPanel({ activeProfileId, categories }: WeeklyProgressPanelProps) {
+export function WeeklyProgressPanel({ activeProfileId, categories, todos, onOpenTodo }: WeeklyProgressPanelProps) {
   const { data, loading } = useWeeklySummary(activeProfileId)
   const [expanded, setExpanded] = useState(false)
 
@@ -84,6 +86,14 @@ export function WeeklyProgressPanel({ activeProfileId, categories }: WeeklyProgr
             <SummaryView
               activeProfileId={activeProfileId}
               categories={categories}
+              todos={todos}
+              onOpenTodo={(todo) => {
+                // Close the slide-over first - TodoDetail renders at a lower
+                // z-index than this dialog's overlay, so it'd otherwise open
+                // invisibly behind it.
+                setExpanded(false)
+                onOpenTodo(todo)
+              }}
               onClose={() => setExpanded(false)}
             />
           </div>
