@@ -81,15 +81,11 @@ export function WeeklyProgressPanel({ activeProfileId, categories }: WeeklyProgr
             className="relative h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-[#f2f1f5] p-5 shadow-xl dark:bg-[#181822]"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              aria-label="Close"
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-            >
-              ✕
-            </button>
-            <SummaryView activeProfileId={activeProfileId} categories={categories} />
+            <SummaryView
+              activeProfileId={activeProfileId}
+              categories={categories}
+              onClose={() => setExpanded(false)}
+            />
           </div>
         </div>
       )}

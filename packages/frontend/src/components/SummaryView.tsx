@@ -18,6 +18,9 @@ interface SummaryViewProps {
   // (see the categories-fetch comment on BoardsView for the app's general
   // convention here).
   categories: Category[]
+  // Set when rendered inside WeeklyProgressPanel's slide-over, to put a
+  // close button in the header next to the week picker.
+  onClose?: () => void
 }
 
 function ActionedTodoRow({ entry, todayISO }: { entry: WeeklySummaryActionedEntry; todayISO: string }) {
@@ -151,7 +154,7 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
 // "Category Dashboard" prototype (branch prototype/weekly-summary-view,
 // VariantCategoryDashboard.tsx) onto the real
 // GET /api/todos/weekly-summary endpoint via hooks/useWeeklySummary.
-export function SummaryView({ activeProfileId, categories }: SummaryViewProps) {
+export function SummaryView({ activeProfileId, categories, onClose }: SummaryViewProps) {
   const { data, loading, error, isCurrentWeek, goToPrevWeek, goToNextWeek, goToThisWeek } =
     useWeeklySummary(activeProfileId)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -182,7 +185,6 @@ export function SummaryView({ activeProfileId, categories }: SummaryViewProps) {
       )}
 
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Weekly progress</h2>
         <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
           <button
             type="button"
@@ -213,6 +215,16 @@ export function SummaryView({ activeProfileId, categories }: SummaryViewProps) {
             →
           </button>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {loading && <p className="text-sm text-slate-500 dark:text-slate-400">Loading summary...</p>}
