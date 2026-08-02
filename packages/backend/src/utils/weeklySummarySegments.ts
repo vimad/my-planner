@@ -12,16 +12,21 @@ export interface WeeklySummarySegment {
   text: string
 }
 
+function dateBadgeAttr(node: TiptapNode): string | undefined {
+  if (node.type !== 'dateBadge') return undefined
+  const attrs = node.attrs as { date?: unknown } | undefined
+  return typeof attrs?.date === 'string' ? attrs.date : undefined
+}
+
 // A block node is "badge-only" when its content is exactly one child and
 // that child is a dateBadge - a badge sitting alongside any other node
 // (including a stray empty/whitespace text node left over from editor
-// churn) makes the badge incidental, not a segment boundary.
+// churn) makes the badge incidental, not a segment boundary. It's still
+// surfaced as text below (see walk's dateBadgeAttr branch) rather than
+// silently dropped - "incidental" only means it doesn't open a new row.
 function badgeOnlyDate(node: TiptapNode): string | undefined {
   if (node.content?.length !== 1) return undefined
-  const child = node.content[0]
-  if (child.type !== 'dateBadge') return undefined
-  const attrs = child.attrs as { date?: unknown } | undefined
-  return typeof attrs?.date === 'string' ? attrs.date : undefined
+  return dateBadgeAttr(node.content[0])
 }
 
 export function parseWeeklySummarySegments(body: TiptapNode | null): WeeklySummarySegment[] {
@@ -38,6 +43,12 @@ export function parseWeeklySummarySegments(body: TiptapNode | null): WeeklySumma
 
     if (Array.isArray(node.content)) {
       for (const child of node.content) walk(child)
+      return
+    }
+
+    const inlineDate = dateBadgeAttr(node)
+    if (inlineDate !== undefined && segments.length > 0) {
+      segments[segments.length - 1].parts.push(inlineDate)
       return
     }
 

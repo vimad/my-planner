@@ -72,7 +72,7 @@ describe('parseWeeklySummarySegments', () => {
     ])
   })
 
-  it('does not start a new segment when a block has a badge plus other content', () => {
+  it('folds a badge alongside other content into the open segment\'s text instead of starting a new one', () => {
     const doc = {
       type: 'doc',
       content: [
@@ -90,7 +90,42 @@ describe('parseWeeklySummarySegments', () => {
       ],
     }
     expect(parseWeeklySummarySegments(doc)).toEqual([
-      { date: '2026-08-03', text: 'incidental badge alongside text' },
+      { date: '2026-08-03', text: '2026-08-04 incidental badge alongside text' },
+    ])
+  })
+
+  it('surfaces an inline badge typed after other text in the same block, in document order', () => {
+    // Mirrors the real "Setup deadlines for tool deployments" todo body: a
+    // badge-only paragraph opens the segment, then a bullet list item mixes
+    // text and a second badge in one paragraph.
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'dateBadge', attrs: { date: '2026-07-31' } }],
+        },
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    { type: 'text', text: 'Engineering team -' },
+                    { type: 'dateBadge', attrs: { date: '2026-08-14' } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    expect(parseWeeklySummarySegments(doc)).toEqual([
+      { date: '2026-07-31', text: 'Engineering team - 2026-08-14' },
     ])
   })
 

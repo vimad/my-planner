@@ -63,7 +63,7 @@ function ActionedTodoRow({
       <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{entry.title}</p>
       <ul className="mt-1.5 space-y-1">
         {entry.segments.map((segment, i) => (
-          <li key={i} className="flex gap-2 text-xs text-slate-600 dark:text-slate-300">
+          <li key={i} className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
             <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
               {formatSegmentDate(segment.date, todayISO)}
             </span>
