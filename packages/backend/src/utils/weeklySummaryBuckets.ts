@@ -101,7 +101,10 @@ export function computeWeeklySummaryBuckets(
 
     if (segmentsThisWeek.length > 0) {
       bucket.actioned.push({ id: todo.id, title: todo.title, segments: segmentsThisWeek })
-    } else {
+    } else if (todo.completedAt === null) {
+      // Already completed (just not within this week) and untouched this
+      // week - it's not a pending item, so it doesn't belong in noAction;
+      // drop it from this week's summary entirely rather than in any bucket.
       bucket.noAction.push({ id: todo.id, title: todo.title })
     }
   }

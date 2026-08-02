@@ -180,14 +180,12 @@ describe('computeWeeklySummaryBuckets', () => {
     ])
   })
 
-  it('falls through to noAction when completed outside the week and no in-week segments', () => {
+  it('drops a todo entirely when completed outside the week and no in-week segments', () => {
     const result = computeWeeklySummaryBuckets(
       [todo({ id: 't1', completedAt: new Date(2026, 6, 20) })],
       week,
     )
-    expect(result[0].completed).toEqual([])
-    expect(result[0].actioned).toEqual([])
-    expect(result[0].noAction).toEqual([{ id: 't1', title: 'Untitled' }])
+    expect(result).toEqual([{ categoryId: 'cat-1', completed: [], actioned: [], noAction: [] }])
   })
 
   it('represents multiple categories separately, each correctly bucketed', () => {
