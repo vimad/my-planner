@@ -237,6 +237,7 @@ todosRouter.get(
         categoryId: todo.categoryId.toString(),
         completedAt: todo.completedAt,
         body: todo.body,
+        createdAt: todo.createdAt,
       }))
 
       const buckets = computeWeeklySummaryBuckets(todoInputs, { weekStart, weekEnd })

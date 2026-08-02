@@ -13,6 +13,7 @@ export interface WeeklySummaryTodoInput {
   categoryId: string
   completedAt: Date | null
   body: TiptapNode | null
+  createdAt: Date
 }
 
 export interface WeeklySummaryWeek {
@@ -79,6 +80,11 @@ export function computeWeeklySummaryBuckets(
   }
 
   for (const todo of todos) {
+    // Wasn't created yet as of the selected week - it can't have been open,
+    // completed, or acted on during it, so it plays no part in that week's
+    // summary (this is what kept old todos out of noAction for past weeks).
+    if (toLocalDateString(todo.createdAt) > weekEnd) continue
+
     const bucket = bucketFor(todo.categoryId)
     const completedDate = todo.completedAt ? toLocalDateString(todo.completedAt) : null
     const completedThisWeek =

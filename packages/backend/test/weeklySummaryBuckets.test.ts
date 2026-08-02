@@ -31,6 +31,9 @@ function todo(overrides: Partial<WeeklySummaryTodoInput>): WeeklySummaryTodoInpu
     categoryId: 'cat-1',
     completedAt: null,
     body: null,
+    // Well before `week` by default, so existing todos in tests that don't
+    // care about creation timing are treated as having existed all along.
+    createdAt: new Date(2020, 0, 1),
     ...overrides,
   }
 }
@@ -186,6 +189,25 @@ describe('computeWeeklySummaryBuckets', () => {
       week,
     )
     expect(result).toEqual([{ categoryId: 'cat-1', completed: [], actioned: [], noAction: [] }])
+  })
+
+  it('drops a todo entirely when created after the selected week, even though it would otherwise read as noAction', () => {
+    // Viewing a past week (weekEnd 2026-08-02) for a todo created later -
+    // it didn't exist yet during that week, so it must not show up as if it
+    // had simply sat untouched.
+    const result = computeWeeklySummaryBuckets(
+      [todo({ id: 't1', createdAt: new Date(2026, 7, 5) })],
+      week,
+    )
+    expect(result).toEqual([])
+  })
+
+  it('keeps a todo created on the last day of the selected week in noAction', () => {
+    const result = computeWeeklySummaryBuckets(
+      [todo({ id: 't1', createdAt: new Date(2026, 7, 2) })],
+      week,
+    )
+    expect(result[0].noAction).toEqual([{ id: 't1', title: 'Untitled' }])
   })
 
   it('represents multiple categories separately, each correctly bucketed', () => {

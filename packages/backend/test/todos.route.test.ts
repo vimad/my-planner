@@ -509,6 +509,7 @@ describe('Todo routes', () => {
           categoryId: 'active-cat',
           completedAt: null,
           body: null,
+          createdAt: new Date(2026, 6, 1),
         },
       ])
 
@@ -525,8 +526,22 @@ describe('Todo routes', () => {
     it("follows Category.find(...).sort({ createdAt: 1 })'s order, not the order todos come back in", async () => {
       mockCategories([{ _id: 'cat-first' }, { _id: 'cat-second' }])
       Todo.find.mockResolvedValue([
-        { _id: 't2', title: 'Second cat todo', categoryId: 'cat-second', completedAt: null, body: null },
-        { _id: 't1', title: 'First cat todo', categoryId: 'cat-first', completedAt: null, body: null },
+        {
+          _id: 't2',
+          title: 'Second cat todo',
+          categoryId: 'cat-second',
+          completedAt: null,
+          body: null,
+          createdAt: new Date(2026, 6, 1),
+        },
+        {
+          _id: 't1',
+          title: 'First cat todo',
+          categoryId: 'cat-first',
+          completedAt: null,
+          body: null,
+          createdAt: new Date(2026, 6, 1),
+        },
       ])
 
       const app = createApp()
@@ -549,6 +564,7 @@ describe('Todo routes', () => {
           title: 'Renew passport',
           categoryId: 'cat-1',
           completedAt: new Date(2026, 6, 30, 9, 0, 0), // local 2026-07-30
+          createdAt: new Date(2026, 6, 1),
           body: {
             type: 'doc',
             content: [
@@ -562,6 +578,7 @@ describe('Todo routes', () => {
           title: '1:1 notes follow-up with Sam',
           categoryId: 'cat-1',
           completedAt: null,
+          createdAt: new Date(2026, 6, 1),
           body: {
             type: 'doc',
             content: [
@@ -583,6 +600,7 @@ describe('Todo routes', () => {
           title: 'Renew AWS cert',
           categoryId: 'cat-1',
           completedAt: null,
+          createdAt: new Date(2026, 6, 1),
           body: null,
         },
       ])
