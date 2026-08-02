@@ -43,8 +43,8 @@ function ActionedTodoRow({ entry, todayISO }: { entry: WeeklySummaryActionedEntr
 
 function CompletedTodoRow({ entry, todayISO }: { entry: WeeklySummaryCompletedEntry; todayISO: string }) {
   return (
-    <li className="rounded-lg bg-black/5 p-2.5 dark:bg-black/20">
-      <div className="flex items-center gap-2">
+    <li className="rounded-lg bg-black/5 px-2.5 py-1.5 dark:bg-black/20">
+      <div className="flex items-center gap-1.5">
         <span className="text-emerald-500 dark:text-emerald-400">✓</span>
         <p className="text-sm font-medium text-slate-500 line-through decoration-slate-400 dark:text-slate-300 dark:decoration-slate-500">
           {entry.title}
@@ -54,7 +54,7 @@ function CompletedTodoRow({ entry, todayISO }: { entry: WeeklySummaryCompletedEn
         </span>
       </div>
       {entry.lastSegmentBeforeCompletion && (
-        <p className="mt-1 pl-6 text-xs italic text-slate-500 dark:text-slate-400">
+        <p className="mt-0.5 pl-5 text-xs italic text-slate-500 dark:text-slate-400">
           Last update: "{entry.lastSegmentBeforeCompletion.text}"
         </p>
       )}
@@ -123,7 +123,7 @@ function CategoryCard({ group, category, expanded, onToggle, todayISO }: Categor
               <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300">
                 Completed this week
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-1">
                 {completed.map((entry) => (
                   <CompletedTodoRow key={entry.id} entry={entry} todayISO={todayISO} />
                 ))}
