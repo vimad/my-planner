@@ -99,4 +99,13 @@ describe('TodoItem tags', () => {
     const priorityBadge = screen.getByText('High')
     expect(tagList.compareDocumentPosition(priorityBadge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('places tag badges before the office badge', () => {
+    const tagged: Todo = { ...todo, tags: ['work'], officeLinked: true }
+    render(<TodoItem todo={tagged} onToggle={() => {}} onDelete={() => {}} />)
+
+    const tagList = screen.getByRole('list', { name: 'Tags' })
+    const officeBadge = screen.getByText('Office')
+    expect(tagList.compareDocumentPosition(officeBadge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
