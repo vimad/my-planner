@@ -202,6 +202,53 @@ describe('computeWeeklySummaryBuckets', () => {
     expect(result).toEqual([])
   })
 
+  it('buckets a todo created after the selected week into actioned when it has a dated segment in that week', () => {
+    // Backdated tracking: the todo itself was only created later (so its
+    // createdAt/completedAt stay untouched), but a dateBadge note explicitly
+    // records the date the real-world action happened. That note should
+    // place the todo in its own week's "actioned" bucket, not be hidden just
+    // because the todo record post-dates the week.
+    const result = computeWeeklySummaryBuckets(
+      [
+        todo({
+          id: 't1',
+          title: 'Renewed passport (logged late)',
+          createdAt: new Date(2026, 7, 5),
+          body: docWithSegments(['2026-07-28', 'Actually renewed this a week ago.']),
+        }),
+      ],
+      week,
+    )
+    expect(result).toEqual([
+      {
+        categoryId: 'cat-1',
+        completed: [],
+        actioned: [
+          {
+            id: 't1',
+            title: 'Renewed passport (logged late)',
+            segments: [{ date: '2026-07-28', text: 'Actually renewed this a week ago.' }],
+          },
+        ],
+        noAction: [],
+      },
+    ])
+  })
+
+  it('still drops a todo created after the selected week with no in-week segment, from noAction', () => {
+    const result = computeWeeklySummaryBuckets(
+      [
+        todo({
+          id: 't1',
+          createdAt: new Date(2026, 7, 5),
+          body: docWithSegments(['2026-07-10', 'Segment from an unrelated earlier week.']),
+        }),
+      ],
+      week,
+    )
+    expect(result).toEqual([])
+  })
+
   it('keeps a todo created on the last day of the selected week in noAction', () => {
     const result = computeWeeklySummaryBuckets(
       [todo({ id: 't1', createdAt: new Date(2026, 7, 2) })],

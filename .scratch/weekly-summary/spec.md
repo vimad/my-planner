@@ -25,7 +25,9 @@ These were settled while charting the map and apply unchanged to every ticket be
 
 1. **Completed this week** — `completedAt` (see Data Model below) falls in the selected week. Shown here regardless of whether the todo also had an action segment that week.
 2. **Action taken this week** — not in bucket 1, and has ≥1 segment dated in the selected week. Every such segment is shown (date + text), not just the latest.
-3. **No action taken this week** — everything else, including todos with no notes at all and brand-new todos created this week. There is deliberately **no separate "new this week" bucket**.
+3. **No action taken this week** — everything else, including todos with no notes at all and brand-new todos created this week. There is deliberately **no separate "new this week" bucket**. A todo that didn't exist yet as of the selected week (`createdAt` after `weekEnd`) is excluded from this bucket entirely (and from the week's summary altogether, unless bucket 2 applies — see below) rather than appearing as if it had sat untouched.
+
+**Backdated tracking overrides the existence check**: a todo created later than a given week can still land in bucket 2 for that week, if it has a segment dated inside it. This is intentional — logging a past action via a dated note without touching the todo's own `createdAt`/`completedAt` (so the record stays simple) is how the user retroactively tracks work. The `createdAt`-based existence gate only ever suppresses bucket 3 (no-action) for weeks before the todo existed; it never overrides an explicit dated segment.
 
 **Scope**: one profile at a time (the currently active profile), all of its categories. Cross-profile aggregation is out of scope (see below).
 
