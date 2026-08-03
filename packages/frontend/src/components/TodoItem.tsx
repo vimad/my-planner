@@ -82,6 +82,27 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
           Office
         </span>
       )}
+      {todo.tags && todo.tags.length > 0 && (
+        // Capped so a long tag list wraps onto its own line(s) instead of
+        // starving the title's flex-1 span - without a cap, this wrapping
+        // span's intrinsic (unwrapped) width wins out over the title's
+        // flex-basis-0 sizing and squeezes the title down to one word per
+        // line.
+        <span role="list" aria-label="Tags" className="flex max-w-[45%] flex-wrap items-center justify-end gap-1">
+          {todo.tags.map((tag) => (
+            <span
+              key={tag}
+              role="listitem"
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-white/10 dark:text-slate-200"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" className="h-2.5 w-2.5">
+                <path d="M5.5 3A2.5 2.5 0 0 0 3 5.5v4.879a2.5 2.5 0 0 0 .732 1.767l7.5 7.5a2.5 2.5 0 0 0 3.536 0l4.878-4.878a2.5 2.5 0 0 0 0-3.536l-7.5-7.5A2.5 2.5 0 0 0 10.38 3H5.5ZM7 8.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z" />
+              </svg>
+              {tag}
+            </span>
+          ))}
+        </span>
+      )}
       <span
         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PRIORITY_BADGE_STYLES[priority]}`}
       >

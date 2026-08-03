@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { BoardQuickAddState, Todo } from '../types'
 import { TodoItem } from './TodoItem'
@@ -71,5 +71,32 @@ describe('TodoItem quick-add icon', () => {
 
     expect(quickAdd.onRemove).toHaveBeenCalledWith('Todo', 'todo-1')
     expect(quickAdd.onAdd).not.toHaveBeenCalled()
+  })
+})
+
+describe('TodoItem tags', () => {
+  it('renders no tag list when the todo has no tags', () => {
+    render(<TodoItem todo={todo} onToggle={() => {}} onDelete={() => {}} />)
+
+    expect(screen.queryByRole('list', { name: 'Tags' })).not.toBeInTheDocument()
+  })
+
+  it('renders a small iconed badge per tag', () => {
+    const tagged: Todo = { ...todo, tags: ['work', 'urgent'] }
+    render(<TodoItem todo={tagged} onToggle={() => {}} onDelete={() => {}} />)
+
+    const badges = within(screen.getByRole('list', { name: 'Tags' })).getAllByRole('listitem')
+    expect(badges).toHaveLength(2)
+    expect(badges[0]).toHaveTextContent('work')
+    expect(badges[1]).toHaveTextContent('urgent')
+  })
+
+  it('places tag badges before the priority badge', () => {
+    const tagged: Todo = { ...todo, tags: ['work'], priority: 'High' }
+    render(<TodoItem todo={tagged} onToggle={() => {}} onDelete={() => {}} />)
+
+    const tagList = screen.getByRole('list', { name: 'Tags' })
+    const priorityBadge = screen.getByText('High')
+    expect(tagList.compareDocumentPosition(priorityBadge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
