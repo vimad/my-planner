@@ -542,10 +542,12 @@ function App() {
   // Todo mutations refresh both todos and categories, since category chip
   // remaining/completed counts are computed server-side from real todos.
   //
-  // Quick-add never lets the user pick a category, so profileId is always
-  // sent - the backend uses it to resolve the active profile's own
-  // Uncategorized category (see resolveDefaultCategoryId in
-  // utils/defaultCategory.ts), never some other profile's.
+  // profileId is always sent - the backend uses it to resolve the active
+  // profile's own Uncategorized category (see resolveDefaultCategoryId in
+  // utils/defaultCategory.ts), never some other profile's. If exactly one
+  // category is selected in the sidebar filter, quick-add uses it; with
+  // zero or multiple selected, categoryId is omitted and the backend falls
+  // back to Uncategorized.
   async function handleQuickAddTodo(title: string) {
     if (!activeProfileId) return
     setError(null)
@@ -553,7 +555,11 @@ function App() {
       const res = await fetch(`${API_URL}/api/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, profileId: activeProfileId }),
+        body: JSON.stringify({
+          title,
+          profileId: activeProfileId,
+          ...(selectedCategoryIds.length === 1 ? { categoryId: selectedCategoryIds[0] } : {}),
+        }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       await Promise.all([refreshTodos(), refreshCategories()])
