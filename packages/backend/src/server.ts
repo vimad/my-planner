@@ -4,7 +4,7 @@ import { connectDB } from './config/db.ts'
 import { migrateToWorkProfile } from './seed.ts'
 
 const PORT = process.env.PORT ?? 4100
-const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/my-planner'
+const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27018/my-planner'
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? '*'
 
 async function main() {
