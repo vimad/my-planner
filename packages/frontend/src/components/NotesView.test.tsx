@@ -41,6 +41,18 @@ function pasteText(node: Element, text: string) {
   })
 }
 
+// Rename/Move/Delete live behind a row's "More actions" kebab menu rather
+// than always-visible buttons - opens the menu for the row named
+// `itemName` and returns that row element so callers can scope further
+// `within` queries (e.g. the popover's own Move/Delete/Rename entries) to
+// it.
+function openRowMenu(itemName: string): HTMLElement {
+  const nameEl = screen.getByText(itemName)
+  const row = nameEl.closest('.group') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'More actions' }))
+  return row
+}
+
 const recipesFolder: NoteFolder = { _id: 'f-recipes', name: 'Recipes', parentId: null }
 const workFolder: NoteFolder = { _id: 'f-work', name: 'Work', parentId: null }
 const workIdeasFolder: NoteFolder = { _id: 'f-work-ideas', name: 'Ideas', parentId: 'f-work' }
@@ -297,7 +309,8 @@ describe('NotesView', () => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move "Weeknight pasta"' }))
+    openRowMenu('Weeknight pasta')
+    fireEvent.click(screen.getByText('Move'))
 
     const dialog = screen.getByRole('dialog', { name: 'Move "Weeknight pasta"' })
     fireEvent.click(within(dialog).getByText('Work'))
@@ -323,7 +336,8 @@ describe('NotesView', () => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move "Recipes"' }))
+    openRowMenu('Recipes')
+    fireEvent.click(screen.getByText('Move'))
 
     const dialog = screen.getByRole('dialog', { name: 'Move "Recipes"' })
     fireEvent.click(within(dialog).getByText('Work'))
@@ -350,7 +364,8 @@ describe('NotesView', () => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move "Work"' }))
+    openRowMenu('Work')
+    fireEvent.click(screen.getByText('Move'))
 
     const dialog = screen.getByRole('dialog', { name: 'Move "Work"' })
     // Recipes is unrelated to Work - still a valid destination.
@@ -367,7 +382,8 @@ describe('NotesView', () => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rename "Recipes"' }))
+    openRowMenu('Recipes')
+    fireEvent.click(screen.getByText('Rename'))
     const input = screen.getByRole('textbox', { name: 'Rename "Recipes"' })
     fireEvent.change(input, { target: { value: 'Recipes (renamed)' } })
 
@@ -390,7 +406,8 @@ describe('NotesView', () => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete "Passwords"' }))
+    openRowMenu('Passwords')
+    fireEvent.click(screen.getByText('Delete'))
 
     expect(screen.getByText('Delete "Passwords"? This cannot be undone.')).toBeInTheDocument()
 
@@ -417,7 +434,8 @@ describe('NotesView', () => {
 
     // Work has one descendant folder (Ideas) and one note directly inside
     // it (Standup notes).
-    fireEvent.click(screen.getByRole('button', { name: 'Delete "Work"' }))
+    openRowMenu('Work')
+    fireEvent.click(screen.getByText('Delete'))
 
     expect(screen.getByText('Delete "Work" and everything in it — 1 note, 1 folder?')).toBeInTheDocument()
 
@@ -443,7 +461,8 @@ describe('NotesView', () => {
       expect(screen.getByLabelText('Note name')).toHaveValue('Passwords')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete "Passwords"' }))
+    openRowMenu('Passwords')
+    fireEvent.click(screen.getByText('Delete'))
     fetchMock.mockImplementationOnce(() => jsonResponse(null, true)) // DELETE
     // The refetch after deletion should no longer include Passwords.
     notesData = notesData.filter((note) => note._id !== 'n-passwords')
@@ -467,7 +486,8 @@ describe('NotesView', () => {
       expect(screen.getByLabelText('Note name')).toHaveValue('Weeknight pasta')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete "Recipes"' }))
+    openRowMenu('Recipes')
+    fireEvent.click(screen.getByText('Delete'))
     expect(screen.getByText('Delete "Recipes" and everything in it — 1 note, 0 folders?')).toBeInTheDocument()
 
     fetchMock.mockImplementationOnce(() => jsonResponse(null, true)) // DELETE
@@ -489,9 +509,8 @@ describe('NotesView', () => {
   // .scratch/boards/issues/14-quick-add-icon-and-badge.md). TodoItem.test.tsx
   // already covers the icon's own render/click contract against a hand-rolled
   // row; these tests drive it through NotesView's real tree markup instead,
-  // so the placement rule (before the flex-1 name button, before the
-  // hover-reveal Move/Delete group) is proven against the actual DOM rather
-  // than a fixture that could drift out of sync with it.
+  // so its behavior is proven against the actual DOM rather than a fixture
+  // that could drift out of sync with it.
   describe('NotesView quick-add icon', () => {
     function makeQuickAdd(overrides: Partial<BoardQuickAddState> = {}): BoardQuickAddState {
       return {
@@ -566,16 +585,14 @@ describe('NotesView', () => {
     })
 
     // Regression test for the hover-reveal placement bug (see the Boards
-    // spec's "Quick-add icon" section, ticket 14's "Placement rule", and
-    // TreeRow's own comment above the icon): the icon must sit *before* the
-    // flex-1 note-name button and the hover-reveal Move/Delete group in DOM
-    // order, so hovering the row (which pops Move/Delete into the flex
-    // layout, shrinking flex-1 and shifting every sibling *after* it
-    // sideways) never shifts the icon out from under a click. Reproduced
-    // live in the prototype by placing the icon after flex-1: a click aimed
-    // at the icon's pre-hover position landed on Delete instead once
-    // Move/Delete popped in.
-    it('places the quick-add icon before the flex-1 note-name button and the hover-reveal Move/Delete actions, and it stays clickable there', async () => {
+    // spec's "Quick-add icon" section and ticket 14's "Placement rule"): the
+    // pin and the row's "More actions" menu are both always rendered (only
+    // their opacity is hover-gated via CSS - see ROW_BASE_CLASSES/RowMenu),
+    // unlike the old hidden/group-hover:flex Move/Delete buttons that popped
+    // in and out of the flex layout, shrinking flex-1 and shifting every
+    // sibling after it sideways. Since nothing here toggles display, a click
+    // aimed at the icon can never land on a newly-shifted sibling instead.
+    it('keeps the quick-add icon and the row menu always in the DOM (opacity-hidden, not display-toggled), so hover never shifts a pending click', async () => {
       const quickAdd = makeQuickAdd()
       render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
@@ -583,18 +600,9 @@ describe('NotesView', () => {
       })
 
       const icon = screen.getByLabelText('Add "Passwords" to the active board')
-      const nameButton = screen.getByText('Passwords')
-      const moveButton = screen.getByRole('button', { name: 'Move "Passwords"' })
-      const deleteButton = screen.getByRole('button', { name: 'Delete "Passwords"' })
+      const row = icon.closest('.group') as HTMLElement
+      expect(within(row).getByRole('button', { name: 'More actions' })).toBeInTheDocument()
 
-      // Node.DOCUMENT_POSITION_FOLLOWING on the result of a.compareDocumentPosition(b)
-      // means b comes after a in document order.
-      expect(icon.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(nameButton.compareDocumentPosition(moveButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(nameButton.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-
-      // A click still lands squarely on the icon itself, not on a
-      // hover-reveal sibling, regardless of their presence in the row.
       fireEvent.click(icon)
       expect(quickAdd.onAdd).toHaveBeenCalledWith('Note', 'n-passwords', 'Passwords', expect.any(HTMLElement))
     })

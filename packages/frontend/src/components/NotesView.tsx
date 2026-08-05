@@ -1,5 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
+import { ChevronRight, File, Folder, FolderOpen, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
 import {
   combinedChildren,
@@ -32,19 +34,16 @@ const CREATE_BUTTON_CLASSES =
 const TREE_ROW_CLASSES =
   'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5'
 const TREE_ROW_ACTIVE_CLASSES = 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/20 dark:text-fuchsia-200'
-
-const ROW_ACTION_CLASSES =
-  'rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10'
-// Hidden until the row is hovered (`group`/`group-hover` below) - jsdom
-// doesn't simulate real `:hover`, so these stay in the DOM (just visually
-// hidden in a real browser) and are perfectly clickable in tests.
-const ROW_ACTIONS_CONTAINER_CLASSES = 'ml-1 hidden shrink-0 gap-1 group-hover:flex'
+const ROW_BASE_CLASSES = 'group mb-0.5 flex items-center gap-1.5 rounded-md py-1 pr-1.5 text-sm'
+// A row's expand-chevron (folders) is 19px wide; note rows have no chevron
+// of their own but use this spacer so a note's icon still lines up under
+// its sibling folders' icons rather than under their chevrons.
+const ROW_CHEVRON_SPACER_CLASSES = 'inline-block w-[19px] shrink-0'
 
 interface TreeRowProps {
   folders: NoteFolder[]
   notes: Note[]
   entry: TreeEntry
-  depth: number
   activeFolderId: string | null
   selectedNoteId: string | null
   onSelectFolder: (id: string) => void
@@ -59,19 +58,98 @@ interface TreeRowProps {
   boardQuickAdd?: BoardQuickAddState
 }
 
+interface RowMenuProps {
+  canRename: boolean
+  onRename?: () => void
+  onMove: () => void
+  onDelete: () => void
+}
+
+// Rename/Move/Delete collapsed behind one kebab per row instead of two or
+// three always-reserved buttons - opens a small popover, closes on an
+// outside click. Kept at opacity-0/group-hover:opacity-100 (not
+// hidden/group-hover:flex like the old always-reserved buttons) so it never
+// pops in/out of the flex layout on hover - nothing after it ever shifts.
+function RowMenu({ canRename, onRename, onMove, onDelete }: RowMenuProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+      <button
+        type="button"
+        aria-label="More actions"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+        className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-10 min-w-[7rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-lg dark:border-white/10 dark:bg-slate-800">
+          {canRename && onRename && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onRename()
+              }}
+              className="block w-full px-3 py-1.5 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+            >
+              Rename
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onMove()
+            }}
+            className="block w-full px-3 py-1.5 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+          >
+            Move
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onDelete()
+            }}
+            className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // One row of the unified folder+note tree, recursing into a folder's own
-// combinedChildren for its subtree. Folders track their own expand/collapse
+// combinedChildren for its subtree. A folder's children render inside a
+// bordered, indented wrapper (see the `border-l` div below) so the
+// connecting line - not just accumulated padding - is what shows a note or
+// subfolder belongs to that folder. Folders track their own expand/collapse
 // state locally (uncontrolled, defaulting open) - there's no need to lift it
 // higher since nothing outside a row ever needs to know whether it's open.
-// Ticket 06 adds hover-reveal Move/Delete (and, on folders, Rename) actions -
-// folder rename is also local state (an inline text input swapped in for the
-// name button), mirroring how `open` is already row-local; the actual PATCH
-// call is owned by the parent via `onRenameFolder`.
+// Folder rename is also local state (an inline text input swapped in for
+// the name button), mirroring how `open` is already row-local; the actual
+// PATCH call is owned by the parent via `onRenameFolder`.
 function TreeRow({
   folders,
   notes,
   entry,
-  depth,
   activeFolderId,
   selectedNoteId,
   onSelectFolder,
@@ -90,41 +168,20 @@ function TreeRow({
     const note = entry.item
     const id = String(getId(note))
     const active = selectedNoteId === id
+    const pinned = boardQuickAdd?.activeItemKeys.has(boardItemKey('Note', id)) ?? false
     return (
-      <div
-        style={{ paddingLeft: `${depth * 14 + 20}px` }}
-        className={`group mb-0.5 flex items-center rounded-lg pr-2 text-sm ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}
-      >
-        {/* Placement rule (see the Boards spec + ticket 14): this MUST sit
-            before the flex-1 note-name button below, not after it and not
-            between it and the hover-reveal Move/Delete group. Hovering the
-            row pops ROW_ACTIONS_CONTAINER_CLASSES into the flex layout,
-            shrinking the flex-1 button and shifting every sibling *after*
-            it sideways - a click aimed at an icon placed after flex-1 can
-            land on the now-shifted Delete button instead (reproduced live
-            in the prototype). Nothing before flex-1 ever moves. */}
-        {boardQuickAdd && <QuickAddIcon itemType="Note" itemId={id} label={note.name} quickAdd={boardQuickAdd} />}
-        <button type="button" onClick={() => onSelectNote(note)} className="flex-1 py-1.5 text-left">
+      <div className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}>
+        <span className={ROW_CHEVRON_SPACER_CLASSES} aria-hidden="true" />
+        <File size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+        <button type="button" onClick={() => onSelectNote(note)} className="flex-1 truncate py-0.5 text-left">
           {note.name}
         </button>
-        <div className={ROW_ACTIONS_CONTAINER_CLASSES}>
-          <button
-            type="button"
-            aria-label={`Move "${note.name}"`}
-            onClick={() => onRequestMove(entry)}
-            className={ROW_ACTION_CLASSES}
-          >
-            Move
-          </button>
-          <button
-            type="button"
-            aria-label={`Delete "${note.name}"`}
-            onClick={() => onRequestDeleteNote(note)}
-            className={ROW_ACTION_CLASSES}
-          >
-            Delete
-          </button>
-        </div>
+        {boardQuickAdd && (
+          <span className={`shrink-0 ${pinned ? '' : 'opacity-0 group-hover:opacity-100'}`}>
+            <QuickAddIcon itemType="Note" itemId={id} label={note.name} quickAdd={boardQuickAdd} />
+          </span>
+        )}
+        <RowMenu canRename={false} onMove={() => onRequestMove(entry)} onDelete={() => onRequestDeleteNote(note)} />
       </div>
     )
   }
@@ -147,21 +204,23 @@ function TreeRow({
 
   return (
     <div>
-      <div
-        style={{ paddingLeft: `${depth * 14}px` }}
-        className={`group mb-0.5 flex items-center rounded-lg pr-2 text-sm ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}
-      >
+      <div className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}>
         {kids.length > 0 ? (
           <button
             type="button"
             aria-label={open ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
             onClick={() => setOpen((v) => !v)}
-            className="w-5 shrink-0 text-xs text-slate-400"
+            className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10"
           >
-            {open ? '▾' : '▸'}
+            <ChevronRight size={13} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
           </button>
         ) : (
-          <span className="inline-block w-5 shrink-0" aria-hidden="true" />
+          <span className={ROW_CHEVRON_SPACER_CLASSES} aria-hidden="true" />
+        )}
+        {open ? (
+          <FolderOpen size={14} className="shrink-0 text-amber-500 dark:text-amber-400" />
+        ) : (
+          <Folder size={14} className="shrink-0 text-amber-500 dark:text-amber-400" />
         )}
         {renaming ? (
           <input
@@ -179,56 +238,43 @@ function TreeRow({
                 setRenaming(false)
               }
             }}
-            className="flex-1 rounded border border-fuchsia-300 bg-white px-1.5 py-1 text-sm text-slate-900 focus:outline-none dark:border-fuchsia-400/40 dark:bg-white/10 dark:text-slate-100"
+            className="flex-1 rounded border border-fuchsia-300 bg-white px-1.5 py-0.5 text-sm text-slate-900 focus:outline-none dark:border-fuchsia-400/40 dark:bg-white/10 dark:text-slate-100"
           />
         ) : (
-          <>
-            <button type="button" onClick={() => onSelectFolder(folderId)} className="flex-1 py-1.5 text-left">
-              {folder.name}
-            </button>
-            <div className={ROW_ACTIONS_CONTAINER_CLASSES}>
-              <button type="button" aria-label={`Rename "${folder.name}"`} onClick={startRename} className={ROW_ACTION_CLASSES}>
-                Rename
-              </button>
-              <button
-                type="button"
-                aria-label={`Move "${folder.name}"`}
-                onClick={() => onRequestMove(entry)}
-                className={ROW_ACTION_CLASSES}
-              >
-                Move
-              </button>
-              <button
-                type="button"
-                aria-label={`Delete "${folder.name}"`}
-                onClick={() => onRequestDeleteFolder(folder)}
-                className={ROW_ACTION_CLASSES}
-              >
-                Delete
-              </button>
-            </div>
-          </>
+          <button type="button" onClick={() => onSelectFolder(folderId)} className="flex-1 truncate py-0.5 text-left font-medium">
+            {folder.name}
+          </button>
+        )}
+        {!renaming && (
+          <RowMenu
+            canRename
+            onRename={startRename}
+            onMove={() => onRequestMove(entry)}
+            onDelete={() => onRequestDeleteFolder(folder)}
+          />
         )}
       </div>
-      {open &&
-        kids.map((kid) => (
-          <TreeRow
-            key={String(getId(kid.item))}
-            folders={folders}
-            notes={notes}
-            entry={kid}
-            depth={depth + 1}
-            activeFolderId={activeFolderId}
-            selectedNoteId={selectedNoteId}
-            onSelectFolder={onSelectFolder}
-            onSelectNote={onSelectNote}
-            onRequestMove={onRequestMove}
-            onRequestDeleteNote={onRequestDeleteNote}
-            onRequestDeleteFolder={onRequestDeleteFolder}
-            onRenameFolder={onRenameFolder}
-            boardQuickAdd={boardQuickAdd}
-          />
-        ))}
+      {open && kids.length > 0 && (
+        <div className="ml-[16px] border-l border-slate-200 pl-2 dark:border-white/10">
+          {kids.map((kid) => (
+            <TreeRow
+              key={String(getId(kid.item))}
+              folders={folders}
+              notes={notes}
+              entry={kid}
+              activeFolderId={activeFolderId}
+              selectedNoteId={selectedNoteId}
+              onSelectFolder={onSelectFolder}
+              onSelectNote={onSelectNote}
+              onRequestMove={onRequestMove}
+              onRequestDeleteNote={onRequestDeleteNote}
+              onRequestDeleteFolder={onRequestDeleteFolder}
+              onRenameFolder={onRenameFolder}
+              boardQuickAdd={boardQuickAdd}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -641,7 +687,6 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
                 folders={folders}
                 notes={notes}
                 entry={entry}
-                depth={0}
                 activeFolderId={activeFolderId}
                 selectedNoteId={selectedNoteId}
                 onSelectFolder={selectFolder}
