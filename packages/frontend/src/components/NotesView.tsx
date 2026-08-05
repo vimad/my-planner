@@ -6,6 +6,7 @@ import { getId } from '../utils/getId'
 import {
   combinedChildren,
   descendantFolderIds,
+  entryKey,
   folderDestroyCounts,
   folderName,
   type TreeEntry,
@@ -30,7 +31,11 @@ async function parseErrorMessage(res: Response): Promise<string> {
 const TREE_ROW_CLASSES =
   'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5'
 const TREE_ROW_ACTIVE_CLASSES = 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/20 dark:text-fuchsia-200'
-const ROW_BASE_CLASSES = 'group mb-0.5 flex items-center gap-1.5 rounded-md py-1 pr-1.5 text-sm'
+const TREE_ROW_DROP_TARGET_CLASSES = 'ring-2 ring-inset ring-fuchsia-400 dark:ring-fuchsia-400/70'
+const ROW_BASE_CLASSES = 'group mb-0.5 flex cursor-grab items-center gap-1.5 rounded-md py-1 pr-1.5 text-sm active:cursor-grabbing'
+// Sentinel dragOverTarget value for the Root row, distinct from any real
+// folder id (which are never this string) and from `null` (nothing hovered).
+const ROOT_DROP_TARGET = '__root__'
 // A row's expand-chevron (folders) is 19px wide; note rows have no chevron
 // of their own but use this spacer so a note's icon still lines up under
 // its sibling folders' icons rather than under their chevrons.
@@ -52,6 +57,19 @@ interface TreeRowProps {
   // (folders don't get one). Optional so tests can render the tree without
   // wiring up Boards state at all.
   boardQuickAdd?: BoardQuickAddState
+  // Drag-and-drop move: every row is a drag source, and every folder row is
+  // also a drop target. `draggedEntry` is lifted to NotesView (rather than
+  // kept per-row) since a drop target needs to know what's being dragged to
+  // decide whether it can accept it; `dragOverTarget` is the folder id (or
+  // ROOT_DROP_TARGET) currently under the pointer, used purely for the
+  // highlight ring.
+  draggedEntry: TreeEntry | null
+  dragOverTarget: string | null
+  canDropOn: (entry: TreeEntry, targetFolderId: string | null) => boolean
+  onDragStartEntry: (entry: TreeEntry) => void
+  onDragEndEntry: () => void
+  onDragOverTarget: (targetFolderId: string | null) => void
+  onDropOnFolder: (targetFolderId: string | null) => void
 }
 
 interface RowMenuProps {
@@ -155,10 +173,18 @@ function TreeRow({
   onRequestDeleteFolder,
   onRenameFolder,
   boardQuickAdd,
+  draggedEntry,
+  dragOverTarget,
+  canDropOn,
+  onDragStartEntry,
+  onDragEndEntry,
+  onDragOverTarget,
+  onDropOnFolder,
 }: TreeRowProps) {
   const [open, setOpen] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const isDragging = draggedEntry !== null && entryKey(draggedEntry) === entryKey(entry)
 
   if (entry.kind === 'note') {
     const note = entry.item
@@ -166,7 +192,17 @@ function TreeRow({
     const active = selectedNoteId === id
     const pinned = boardQuickAdd?.activeItemKeys.has(boardItemKey('Note', id)) ?? false
     return (
-      <div className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}>
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          onDragStartEntry(entry)
+        }}
+        onDragEnd={onDragEndEntry}
+        className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES} ${
+          isDragging ? 'opacity-40' : ''
+        }`}
+      >
         <span className={ROW_CHEVRON_SPACER_CLASSES} aria-hidden="true" />
         <File size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
         <button type="button" onClick={() => onSelectNote(note)} className="flex-1 truncate py-0.5 text-left">
@@ -200,6 +236,8 @@ function TreeRow({
   const folderId = String(getId(folder))
   const kids = combinedChildren(folders, notes, folderId)
   const active = activeFolderId === folderId && !selectedNoteId
+  const canAcceptDrop = draggedEntry !== null && canDropOn(draggedEntry, folderId)
+  const isDropTarget = canAcceptDrop && dragOverTarget === folderId
 
   function startRename() {
     setRenameValue(folder.name)
@@ -214,7 +252,27 @@ function TreeRow({
 
   return (
     <div>
-      <div className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES}`}>
+      <div
+        draggable={!renaming}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          onDragStartEntry(entry)
+        }}
+        onDragEnd={onDragEndEntry}
+        onDragOver={(e) => {
+          if (!canAcceptDrop) return
+          e.preventDefault()
+          onDragOverTarget(folderId)
+        }}
+        onDrop={(e) => {
+          if (!canAcceptDrop) return
+          e.preventDefault()
+          onDropOnFolder(folderId)
+        }}
+        className={`${ROW_BASE_CLASSES} ${active ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES} ${
+          isDragging ? 'opacity-40' : ''
+        } ${isDropTarget ? TREE_ROW_DROP_TARGET_CLASSES : ''}`}
+      >
         {kids.length > 0 ? (
           <button
             type="button"
@@ -281,6 +339,13 @@ function TreeRow({
               onRequestDeleteFolder={onRequestDeleteFolder}
               onRenameFolder={onRenameFolder}
               boardQuickAdd={boardQuickAdd}
+              draggedEntry={draggedEntry}
+              dragOverTarget={dragOverTarget}
+              canDropOn={canDropOn}
+              onDragStartEntry={onDragStartEntry}
+              onDragEndEntry={onDragEndEntry}
+              onDragOverTarget={onDragOverTarget}
+              onDropOnFolder={onDropOnFolder}
             />
           ))}
         </div>
@@ -404,6 +469,12 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [movingEntry, setMovingEntry] = useState<TreeEntry | null>(null)
+  // Drag-and-drop move (an alternative to the Move picker below): the entry
+  // currently being dragged, and which drop target (a folder id, or
+  // ROOT_DROP_TARGET for the Root row) the pointer is currently over, purely
+  // for the highlight ring - the actual move only happens on drop.
+  const [draggedEntry, setDraggedEntry] = useState<TreeEntry | null>(null)
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null)
 
   function requestConfirm(message: string, run: () => void) {
     setPendingConfirm({ message, run })
@@ -588,10 +659,11 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
     setMovingEntry(entry)
   }
 
-  async function handleMoveConfirm(targetFolderId: string | null) {
-    const entry = movingEntry
-    setMovingEntry(null)
-    if (!entry) return
+  // Shared by both move paths: the Move picker's confirm button, and
+  // dropping a dragged row onto a folder/Root. A note's `folderId` vs. a
+  // folder's `parentId` is the only thing that differs between the two
+  // kinds of entry.
+  async function performMove(entry: TreeEntry, targetFolderId: string | null) {
     setError(null)
     try {
       if (entry.kind === 'note') {
@@ -624,6 +696,49 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
     }
   }
 
+  async function handleMoveConfirm(targetFolderId: string | null) {
+    const entry = movingEntry
+    setMovingEntry(null)
+    if (!entry) return
+    await performMove(entry, targetFolderId)
+  }
+
+  // Whether `entry` may be dropped onto `targetFolderId` (null = Root): a
+  // note just can't be dropped back onto the folder it's already in (a
+  // no-op); a folder additionally can't be dropped onto itself or any of its
+  // own descendants (would create a cycle), mirroring moveExcludeFolderIds
+  // below for the picker.
+  function canDropOn(entry: TreeEntry, targetFolderId: string | null): boolean {
+    if (entry.kind === 'note') {
+      return (entry.item.folderId ?? null) !== targetFolderId
+    }
+    const folderId = String(getId(entry.item))
+    if (targetFolderId === folderId) return false
+    if (targetFolderId !== null && descendantFolderIds(folders, folderId).includes(targetFolderId)) return false
+    return (entry.item.parentId ?? null) !== targetFolderId
+  }
+
+  function handleDragStartEntry(entry: TreeEntry) {
+    setDraggedEntry(entry)
+  }
+
+  function handleDragEndEntry() {
+    setDraggedEntry(null)
+    setDragOverTarget(null)
+  }
+
+  function handleDragOverTarget(targetFolderId: string | null) {
+    setDragOverTarget(targetFolderId ?? ROOT_DROP_TARGET)
+  }
+
+  function handleDropOnFolder(targetFolderId: string | null) {
+    const entry = draggedEntry
+    setDraggedEntry(null)
+    setDragOverTarget(null)
+    if (!entry || !canDropOn(entry, targetFolderId)) return
+    void performMove(entry, targetFolderId)
+  }
+
   // Folder inline rename, mirroring the note editor pane's name field:
   // TreeRow owns the in-place text input and only calls this once the value
   // actually changed (on blur/Enter).
@@ -654,6 +769,8 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
     movingEntry?.kind === 'folder'
       ? [String(getId(movingEntry.item)), ...descendantFolderIds(folders, String(getId(movingEntry.item)))]
       : []
+  const rootCanAcceptDrop = draggedEntry !== null && canDropOn(draggedEntry, null)
+  const rootIsDropTarget = rootCanAcceptDrop && dragOverTarget === ROOT_DROP_TARGET
 
   return (
     <section aria-label="Notes" className="flex flex-col gap-4 sm:flex-row">
@@ -672,7 +789,21 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
           <p className="text-sm text-slate-500 dark:text-slate-400">Loading notes...</p>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            <div className="mb-1 flex items-center justify-between">
+            <div
+              onDragOver={(e) => {
+                if (!rootCanAcceptDrop) return
+                e.preventDefault()
+                handleDragOverTarget(null)
+              }}
+              onDrop={(e) => {
+                if (!rootCanAcceptDrop) return
+                e.preventDefault()
+                handleDropOnFolder(null)
+              }}
+              className={`mb-1 flex items-center justify-between rounded-md ${
+                rootIsDropTarget ? TREE_ROW_DROP_TARGET_CLASSES : ''
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => selectFolder(null)}
@@ -716,6 +847,13 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
                 onRequestDeleteFolder={requestDeleteFolder}
                 onRenameFolder={handleRenameFolder}
                 boardQuickAdd={boardQuickAdd}
+                draggedEntry={draggedEntry}
+                dragOverTarget={dragOverTarget}
+                canDropOn={canDropOn}
+                onDragStartEntry={handleDragStartEntry}
+                onDragEndEntry={handleDragEndEntry}
+                onDragOverTarget={handleDragOverTarget}
+                onDropOnFolder={handleDropOnFolder}
               />
             ))}
           </div>

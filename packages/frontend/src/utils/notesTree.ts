@@ -11,6 +11,14 @@ import { getId } from './getId'
 
 export type TreeEntry = { kind: 'folder'; item: NoteFolder } | { kind: 'note'; item: Note }
 
+// Stable string identity for a TreeEntry - used by the tree pane's
+// drag-and-drop move feature to check "is this the row currently being
+// dragged" without relying on object identity, since combinedChildren
+// rebuilds fresh entry objects on every render.
+export function entryKey(entry: TreeEntry): string {
+  return `${entry.kind}:${String(getId(entry.item))}`
+}
+
 // Direct child folders of `parentId` (null = root-level), sorted
 // alphabetically by name.
 export function childFolders(folders: NoteFolder[], parentId: string | null): NoteFolder[] {
