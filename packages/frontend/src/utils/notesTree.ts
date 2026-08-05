@@ -27,14 +27,15 @@ export function childNotes(notes: Note[], folderId: string | null): Note[] {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-// Folders and notes mixed together in one alphabetically-sorted listing, for
-// the direct children of `parentId` - the unit the tree pane's recursive
-// TreeRow renders one level of at a time. No manual reordering, per spec:
-// sort order is always derived, never stored.
+// Folders and notes for the direct children of `parentId` - the unit the
+// tree pane's recursive TreeRow renders one level of at a time. Folders
+// always sort above notes at the same level (each group alphabetical on its
+// own), so the hierarchy reads top-down before the leaves. No manual
+// reordering, per spec: sort order is always derived, never stored.
 export function combinedChildren(folders: NoteFolder[], notes: Note[], parentId: string | null): TreeEntry[] {
   const folderEntries: TreeEntry[] = childFolders(folders, parentId).map((item) => ({ kind: 'folder', item }))
   const noteEntries: TreeEntry[] = childNotes(notes, parentId).map((item) => ({ kind: 'note', item }))
-  return [...folderEntries, ...noteEntries].sort((a, b) => a.item.name.localeCompare(b.item.name))
+  return [...folderEntries, ...noteEntries]
 }
 
 // All folders nested (recursively) under `folderId`, not including itself -

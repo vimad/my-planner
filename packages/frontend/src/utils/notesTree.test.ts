@@ -46,17 +46,18 @@ describe('childNotes', () => {
 })
 
 describe('combinedChildren', () => {
-  it('mixes folders and notes together, sorted alphabetically at that level', () => {
+  it('lists folders before notes at that level, each group alphabetical on its own', () => {
     // Root level has Passwords (note), Recipes (folder), Work (folder) —
-    // alphabetical across both kinds, not folders-then-notes or vice versa.
+    // folders first (Recipes, Work), then notes (Passwords), not a single
+    // alphabetical pass across both kinds.
     expect(combinedChildren(folders, notes, null)).toEqual([
-      { kind: 'note', item: passwords },
       { kind: 'folder', item: recipes },
       { kind: 'folder', item: work },
+      { kind: 'note', item: passwords },
     ])
   })
 
-  it('mixes a folder and its sibling notes at a nested level', () => {
+  it('lists a folder before its sibling notes at a nested level', () => {
     // Under Work: Ideas (folder) sorts before Standup notes (note).
     expect(combinedChildren(folders, notes, 'f-work')).toEqual([
       { kind: 'folder', item: workIdeas },
