@@ -75,6 +75,25 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
             <span key={i}>{segment.text}</span>
           ),
         )}
+        {boardQuickAdd && (
+          <button
+            type="button"
+            aria-label={`${pinned ? 'Remove' : 'Add'} "${todo.title}" ${pinned ? 'from' : 'to'} the active board`}
+            aria-pressed={pinned}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (pinned) boardQuickAdd.onRemove('Todo', id)
+              else boardQuickAdd.onAdd('Todo', id, todo.title, e.currentTarget)
+            }}
+            className={`ml-1 inline-flex align-middle rounded p-0.5 transition ${
+              pinned
+                ? 'text-fuchsia-500 opacity-100 dark:text-fuchsia-400'
+                : 'text-slate-400 opacity-0 hover:bg-slate-200 group-hover:opacity-100 dark:hover:bg-white/10'
+            }`}
+          >
+            <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+          </button>
+        )}
       </span>
       {todo.tags && todo.tags.length > 0 && (
         // Capped so a long tag list wraps onto its own line(s) instead of
@@ -110,25 +129,6 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
       >
         {priority}
       </span>
-      {boardQuickAdd && (
-        <button
-          type="button"
-          aria-label={`${pinned ? 'Remove' : 'Add'} "${todo.title}" ${pinned ? 'from' : 'to'} the active board`}
-          aria-pressed={pinned}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (pinned) boardQuickAdd.onRemove('Todo', id)
-            else boardQuickAdd.onAdd('Todo', id, todo.title, e.currentTarget)
-          }}
-          className={`shrink-0 rounded p-0.5 transition ${
-            pinned
-              ? 'text-fuchsia-500 opacity-100 dark:text-fuchsia-400'
-              : 'text-slate-400 opacity-0 hover:bg-slate-200 group-hover:opacity-100 dark:hover:bg-white/10'
-          }`}
-        >
-          <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
-        </button>
-      )}
       <button
         type="button"
         aria-label={`Delete ${todo.title}`}
