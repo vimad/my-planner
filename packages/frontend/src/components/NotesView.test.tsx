@@ -145,7 +145,7 @@ describe('NotesView', () => {
     fetchMock.mockImplementationOnce(() => jsonResponse(created, true)) // POST /api/note-folders
     fetchMock.mockImplementationOnce(() => jsonResponse([...foldersData, created])) // refetch GET
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Folder' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
 
     await waitFor(() => {
       expect(screen.getByText('New Folder')).toBeInTheDocument()
@@ -174,7 +174,7 @@ describe('NotesView', () => {
     fetchMock.mockImplementationOnce(() => jsonResponse(created, true)) // POST /api/notes
     fetchMock.mockImplementationOnce(() => jsonResponse([...notesData, created])) // refetch GET
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Note' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New note' }))
 
     await waitFor(() => {
       expect(screen.getByLabelText('Note name')).toHaveValue('Untitled Note')
@@ -539,7 +539,7 @@ describe('NotesView', () => {
 
       const icon = screen.getByLabelText('Add "Passwords" to the active board')
       expect(icon).toHaveAttribute('aria-pressed', 'false')
-      expect(icon).toHaveTextContent('📍')
+      expect(icon.querySelector('svg')).toHaveAttribute('fill', 'none')
     })
 
     it('renders the filled pin when the note is on the active board', async () => {
@@ -551,7 +551,7 @@ describe('NotesView', () => {
 
       const icon = screen.getByLabelText('Remove "Passwords" from the active board')
       expect(icon).toHaveAttribute('aria-pressed', 'true')
-      expect(icon).toHaveTextContent('📌')
+      expect(icon.querySelector('svg')).toHaveAttribute('fill', 'currentColor')
     })
 
     it('clicking the outline icon calls onAdd with the note, its label, and the icon element itself - and does not select the note', async () => {

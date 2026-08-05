@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import { ChevronRight, File, Folder, FolderOpen, MoreHorizontal } from 'lucide-react'
+import { ChevronRight, File, Folder, FolderOpen, MoreHorizontal, Pin } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
@@ -14,7 +14,6 @@ import type { BoardQuickAddState, Note, NoteFolder } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
 import { MoveToFolderPicker } from './MoveToFolderPicker'
-import { QuickAddIcon } from './QuickAddIcon'
 import type { RichTextEditorHandle } from './RichTextEditor'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
@@ -27,9 +26,6 @@ async function parseErrorMessage(res: Response): Promise<string> {
     return `Request failed with status ${res.status}`
   }
 }
-
-const CREATE_BUTTON_CLASSES =
-  'rounded border border-dashed border-slate-300 px-1.5 py-0.5 text-xs text-slate-500 hover:bg-slate-100 dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/10'
 
 const TREE_ROW_CLASSES =
   'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5'
@@ -177,9 +173,23 @@ function TreeRow({
           {note.name}
         </button>
         {boardQuickAdd && (
-          <span className={`shrink-0 ${pinned ? '' : 'opacity-0 group-hover:opacity-100'}`}>
-            <QuickAddIcon itemType="Note" itemId={id} label={note.name} quickAdd={boardQuickAdd} />
-          </span>
+          <button
+            type="button"
+            aria-label={`${pinned ? 'Remove' : 'Add'} "${note.name}" ${pinned ? 'from' : 'to'} the active board`}
+            aria-pressed={pinned}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (pinned) boardQuickAdd.onRemove('Note', id)
+              else boardQuickAdd.onAdd('Note', id, note.name, e.currentTarget)
+            }}
+            className={`shrink-0 rounded p-0.5 transition ${
+              pinned
+                ? 'text-fuchsia-500 opacity-100 dark:text-fuchsia-400'
+                : 'text-slate-400 opacity-0 hover:bg-slate-200 group-hover:opacity-100 dark:hover:bg-white/10'
+            }`}
+          >
+            <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+          </button>
         )}
         <RowMenu canRename={false} onMove={() => onRequestMove(entry)} onDelete={() => onRequestDeleteNote(note)} />
       </div>
@@ -648,19 +658,9 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
   return (
     <section aria-label="Notes" className="flex flex-col gap-4 sm:flex-row">
       <div className="flex w-72 shrink-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Folders &amp; notes
-          </h2>
-          <div className="flex gap-1">
-            <button type="button" onClick={handleCreateFolder} className={CREATE_BUTTON_CLASSES}>
-              + Folder
-            </button>
-            <button type="button" onClick={handleCreateNote} className={CREATE_BUTTON_CLASSES}>
-              + Note
-            </button>
-          </div>
-        </div>
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Folders &amp; notes
+        </h2>
 
         {error && (
           <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
@@ -672,15 +672,35 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
           <p className="text-sm text-slate-500 dark:text-slate-400">Loading notes...</p>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            <button
-              type="button"
-              onClick={() => selectFolder(null)}
-              className={`mb-1 block w-full rounded-lg px-2 py-1.5 text-left text-sm ${
-                activeFolderId === null && !selectedNoteId ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES
-              }`}
-            >
-              Root
-            </button>
+            <div className="mb-1 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => selectFolder(null)}
+                className={`flex-1 rounded-md px-1.5 py-1 text-left text-sm font-medium ${
+                  activeFolderId === null && !selectedNoteId ? TREE_ROW_ACTIVE_CLASSES : TREE_ROW_CLASSES
+                }`}
+              >
+                Root
+              </button>
+              <div className="flex shrink-0 gap-1 pl-1">
+                <button
+                  type="button"
+                  onClick={handleCreateFolder}
+                  aria-label="New folder"
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                >
+                  <Folder size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateNote}
+                  aria-label="New note"
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                >
+                  <File size={14} />
+                </button>
+              </div>
+            </div>
             {rootItems.map((entry) => (
               <TreeRow
                 key={String(getId(entry.item))}
