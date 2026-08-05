@@ -37,7 +37,7 @@ describe('TodoItem quick-add icon', () => {
 
     const icon = screen.getByLabelText('Add "Buy milk" to the active board')
     expect(icon).toHaveAttribute('aria-pressed', 'false')
-    expect(icon).toHaveTextContent('📍')
+    expect(icon.querySelector('svg')).toHaveAttribute('fill', 'none')
   })
 
   it('renders the filled pin when the todo is on the active board', () => {
@@ -46,7 +46,7 @@ describe('TodoItem quick-add icon', () => {
 
     const icon = screen.getByLabelText('Remove "Buy milk" from the active board')
     expect(icon).toHaveAttribute('aria-pressed', 'true')
-    expect(icon).toHaveTextContent('📌')
+    expect(icon.querySelector('svg')).toHaveAttribute('fill', 'currentColor')
   })
 
   it('clicking the outline icon calls onAdd with the todo, its label, and the icon element itself - and does not open the row', () => {
@@ -59,7 +59,7 @@ describe('TodoItem quick-add icon', () => {
     expect(quickAdd.onAdd).toHaveBeenCalledWith('Todo', 'todo-1', 'Buy milk', expect.any(HTMLElement))
     expect(quickAdd.onRemove).not.toHaveBeenCalled()
     // The row's own onClick (onOpen) must never fire from a click aimed at
-    // the icon - QuickAddIcon stops propagation, same as the delete button.
+    // the icon - the icon's click handler stops propagation, same as the delete button.
     expect(onOpen).not.toHaveBeenCalled()
   })
 

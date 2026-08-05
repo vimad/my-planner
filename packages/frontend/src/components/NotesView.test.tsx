@@ -566,8 +566,8 @@ describe('NotesView', () => {
       expect(quickAdd.onAdd).toHaveBeenCalledWith('Note', 'n-passwords', 'Passwords', expect.any(HTMLElement))
       expect(quickAdd.onRemove).not.toHaveBeenCalled()
       // The row's own click handling (opening the note in the editor pane)
-      // must never fire from a click aimed at the icon - QuickAddIcon stops
-      // propagation, same contract TodoItem.test.tsx verifies for the todo row.
+      // must never fire from a click aimed at the icon - the icon's click
+      // handler stops propagation, same contract TodoItem.test.tsx verifies for the todo row.
       expect(screen.queryByLabelText('Note name')).not.toBeInTheDocument()
     })
 

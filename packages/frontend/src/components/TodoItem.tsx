@@ -1,7 +1,8 @@
+import { Pin } from 'lucide-react'
+import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
 import { linkify } from '../utils/linkify'
 import type { BoardQuickAddState, Category, Todo, TodoPriority } from '../types'
-import { QuickAddIcon } from './QuickAddIcon'
 
 const PRIORITY_BADGE_STYLES: Record<TodoPriority, string> = {
   High: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
@@ -30,13 +31,14 @@ interface TodoItemProps {
 export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpen, boardQuickAdd }: TodoItemProps) {
   const id = String(getId(todo))
   const priority = todo.priority ?? 'Medium'
+  const pinned = boardQuickAdd?.activeItemKeys.has(boardItemKey('Todo', id)) ?? false
 
   return (
     <div
       onClick={() => onOpen?.(todo)}
       role={onOpen ? 'button' : undefined}
       tabIndex={onOpen ? 0 : undefined}
-      className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition ${
+      className={`group flex items-center gap-3 rounded-xl border px-3 py-2 transition ${
         isDueToday
           ? 'border-fuchsia-400/40 bg-fuchsia-50 shadow-[0_0_0_3px_rgba(217,70,239,0.08)] dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10 dark:shadow-[0_0_14px_rgba(255,107,214,0.35)]'
           : 'border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/5'
@@ -109,7 +111,23 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
         {priority}
       </span>
       {boardQuickAdd && (
-        <QuickAddIcon itemType="Todo" itemId={id} label={todo.title} quickAdd={boardQuickAdd} />
+        <button
+          type="button"
+          aria-label={`${pinned ? 'Remove' : 'Add'} "${todo.title}" ${pinned ? 'from' : 'to'} the active board`}
+          aria-pressed={pinned}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (pinned) boardQuickAdd.onRemove('Todo', id)
+            else boardQuickAdd.onAdd('Todo', id, todo.title, e.currentTarget)
+          }}
+          className={`shrink-0 rounded p-0.5 transition ${
+            pinned
+              ? 'text-fuchsia-500 opacity-100 dark:text-fuchsia-400'
+              : 'text-slate-400 opacity-0 hover:bg-slate-200 group-hover:opacity-100 dark:hover:bg-white/10'
+          }`}
+        >
+          <Pin size={12} fill={pinned ? 'currentColor' : 'none'} />
+        </button>
       )}
       <button
         type="button"
