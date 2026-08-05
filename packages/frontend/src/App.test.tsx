@@ -94,6 +94,12 @@ let fetchMock: FetchMock
 
 describe('App', () => {
   beforeEach(() => {
+    // App now derives the active profile/tab from the URL (so a refresh
+    // stays put instead of always resetting to the first profile's Todos
+    // tab) - reset to '/' before each test so it re-resolves the default
+    // profile/tab the same way a fresh page load would, rather than
+    // inheriting whatever path the previous test navigated to.
+    window.history.pushState({}, '', '/')
     categoriesData = [uncategorized, work]
     todosData = []
     searchData = []

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { BrowserRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { AgendaGroups } from './components/AgendaGroups'
 import { BoardsTabBadge } from './components/BoardsTabBadge'
 import { BoardsView } from './components/BoardsView'
@@ -42,7 +43,36 @@ interface PendingConfirm {
   run: () => void
 }
 
+type TabKey = 'todos' | 'notes' | 'boards'
+
+const TAB_KEYS: readonly TabKey[] = ['todos', 'notes', 'boards']
+
+function isTabKey(value: string | undefined): value is TabKey {
+  return value !== undefined && (TAB_KEYS as readonly string[]).includes(value)
+}
+
+// Top-level route shell: the URL is the source of truth for "which profile
+// and which tab" so a refresh (or a shared/bookmarked link) lands back on
+// the same place instead of always resetting to the first profile's Todos
+// tab. Every path renders the same AppShell - there's only one page layout -
+// so this just needs enough route variants to capture `:profileId` and
+// `:tab` whenever either is present in the URL.
 function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/:profileId/:tab" element={<AppShell />} />
+        <Route path="/:profileId" element={<AppShell />} />
+        <Route path="/" element={<AppShell />} />
+        <Route path="*" element={<AppShell />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+function AppShell() {
+  const { profileId: routeProfileId, tab: routeTab } = useParams<{ profileId: string; tab: string }>()
+  const navigate = useNavigate()
   const {
     profiles,
     activeProfileId,
@@ -94,7 +124,11 @@ function App() {
   // header tab below. Nothing else on the page (header chrome, the
   // fixed-bottom Scratchpad bar) is affected by which tab is active, per the
   // Notes spec (Boards follows the same mechanism - see .scratch/boards/spec.md).
-  const [activeTab, setActiveTab] = useState<'todos' | 'notes' | 'boards'>('todos')
+  // Driven by the URL's `:tab` segment (falling back to 'todos' for a
+  // missing/unrecognized one) rather than its own useState, so the active
+  // tab survives a refresh instead of always resetting - see the two sync
+  // effects below.
+  const activeTab: TabKey = isTabKey(routeTab) ? routeTab : 'todos'
   // Quick-add icon state (ticket 14) - the zero-boards create-first-board
   // prompt, and the arcing fly-to-badge animation's in-flight event/target/
   // pop, all live here since they're triggered from anywhere in the app
@@ -119,6 +153,47 @@ function App() {
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Keeps the URL and the active profile in sync, in both directions, so
+  // the URL is always the shareable/refreshable source of truth for "which
+  // profile" without turning every existing profile-switch call site
+  // (ProfileSwitcher's onSelect, createProfile switching into a freshly
+  // created profile, deleteProfile falling back to another one - all of
+  // which just call useActiveProfile's own setActiveProfileId directly)
+  // into a navigation call:
+  //
+  // - URL -> state: a route profile id that just changed (per the ref
+  //   below), is known-valid, and differs from activeProfileId - i.e. the
+  //   user followed a link, used back/forward, or edited the URL bar -
+  //   adopts it via setActiveProfileId.
+  // - state -> URL: anything else that leaves routeProfileId/routeTab out
+  //   of sync with activeProfileId/activeTab (activeProfileId changed via
+  //   one of the call sites above, or the initial `/`-with-no-profileId
+  //   load) pushes the URL to match, replacing history rather than growing
+  //   it so back/forward steps over a profile switch once instead of twice.
+  //
+  // The `prevRouteProfileId` ref (not just comparing routeProfileId to
+  // activeProfileId) is what tells the two directions apart: without it, a
+  // state-driven switch (e.g. ProfileSwitcher) would look identical to a
+  // URL-driven one for one render - both just have the two out of sync -
+  // and this would immediately snap activeProfileId back to the stale
+  // route, undoing the user's selection.
+  const prevRouteProfileIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!activeProfileId) return
+    const routeProfileJustChanged = routeProfileId !== prevRouteProfileIdRef.current
+    prevRouteProfileIdRef.current = routeProfileId
+
+    const routeProfileIsKnown = profiles.some((profile) => getId(profile) === routeProfileId)
+    if (routeProfileJustChanged && routeProfileId && routeProfileId !== activeProfileId && routeProfileIsKnown) {
+      setActiveProfileId(routeProfileId)
+      return
+    }
+    if (routeProfileId !== activeProfileId || !isTabKey(routeTab)) {
+      navigate(`/${activeProfileId}/${activeTab}`, { replace: true })
+    }
+  }, [activeProfileId, routeProfileId, routeTab, activeTab, profiles, navigate, setActiveProfileId])
 
   // Global Ctrl+A shortcut for opening the board-switcher palette. Skipped
   // while focus is in a text field/editor (including tiptap's
@@ -846,7 +921,7 @@ function App() {
                 type="button"
                 role="tab"
                 aria-selected={activeTab === tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => activeProfileId && navigate(`/${activeProfileId}/${tab.key}`)}
                 className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
                   activeTab === tab.key
                     ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
@@ -1108,3 +1183,4 @@ function App() {
 }
 
 export default App
+
