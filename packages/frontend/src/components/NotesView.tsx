@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import { ChevronRight, File, Folder, FolderOpen, MoreHorizontal, Pin } from 'lucide-react'
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, File, Folder, FolderOpen, MoreHorizontal, Pin } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
@@ -57,6 +57,12 @@ interface TreeRowProps {
   // (folders don't get one). Optional so tests can render the tree without
   // wiring up Boards state at all.
   boardQuickAdd?: BoardQuickAddState
+  // Folder open/collapse state is lifted to NotesView (rather than each
+  // row's own useState) so the header's Collapse all/Expand all buttons can
+  // control every folder at once; a folder is open unless its id is in this
+  // set.
+  collapsedFolderIds: Set<string>
+  onToggleFolder: (folderId: string) => void
   // Drag-and-drop move: every row is a drag source, and every folder row is
   // also a drop target. `draggedEntry` is lifted to NotesView (rather than
   // kept per-row) since a drop target needs to know what's being dragged to
@@ -154,12 +160,12 @@ function RowMenu({ canRename, onRename, onMove, onDelete }: RowMenuProps) {
 // combinedChildren for its subtree. A folder's children render inside a
 // bordered, indented wrapper (see the `border-l` div below) so the
 // connecting line - not just accumulated padding - is what shows a note or
-// subfolder belongs to that folder. Folders track their own expand/collapse
-// state locally (uncontrolled, defaulting open) - there's no need to lift it
-// higher since nothing outside a row ever needs to know whether it's open.
-// Folder rename is also local state (an inline text input swapped in for
-// the name button), mirroring how `open` is already row-local; the actual
-// PATCH call is owned by the parent via `onRenameFolder`.
+// subfolder belongs to that folder. A folder's own expand/collapse bit lives
+// in NotesView's collapsedFolderIds (see onToggleFolder) rather than local
+// state, so the header's Collapse all/Expand all buttons can reach every
+// folder at once. Folder rename is still local state (an inline text input
+// swapped in for the name button); the actual PATCH call is owned by the
+// parent via `onRenameFolder`.
 function TreeRow({
   folders,
   notes,
@@ -180,8 +186,9 @@ function TreeRow({
   onDragEndEntry,
   onDragOverTarget,
   onDropOnFolder,
+  collapsedFolderIds,
+  onToggleFolder,
 }: TreeRowProps) {
-  const [open, setOpen] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const isDragging = draggedEntry !== null && entryKey(draggedEntry) === entryKey(entry)
@@ -238,6 +245,7 @@ function TreeRow({
   const active = activeFolderId === folderId && !selectedNoteId
   const canAcceptDrop = draggedEntry !== null && canDropOn(draggedEntry, folderId)
   const isDropTarget = canAcceptDrop && dragOverTarget === folderId
+  const open = !collapsedFolderIds.has(folderId)
 
   function startRename() {
     setRenameValue(folder.name)
@@ -277,7 +285,7 @@ function TreeRow({
           <button
             type="button"
             aria-label={open ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => onToggleFolder(folderId)}
             className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10"
           >
             <ChevronRight size={13} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
@@ -346,6 +354,8 @@ function TreeRow({
               onDragEndEntry={onDragEndEntry}
               onDragOverTarget={onDragOverTarget}
               onDropOnFolder={onDropOnFolder}
+              collapsedFolderIds={collapsedFolderIds}
+              onToggleFolder={onToggleFolder}
             />
           ))}
         </div>
@@ -475,6 +485,27 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
   // for the highlight ring - the actual move only happens on drop.
   const [draggedEntry, setDraggedEntry] = useState<TreeEntry | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null)
+  // Which folders are collapsed, by id - lifted out of each TreeRow's own
+  // state (a folder is open unless its id is here) so the header's Collapse
+  // all/Expand all buttons can reach every folder in one shot.
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(new Set())
+
+  function toggleFolder(id: string) {
+    setCollapsedFolderIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function collapseAll() {
+    setCollapsedFolderIds(new Set(folders.map((folder) => String(getId(folder)))))
+  }
+
+  function expandAll() {
+    setCollapsedFolderIds(new Set())
+  }
 
   function requestConfirm(message: string, run: () => void) {
     setPendingConfirm({ message, run })
@@ -520,6 +551,7 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
     Promise.all([loadFolders(activeProfileId), loadNotes(activeProfileId)]).finally(() => setLoading(false))
     setActiveFolderId(null)
     setSelectedNoteId(null)
+    setCollapsedFolderIds(new Set())
     // loadFolders/loadNotes are stable enough (no external deps beyond the
     // profileId already in this effect's own dependency array) that omitting
     // them here mirrors App.tsx's identical choice for loadCategories/
@@ -775,9 +807,31 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
   return (
     <section aria-label="Notes" className="flex flex-col gap-4 sm:flex-row">
       <div className="flex w-72 shrink-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Folders &amp; notes
-        </h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Folders &amp; notes
+          </h2>
+          <div className="flex shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={collapseAll}
+              aria-label="Collapse all folders"
+              title="Collapse all"
+              className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            >
+              <ChevronsDownUp size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={expandAll}
+              aria-label="Expand all folders"
+              title="Expand all"
+              className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            >
+              <ChevronsUpDown size={13} />
+            </button>
+          </div>
+        </div>
 
         {error && (
           <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
@@ -854,6 +908,8 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
                 onDragEndEntry={handleDragEndEntry}
                 onDragOverTarget={handleDragOverTarget}
                 onDropOnFolder={handleDropOnFolder}
+                collapsedFolderIds={collapsedFolderIds}
+                onToggleFolder={toggleFolder}
               />
             ))}
           </div>
