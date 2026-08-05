@@ -296,7 +296,7 @@ function NoteEditorPane({ note, onSave }: NoteEditorPaneProps) {
           toolbar
           onDirtyChange={setBodyDirty}
           className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 p-2 dark:border-white/10"
-          contentClassName="min-h-0 flex-1 overflow-y-auto [&_.tiptap]:min-h-full [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through"
+          contentClassName="min-h-0 flex-1 overflow-y-auto"
         />
       </div>
     </div>

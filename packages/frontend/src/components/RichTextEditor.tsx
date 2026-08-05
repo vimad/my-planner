@@ -31,6 +31,16 @@ const EXTENSIONS = [
   ...DATE_BADGE_EXTENSIONS,
 ]
 
+// Baseline content styling every editor instance gets for free, regardless
+// of call site - list/underline/strike marks and link highlighting were
+// previously copy-pasted per call site via `contentClassName`, and silently
+// missing from several of them (Scratchpad, NotesView, BoardsView), which is
+// exactly the kind of drift a shared component is supposed to prevent.
+// `contentClassName` is still how a caller adds its own layout concerns
+// (sizing, scrolling, min-height) on top of this.
+const DEFAULT_CONTENT_CLASSES =
+  'flex flex-col [&_.tiptap]:outline-none [&_.tiptap]:flex-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a]:cursor-pointer [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200'
+
 // Marks toggleable from the toolbar - a subset of ToolbarState's keys, kept
 // as its own union so TOOLBAR_BUTTONS entries and `state[mark]` lookups both
 // stay type-safe.
@@ -194,6 +204,21 @@ interface RichTextEditorProps {
 // `contentClassName`, if given, wraps just the editable content (not the
 // toolbar) so a call site can cap long documents to a max height with its
 // own scrollbar while the toolbar stays pinned above it.
+//
+// `EditorContent` (from @tiptap/react) renders its own unstyled wrapper div
+// directly around the ProseMirror root (`.tiptap`) - one more layer than a
+// call site's `contentClassName` div can see. That matters because a
+// percentage height on `.tiptap` (e.g. `[&_.tiptap]:min-h-full`, used by
+// callers that want the editor to fill a flex-sized pane) resolves against
+// that immediate wrapper, not against `contentClassName`'s own flex-sized
+// box - and since the wrapper is a plain auto-height block, the percentage
+// silently collapses to content height instead. Giving that wrapper a fixed
+// `flex flex-col` of its own and making `.tiptap` a `flex-1` child of it
+// (below) threads a real flex-grow chain through that extra layer instead,
+// which - unlike a percentage - degrades gracefully to ordinary
+// content-based sizing when no flex ancestor provides extra space, so it's
+// safe to apply unconditionally for every call site (including the ones
+// using a fixed-pixel `[&_.tiptap]:min-h-[Npx]` instead).
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
   { content, savedContent, editable, className, toolbar = false, contentClassName, onDirtyChange },
   ref,
@@ -252,8 +277,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     <div className={className}>
       {editor && <DirtyTracker editor={editor} baselineRef={baselineRef} onDirtyChange={onDirtyChange} />}
       {toolbar && editable && editor && <Toolbar editor={editor} />}
-      <div className={contentClassName}>
-        <EditorContent editor={editor} />
+      <div className={[DEFAULT_CONTENT_CLASSES, contentClassName].filter(Boolean).join(' ')}>
+        <EditorContent editor={editor} className="flex min-h-0 flex-1 flex-col" />
       </div>
     </div>
   )

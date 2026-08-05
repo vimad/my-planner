@@ -265,14 +265,14 @@ export const ExpandableNotesEditor = forwardRef<RichTextEditorHandle, Expandable
               {overlayActive ? <ShrinkIcon /> : <EnlargeIcon />}
             </button>
           </div>
-          <div className={overlayActive ? 'min-h-0 flex-1 overflow-hidden' : undefined}>
+          <div className="min-h-0 flex-1 overflow-hidden">
             <RichTextEditor
               ref={editorRef}
               content={content}
               savedContent={savedContent}
               editable={editable}
               toolbar={toolbar}
-              className={overlayActive ? 'flex h-full min-h-0 flex-col' : undefined}
+              className="flex h-full min-h-0 flex-col"
               contentClassName={overlayActive ? enlargedContentClassName(contentClassName) : contentClassName}
               onDirtyChange={onDirtyChange}
             />

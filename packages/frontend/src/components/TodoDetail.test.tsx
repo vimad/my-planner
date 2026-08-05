@@ -671,7 +671,7 @@ describe('TodoDetail', () => {
           screen.queryByLabelText('Save notes for Chase approval from finance'),
         ).not.toBeInTheDocument()
         const editable = document.querySelector('[contenteditable]') as HTMLElement
-        const editorBox = editable.closest('.flex-1.overflow-hidden')
+        const editorBox = editable.closest('.rounded-lg.border')
         expect(editorBox?.className).toContain('border-slate-200')
         expect(editorBox?.className).not.toContain('border-fuchsia-400/60')
       })
@@ -697,7 +697,7 @@ describe('TodoDetail', () => {
         pasteText(editable, 'X')
 
         const saveButton = await screen.findByLabelText('Save notes for Chase approval from finance')
-        const editorBox = editable.closest('.flex-1.overflow-hidden')
+        const editorBox = editable.closest('.rounded-lg.border')
         expect(editorBox?.className).toContain('border-fuchsia-400/60')
 
         fireEvent.click(saveButton)

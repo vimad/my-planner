@@ -35,8 +35,7 @@ async function parseErrorMessage(res: Response): Promise<string> {
 // ExpandableNotesEditor's own inline-vs-enlarged height comment. A missing
 // concrete cap here silently stops clipping/scrolling and instead blows the
 // card out to fit arbitrarily long pasted content.
-const CARD_CONTENT_CLASSNAME =
-  'max-h-28 overflow-y-auto [&_.tiptap]:min-h-[3.5rem] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_u]:underline [&_s]:line-through'
+const CARD_CONTENT_CLASSNAME = 'max-h-28 overflow-y-auto [&_.tiptap]:min-h-[3.5rem]'
 
 function TypeBadge({ type }: { type: 'Todo' | 'Note' }) {
   return (

@@ -132,14 +132,13 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
             </button>
           ) : (
             <div className="rounded-2xl border border-fuchsia-300/50 bg-fuchsia-50/40 p-3 dark:border-fuchsia-400/30 dark:bg-white/5">
-              <div className="mb-2 min-h-[3.5rem] rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-white/5">
-                <RichTextEditor
-                  ref={editorRef}
-                  content={null}
-                  editable
-                  className="text-sm text-slate-900 dark:text-slate-100 [&_.tiptap]:outline-none"
-                />
-              </div>
+              <RichTextEditor
+                ref={editorRef}
+                content={null}
+                editable
+                className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+                contentClassName="[&_.tiptap]:min-h-[2.5rem]"
+              />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"

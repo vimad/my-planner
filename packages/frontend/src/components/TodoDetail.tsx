@@ -584,7 +584,7 @@ export function TodoDetail({
                   ? 'border-fuchsia-400/60 dark:border-fuchsia-400/60'
                   : 'border-slate-200 dark:border-white/10'
               }`}
-              contentClassName="max-h-[40vh] overflow-y-auto [&_.tiptap]:min-h-[100px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200"
+              contentClassName="max-h-[40vh] overflow-y-auto [&_.tiptap]:min-h-[100px]"
             />
           </div>
         )}
@@ -679,7 +679,7 @@ export function TodoDetail({
                         ? 'border-fuchsia-400/60 dark:border-fuchsia-400/60'
                         : 'border-slate-200 dark:border-white/10'
                     }`}
-                    contentClassName="h-full overflow-y-auto [&_.tiptap]:min-h-[120px] [&_.tiptap]:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_u]:underline [&_s]:line-through [&_a]:text-fuchsia-600 [&_a]:no-underline [&_a:hover]:text-fuchsia-700 [&_a:hover]:underline dark:[&_a]:text-fuchsia-300 dark:[&_a:hover]:text-fuchsia-200"
+                    contentClassName="h-full overflow-y-auto [&_.tiptap]:min-h-[120px]"
                   />
                 </>
               ) : (
