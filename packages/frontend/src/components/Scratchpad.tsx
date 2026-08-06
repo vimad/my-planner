@@ -2,6 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useRef, useState } from 'react'
 import { getId } from '../utils/getId'
 import type { Category, ScratchLine, ScratchNote } from '../types'
+import { NameNotePrompt } from './NameNotePrompt'
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { ScratchNoteCard, type PromoteOptions } from './ScratchNoteCard'
 
@@ -35,6 +36,13 @@ interface ScratchpadProps {
   // into todos - meaningless outside the Todos tab, so Notes/Boards hide it
   // and keep only the always-available capture bar below.
   showSessions?: boolean
+  // "scratch" (default): Save creates a ScratchNote session via onCreateNote,
+  // same as always. "note" (used on the Notes tab - see App.tsx): Save
+  // instead prompts for a title, then hands the captured doc to
+  // onCreateTempNote, which saves it as a real Note in the Temp folder -
+  // "scratchpad" would be a misnomer for a durable, named note.
+  captureMode?: 'scratch' | 'note'
+  onCreateTempNote?: (title: string, doc: JSONContent) => Promise<void>
 }
 
 // Capture lives in the chrome, always on screen: a chat-input-style bar
@@ -55,15 +63,26 @@ export function Scratchpad({
   onArchive,
   onDelete,
   showSessions = true,
+  captureMode = 'scratch',
+  onCreateTempNote,
 }: ScratchpadProps) {
   const [expanded, setExpanded] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Captured doc awaiting a title from NameNotePrompt - only ever set in
+  // captureMode "note". Kept separate from `expanded` so cancelling the
+  // prompt drops back to the still-expanded editor with the typed text
+  // intact, instead of losing it.
+  const [namingDoc, setNamingDoc] = useState<JSONContent | null>(null)
   const editorRef = useRef<RichTextEditorHandle>(null)
 
   async function handleSave() {
     const doc = editorRef.current?.getJSON()
     if (!doc) return
+    if (captureMode === 'note') {
+      setNamingDoc(doc)
+      return
+    }
     const lines = splitIntoLines(doc)
     if (lines.length === 0) return
     setSaving(true)
@@ -73,6 +92,13 @@ export function Scratchpad({
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleNameNote(title: string) {
+    if (!namingDoc || !onCreateTempNote) return
+    await onCreateTempNote(title, namingDoc)
+    setNamingDoc(null)
+    setExpanded(false)
   }
 
   return (
@@ -178,6 +204,8 @@ export function Scratchpad({
 
       {/* Keeps page content from being hidden behind the fixed bottom bar */}
       <div className="h-20" aria-hidden="true" />
+
+      {namingDoc && <NameNotePrompt onCreate={handleNameNote} onCancel={() => setNamingDoc(null)} />}
     </section>
   )
 }

@@ -18,16 +18,18 @@ interface NoteBody {
   profileId?: string
 }
 
-// POST /api/notes -> create a note (with an empty body) attached to the
-// given profileId. profileId is required in the body (not resolved
-// server-side) - same reasoning as POST /api/categories: there's no
-// server-side "active profile" concept, so the client is the only party
-// that has it in hand.
+// POST /api/notes -> create a note attached to the given profileId, with an
+// optional seeded `body` (used by the capture bar's Notes-tab flow - see
+// Scratchpad's captureMode="note" - to create the note and its content in
+// one request, same as ScratchNote already does for seeded lines). profileId
+// is required in the body (not resolved server-side) - same reasoning as
+// POST /api/categories: there's no server-side "active profile" concept, so
+// the client is the only party that has it in hand.
 notesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, NoteBody>, res: Response, next: NextFunction) => {
     try {
-      const { name } = req.body
+      const { name, body } = req.body
 
       if (!name) {
         return res.status(400).json({ error: 'name is required' })
@@ -49,7 +51,7 @@ notesRouter.post(
         }
       }
 
-      const note = await Note.create({ name, folderId, profileId })
+      const note = await Note.create({ name, folderId, profileId, body: body ?? null })
       res.status(201).json(note)
     } catch (err) {
       next(err)

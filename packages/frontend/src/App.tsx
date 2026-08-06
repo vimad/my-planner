@@ -1,3 +1,4 @@
+import type { JSONContent } from '@tiptap/core'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { AgendaGroups } from './components/AgendaGroups'
@@ -26,7 +27,16 @@ import { effectiveDueDate, localTodayISO, matchesDateRange, type DateRange } fro
 import { getId } from './utils/getId'
 import { profileSlug } from './utils/profileSlug'
 import { applyTheme, getInitialTheme } from './utils/theme'
-import type { BoardItemType, BoardQuickAddState, Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
+import type {
+  BoardItemType,
+  BoardQuickAddState,
+  Category,
+  NoteFolder,
+  Profile,
+  ScratchLine,
+  ScratchNote,
+  Todo,
+} from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -110,6 +120,11 @@ function AppShell() {
   const [categories, setCategories] = useState<Category[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
   const [scratchNotes, setScratchNotes] = useState<ScratchNote[]>([])
+  // Bumped after a Temp note is created via the capture bar (see
+  // handleCreateTempNote below) so NotesView - which owns its own
+  // folders/notes fetch, independent of this component's state - knows to
+  // refetch without App.tsx needing to lift that state up.
+  const [notesRefreshSignal, setNotesRefreshSignal] = useState(0)
   const [availableTags, setAvailableTags] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -775,6 +790,47 @@ function AppShell() {
     }
   }
 
+  // Save from the capture bar while on the Notes tab (Scratchpad's
+  // captureMode="note") creates a real Note instead of a ScratchNote
+  // session, always filed under a root-level "Temp" folder - created on
+  // first use since there's no dedicated find-or-create endpoint. NotesView
+  // owns its own folders/notes fetch independently of this component's
+  // state, so it can't see this new Note on its own; bumping
+  // notesRefreshSignal is how it's told to refetch.
+  async function handleCreateTempNote(title: string, doc: JSONContent) {
+    if (!activeProfileId) return
+    setError(null)
+    try {
+      const foldersRes = await fetch(`${API_URL}/api/note-folders?profileId=${encodeURIComponent(activeProfileId)}`)
+      if (!foldersRes.ok) throw new Error(await parseErrorMessage(foldersRes))
+      const folders: NoteFolder[] = await foldersRes.json()
+      let tempFolder = folders.find((folder) => folder.name === 'Temp' && !folder.parentId)
+      if (!tempFolder) {
+        const createFolderRes = await fetch(`${API_URL}/api/note-folders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Temp', parentId: null, profileId: activeProfileId }),
+        })
+        if (!createFolderRes.ok) throw new Error(await parseErrorMessage(createFolderRes))
+        tempFolder = await createFolderRes.json()
+      }
+      const noteRes = await fetch(`${API_URL}/api/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: title,
+          folderId: getId(tempFolder as NoteFolder),
+          body: doc,
+          profileId: activeProfileId,
+        }),
+      })
+      if (!noteRes.ok) throw new Error(await parseErrorMessage(noteRes))
+      setNotesRefreshSignal((n) => n + 1)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   async function handleUpdateScratchNoteLines(id: string, lines: ScratchLine[]) {
     setError(null)
     try {
@@ -978,7 +1034,11 @@ function AppShell() {
       )}
 
       {activeTab === 'notes' ? (
-        <NotesView activeProfileId={activeProfileId} boardQuickAdd={boardQuickAdd} />
+        <NotesView
+          activeProfileId={activeProfileId}
+          boardQuickAdd={boardQuickAdd}
+          refreshSignal={notesRefreshSignal}
+        />
       ) : activeTab === 'boards' ? (
         <BoardsView
           activeProfileId={activeProfileId}
@@ -1134,6 +1194,8 @@ function AppShell() {
         notes={scratchNotes}
         categories={categories}
         showSessions={activeTab === 'todos'}
+        captureMode={activeTab === 'notes' ? 'note' : 'scratch'}
+        onCreateTempNote={handleCreateTempNote}
         onCreateNote={handleCreateScratchNote}
         onUpdateLines={handleUpdateScratchNoteLines}
         onPromote={handlePromoteScratchLine}

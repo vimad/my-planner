@@ -654,6 +654,60 @@ describe('App', () => {
       expect(body.body[0]).toHaveProperty('content')
     })
 
+    it('on the Notes tab, prompts for a title and files the capture into the Temp folder instead of a scratch note', async () => {
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Work')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Jot something down...' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Jot something down...' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      // No ScratchNote POST fires - Save on the Notes tab opens the naming
+      // prompt instead.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Note title')).toBeInTheDocument()
+      })
+      expect(
+        fetchMock.mock.calls.some(([url, opts]) => url.includes('/api/scratch-notes') && opts?.method === 'POST'),
+      ).toBe(false)
+
+      fetchMock.mockImplementationOnce(() => jsonResponse([])) // GET /api/note-folders - no Temp yet
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ _id: 'temp-folder-id', name: 'Temp', parentId: null }, true),
+      ) // POST /api/note-folders
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ _id: 'note-1', name: 'Quick note', folderId: 'temp-folder-id', body: null }, true),
+      ) // POST /api/notes
+
+      fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Quick note' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Note title')).not.toBeInTheDocument()
+      })
+
+      const createFolderCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/note-folders') && opts?.method === 'POST',
+      )
+      expect(createFolderCall).toBeDefined()
+      expect(JSON.parse(createFolderCall![1]?.body ?? '{}')).toMatchObject({ name: 'Temp', parentId: null })
+
+      const createNoteCall = fetchMock.mock.calls.find(
+        ([url, opts]) => url.includes('/api/notes') && opts?.method === 'POST',
+      )
+      expect(createNoteCall).toBeDefined()
+      expect(JSON.parse(createNoteCall![1]?.body ?? '{}')).toMatchObject({
+        name: 'Quick note',
+        folderId: 'temp-folder-id',
+      })
+    })
+
     it('promotes a scratch note line into a todo, from the sessions panel', async () => {
       const lineContent: JSONContent = {
         type: 'doc',

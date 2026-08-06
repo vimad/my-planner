@@ -440,6 +440,13 @@ interface NotesViewProps {
   // to every note row's TreeRow. Optional so existing tests can render this
   // view without wiring up Boards state at all.
   boardQuickAdd?: BoardQuickAddState
+  // Bumped by App.tsx after the bottom capture bar creates a Note in the
+  // Temp folder (Scratchpad's captureMode="note") - this component owns its
+  // folders/notes fetch independently of App.tsx's state, so it has no other
+  // way to learn a new Note/folder landed. Only triggers a plain refetch
+  // (see the effect below), not the full profile-switch reset, since the
+  // user is still looking at whatever they had open.
+  refreshSignal?: number
 }
 
 interface PendingConfirm {
@@ -468,7 +475,7 @@ interface PendingConfirm {
 // state a confirm here would need - the folders/notes arrays for computing a
 // folder's cascade-delete count - so lifting it up would just be an extra
 // hop for no benefit).
-export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
+export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: NotesViewProps) {
   const [folders, setFolders] = useState<NoteFolder[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
@@ -557,6 +564,24 @@ export function NotesView({ activeProfileId, boardQuickAdd }: NotesViewProps) {
     // them here mirrors App.tsx's identical choice for loadCategories/
     // loadTodos/etc.
   }, [activeProfileId])
+
+  // Refetch on every bump of refreshSignal, skipping the initial mount (the
+  // effect above already covers that) - deliberately not resetting
+  // activeFolderId/selectedNoteId/collapsedFolderIds like the profile-switch
+  // effect does, since a Temp note landing from the capture bar shouldn't
+  // yank the user away from whatever they were already looking at.
+  const isFirstRefreshSignal = useRef(true)
+  useEffect(() => {
+    if (isFirstRefreshSignal.current) {
+      isFirstRefreshSignal.current = false
+      return
+    }
+    if (!activeProfileId) return
+    loadFolders(activeProfileId)
+    loadNotes(activeProfileId)
+    // loadFolders/loadNotes are stable enough to omit, same rationale as the
+    // profile-switch effect above.
+  }, [refreshSignal])
 
   async function handleCreateFolder() {
     if (!activeProfileId) return

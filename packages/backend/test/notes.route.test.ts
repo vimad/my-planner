@@ -68,7 +68,7 @@ describe('Note routes', () => {
 
       expect(res.status).toBe(201)
       expect(res.body).toEqual({ _id: '1', name: 'Recipe', folderId: null, body: null, profileId: 'p1' })
-      expect(Note.create).toHaveBeenCalledWith({ name: 'Recipe', folderId: null, profileId: 'p1' })
+      expect(Note.create).toHaveBeenCalledWith({ name: 'Recipe', folderId: null, profileId: 'p1', body: null })
     })
 
     it('creates a root-level note when folderId is omitted', async () => {
@@ -78,7 +78,20 @@ describe('Note routes', () => {
       const res = await request(app).post('/api/notes').send({ name: 'Root note', profileId: 'p1' })
 
       expect(res.status).toBe(201)
-      expect(Note.create).toHaveBeenCalledWith({ name: 'Root note', folderId: null, profileId: 'p1' })
+      expect(Note.create).toHaveBeenCalledWith({ name: 'Root note', folderId: null, profileId: 'p1', body: null })
+    })
+
+    it('seeds body content when provided (capture-bar quick note flow)', async () => {
+      const doc = { type: 'doc', content: [{ type: 'paragraph' }] }
+      Note.create.mockResolvedValue({ _id: '1', name: 'Quick note', folderId: null, body: doc, profileId: 'p1' })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/notes')
+        .send({ name: 'Quick note', profileId: 'p1', body: doc })
+
+      expect(res.status).toBe(201)
+      expect(Note.create).toHaveBeenCalledWith({ name: 'Quick note', folderId: null, profileId: 'p1', body: doc })
     })
 
     it('rejects a folderId belonging to another profile (404, not silently linked)', async () => {
