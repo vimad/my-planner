@@ -31,6 +31,10 @@ interface ScratchpadProps {
   onPromote: (noteId: string, lineId: string, options: PromoteOptions) => Promise<void> | void
   onArchive: (id: string) => void
   onDelete: (id: string) => void
+  // The Sessions rail+panel browse existing scratch notes by promoting lines
+  // into todos - meaningless outside the Todos tab, so Notes/Boards hide it
+  // and keep only the always-available capture bar below.
+  showSessions?: boolean
 }
 
 // Capture lives in the chrome, always on screen: a chat-input-style bar
@@ -42,7 +46,16 @@ interface ScratchpadProps {
 // concern off a small icon rail on the left edge that slides in an overlay
 // panel. (Landed from the "scratchpad placement" UI prototype - see the
 // throwaway branch for the FAB/drawer and modal/grid alternatives.)
-export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onPromote, onArchive, onDelete }: ScratchpadProps) {
+export function Scratchpad({
+  notes,
+  categories,
+  onCreateNote,
+  onUpdateLines,
+  onPromote,
+  onArchive,
+  onDelete,
+  showSessions = true,
+}: ScratchpadProps) {
   const [expanded, setExpanded] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -64,17 +77,19 @@ export function Scratchpad({ notes, categories, onCreateNote, onUpdateLines, onP
 
   return (
     <section aria-label="Scratchpad">
-      <button
-        type="button"
-        onClick={() => setPanelOpen(true)}
-        aria-label={`Open scratchpad sessions (${notes.length})`}
-        className="fixed left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-xl border border-slate-200 bg-white px-2 py-4 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:shadow-none dark:backdrop-blur-md dark:hover:bg-white/10"
-        style={{ writingMode: 'vertical-rl' }}
-      >
-        Sessions ({notes.length})
-      </button>
+      {showSessions && (
+        <button
+          type="button"
+          onClick={() => setPanelOpen(true)}
+          aria-label={`Open scratchpad sessions (${notes.length})`}
+          className="fixed left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-xl border border-slate-200 bg-white px-2 py-4 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:shadow-none dark:backdrop-blur-md dark:hover:bg-white/10"
+          style={{ writingMode: 'vertical-rl' }}
+        >
+          Sessions ({notes.length})
+        </button>
+      )}
 
-      {panelOpen && (
+      {showSessions && panelOpen && (
         <>
           <div
             className="fixed inset-0 z-40 bg-black/50"

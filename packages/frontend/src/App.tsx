@@ -1133,6 +1133,7 @@ function AppShell() {
       <Scratchpad
         notes={scratchNotes}
         categories={categories}
+        showSessions={activeTab === 'todos'}
         onCreateNote={handleCreateScratchNote}
         onUpdateLines={handleUpdateScratchNoteLines}
         onPromote={handlePromoteScratchLine}
