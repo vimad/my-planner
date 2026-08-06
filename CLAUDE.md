@@ -37,3 +37,7 @@ Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### UI/UX conventions
+
+Before styling or restyling any frontend surface (dropdown, modal, drawer, card, button, etc.), check `docs/ui-conventions.md` for the color/border/radius/shadow/spacing convention already in use for that archetype, and copy it exactly rather than guessing a new value.

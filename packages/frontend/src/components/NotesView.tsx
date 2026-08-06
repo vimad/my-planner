@@ -117,7 +117,7 @@ function RowMenu({ canRename, onRename, onMove, onDelete }: RowMenuProps) {
         <MoreHorizontal size={14} />
       </button>
       {open && (
-        <div className="absolute right-0 top-6 z-10 min-w-[7rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-lg dark:border-white/10 dark:bg-slate-800">
+        <div className="absolute right-0 top-6 z-10 min-w-[7rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#1a1229]">
           {canRename && onRename && (
             <button
               type="button"
