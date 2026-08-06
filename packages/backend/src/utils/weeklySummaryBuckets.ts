@@ -46,16 +46,18 @@ export interface WeeklySummaryCategoryGroup {
   noAction: WeeklySummaryNoActionEntry[]
 }
 
-// Most-recent segment dated strictly before `completedDate`, searched across
+// Most-recent segment dated on or before `completedDate`, searched across
 // all of the todo's segments (any week) - not just the ones dated in the
-// currently selected week.
+// currently selected week. Same-day segments count: logging a note and then
+// completing the todo the same day is the common case, and a strictly-before
+// cutoff was dropping exactly those notes.
 function findLastSegmentBeforeCompletion(
   segments: WeeklySummarySegment[],
   completedDate: string,
 ): WeeklySummarySegment | null {
   let latest: WeeklySummarySegment | null = null
   for (const segment of segments) {
-    if (segment.date >= completedDate) continue
+    if (segment.date > completedDate) continue
     if (!latest || segment.date >= latest.date) latest = segment
   }
   return latest
