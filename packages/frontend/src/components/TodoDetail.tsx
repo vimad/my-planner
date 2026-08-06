@@ -400,7 +400,7 @@ export function TodoDetail({
       aria-label={isNew ? 'New todo' : `Edit ${todo.title}`}
     >
       <div
-        className={`rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl transition-[max-width] duration-150 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100 ${
+        className={`max-h-[calc(100vh-4rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl transition-[max-width] duration-150 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100 ${
           isTodosTab ? 'w-full max-w-3xl' : 'w-full max-w-lg'
         }`}
       >
