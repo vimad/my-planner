@@ -166,6 +166,13 @@ interface TodoDetailProps {
   // linked todo's id). Omitted for the new-todo popup, which has no id yet.
   onSaveNotes?: (id: string, patch: { body: JSONContent | null }) => Promise<void> | void
   onReorderLinkedTodos?: (id: string | undefined, patch: { linkedTodoIds: string[] }) => Promise<boolean> | boolean
+  // PROTOTYPE (throwaway) — mark-complete + "Add followup" placement
+  // exploration, driven by App.tsx's ?completeVariant=A|B|C. Both props are
+  // undefined in production (no query param), which renders identically to
+  // before this prototype existed. Wipe both once a variant is chosen -
+  // see prototype-views/todo-complete-action/.
+  completeVariant?: 'A' | 'B' | 'C'
+  onCompleteTodo?: (id: string, categoryId: string, withFollowup: boolean) => void
 }
 
 // In-page overlay (no routing) for viewing/editing a single todo's detail:
@@ -197,6 +204,8 @@ export function TodoDetail({
   onSave,
   onSaveNotes,
   onReorderLinkedTodos,
+  completeVariant,
+  onCompleteTodo,
 }: TodoDetailProps) {
   const id = getId(todo)
   const isNew = !id
@@ -220,6 +229,16 @@ export function TodoDetail({
   const [recurrence, setRecurrence] = useState<RecurrenceOptionValue>(todo.recurrence?.pattern ?? 'none')
   const [officeLinked, setOfficeLinked] = useState(Boolean(todo.officeLinked))
   const [saving, setSaving] = useState(false)
+
+  // PROTOTYPE (throwaway) state for the mark-complete + "Add followup"
+  // exploration - see the completeVariant prop doc comment above.
+  const [followupChecked, setFollowupChecked] = useState(false)
+  const [showCompletePopover, setShowCompletePopover] = useState(false) // variant B only
+  const canComplete = Boolean(completeVariant) && !isNew && !todo.completed && Boolean(onCompleteTodo)
+  function handleMarkComplete() {
+    if (!id || !onCompleteTodo) return
+    onCompleteTodo(id, categoryId, followupChecked)
+  }
   // Whether the parent todo's own notes box currently differs from
   // `todo.body` (the real database value) - drives the light accent border
   // and the independent notes Save button, both shown only for an existing
@@ -415,6 +434,39 @@ export function TodoDetail({
                 aria-label="Todo title"
                 className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-lg font-semibold text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
               />
+              {/* PROTOTYPE variant B — header icon + inline popover, see completeVariant doc comment above. */}
+              {canComplete && completeVariant === 'B' && (
+                <div className="relative shrink-0">
+                  <button
+                    type="button"
+                    aria-label="Mark complete"
+                    onClick={() => setShowCompletePopover((v) => !v)}
+                    className="rounded-full p-1.5 text-emerald-500 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                  >
+                    ✓
+                  </button>
+                  {showCompletePopover && (
+                    <div className="absolute right-0 top-full z-10 mt-1 w-48 rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-[#1a1229]">
+                      <label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={followupChecked}
+                          onChange={(e) => setFollowupChecked(e.target.checked)}
+                          className="h-3 w-3 accent-fuchsia-500"
+                        />
+                        Add followup
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleMarkComplete}
+                        className="w-full rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        Complete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 aria-label="Close"
@@ -424,6 +476,28 @@ export function TodoDetail({
                 ×
               </button>
             </div>
+
+            {/* PROTOTYPE variant C — inline status strip below the title, see completeVariant doc comment above. */}
+            {canComplete && completeVariant === 'C' && (
+              <div className="mb-4 flex items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-white/5">
+                <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={followupChecked}
+                    onChange={(e) => setFollowupChecked(e.target.checked)}
+                    className="h-3 w-3 accent-fuchsia-500"
+                  />
+                  Add followup
+                </label>
+                <button
+                  type="button"
+                  onClick={handleMarkComplete}
+                  className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:hover:bg-emerald-500/25"
+                >
+                  ✓ Mark complete
+                </button>
+              </div>
+            )}
 
             <div className="mb-4 flex flex-col gap-1">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-300">Priority</span>
@@ -691,22 +765,47 @@ export function TodoDetail({
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
-            className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? (isNew ? 'Adding...' : 'Saving...') : isNew ? 'Add' : 'Save'}
-          </button>
+        <div className="flex items-center justify-between gap-2">
+          {/* PROTOTYPE variant A — footer checkbox + secondary "Mark complete" button, see completeVariant doc comment above. */}
+          {canComplete && completeVariant === 'A' ? (
+            <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={followupChecked}
+                onChange={(e) => setFollowupChecked(e.target.checked)}
+                className="h-3 w-3 accent-fuchsia-500"
+              />
+              Add followup
+            </label>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+            >
+              Cancel
+            </button>
+            {canComplete && completeVariant === 'A' && (
+              <button
+                type="button"
+                onClick={handleMarkComplete}
+                className="rounded-lg border border-emerald-400/60 px-3 py-1.5 text-sm font-semibold text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+              >
+                Mark complete
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSave}
+              className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? (isNew ? 'Adding...' : 'Saving...') : isNew ? 'Add' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
