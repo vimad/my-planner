@@ -1,5 +1,17 @@
 import type { JSONContent } from '@tiptap/core'
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, File, Folder, FolderOpen, MoreHorizontal, Pin } from 'lucide-react'
+import {
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  File,
+  Folder,
+  FolderOpen,
+  Link2,
+  MoreHorizontal,
+  Pin,
+  Plus,
+  X,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
@@ -11,11 +23,29 @@ import {
   folderName,
   type TreeEntry,
 } from '../utils/notesTree'
-import type { BoardQuickAddState, Note, NoteFolder } from '../types'
+import type { BoardQuickAddState, Category, Note, NoteFolder, Todo, TodoPriority } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ExpandableNotesEditor } from './ExpandableNotesEditor'
 import { MoveToFolderPicker } from './MoveToFolderPicker'
 import type { RichTextEditorHandle } from './RichTextEditor'
+
+// Priority badge colors for a linked-todo rail card - defined independently
+// (and identically) here, same duplication convention already used between
+// TodoItem.tsx and TodoSummaryHeader.tsx (see docs/ui-conventions.md).
+const PRIORITY_BADGE_STYLES: Record<TodoPriority, string> = {
+  High: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
+  Medium: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  Low: 'bg-slate-200 text-slate-600 dark:bg-slate-500/20 dark:text-slate-300',
+}
+
+function todoKey(todo: Todo): string {
+  return String(getId(todo))
+}
+
+function categoryFor(categories: Category[], categoryId: string | undefined): Category | undefined {
+  if (!categoryId) return undefined
+  return categories.find((c) => String(getId(c)) === categoryId)
+}
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -364,24 +394,306 @@ function TreeRow({
   )
 }
 
+interface LinkedTodoCardProps {
+  todo: Todo
+  categories: Category[]
+  onOpen: () => void
+  onUnlink: () => void
+}
+
+// One rail entry: title, priority badge, category chip (same conventions as
+// everywhere else in the app - see docs/ui-conventions.md), and a hover-
+// revealed unlink control. Clicking the card body opens the real TodoDetail
+// via the parent's onOpenTodo - there is no preview of its own here.
+function LinkedTodoCard({ todo, categories, onOpen, onUnlink }: LinkedTodoCardProps) {
+  const category = categoryFor(categories, todo.categoryId)
+  const priority = todo.priority ?? 'Medium'
+  return (
+    <div className="group relative rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none">
+      <button type="button" onClick={onOpen} className="block w-full text-left">
+        <p className="mb-1 truncate text-sm font-medium text-slate-800 dark:text-slate-100">{todo.title}</p>
+        <div className="flex flex-wrap items-center gap-1">
+          <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase ${PRIORITY_BADGE_STYLES[priority]}`}>
+            {priority}
+          </span>
+          {category && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: category.color }} />
+              {category.name}
+            </span>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={onUnlink}
+        aria-label={`Unlink ${todo.title}`}
+        className="absolute right-1 top-1 rounded p-0.5 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100 dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  )
+}
+
+interface AddLinkPanelProps {
+  activeProfileId: string | null
+  excludeIds: string[]
+  onLink: (todo: Todo) => void
+  onCreate: (title: string) => void
+  onClose: () => void
+}
+
+// The rail's own "+" opens this short-lived overlay panel (fixed right-edge
+// slide-over, archetype C in docs/ui-conventions.md) - the one deliberate
+// exception to "no overlay" in this feature, since it's a secondary action
+// panel rather than the main linked-todos surface. Two tabs: search existing
+// todos (hits the real GET /api/todos/search endpoint, per the spec) or
+// create a brand-new one from a title.
+function AddLinkPanel({ activeProfileId, excludeIds, onLink, onCreate, onClose }: AddLinkPanelProps) {
+  const [tab, setTab] = useState<'search' | 'create'>('search')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Todo[]>([])
+  const [newTitle, setNewTitle] = useState('')
+  const excludeKey = excludeIds.join(',')
+
+  useEffect(() => {
+    if (!activeProfileId) return
+    const controller = new AbortController()
+    fetch(
+      `${API_URL}/api/todos/search?profileId=${encodeURIComponent(activeProfileId)}&q=${encodeURIComponent(query)}`,
+      { signal: controller.signal },
+    )
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Todo[]) => {
+        const excluded = new Set(excludeKey.split(',').filter(Boolean))
+        setResults(data.filter((t) => !excluded.has(todoKey(t))).slice(0, 6))
+      })
+      .catch(() => {})
+    return () => controller.abort()
+    // excludeKey (not excludeIds) so this doesn't refire on every render from
+    // a fresh array identity - only when membership actually changes.
+  }, [activeProfileId, query, excludeKey])
+
+  function submitCreate() {
+    const trimmed = newTitle.trim()
+    if (!trimmed) return
+    onCreate(trimmed)
+    setNewTitle('')
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full max-w-xs flex-col border-l border-slate-200 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-[#181822]"
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Link a todo</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div role="tablist" className="mb-3 flex shrink-0 gap-1 border-b border-slate-200 dark:border-white/10">
+          {(['search', 'create'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-medium ${
+                tab === t
+                  ? 'border-fuchsia-500 text-fuchsia-600 dark:text-fuchsia-300'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              {t === 'search' ? 'Search existing' : 'Create new'}
+            </button>
+          ))}
+        </div>
+        {tab === 'search' ? (
+          <div className="flex flex-col gap-2">
+            <input
+              type="search"
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search todos to link..."
+              aria-label="Search todos to link"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+            <div className="flex flex-col gap-1">
+              {results.map((t) => (
+                <button
+                  key={todoKey(t)}
+                  type="button"
+                  onClick={() => onLink(t)}
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
+                >
+                  <span className="truncate">{t.title}</span>
+                  <span className="shrink-0 text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">+ Add</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              autoFocus
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitCreate()
+                if (e.key === 'Escape') onClose()
+              }}
+              placeholder="New todo title..."
+              aria-label="New todo title"
+              className="w-full flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+            <button
+              type="button"
+              onClick={submitCreate}
+              className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Add
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface LinkedTodosRailProps {
+  linked: Todo[]
+  categories: Category[]
+  activeProfileId: string | null
+  onOpenTodo: (todo: Todo) => void
+  onLinkTodo: (todoId: string) => void
+  onUnlinkTodo: (todoId: string) => void
+  onCreateAndLinkTodo: (title: string) => void
+}
+
+// The inline rail itself - rendered as a third column beside the editor
+// (see NoteEditorPane below) once the trigger pill is toggled open. Its own
+// "+" opens the short-lived AddLinkPanel overlay.
+function LinkedTodosRail({
+  linked,
+  categories,
+  activeProfileId,
+  onOpenTodo,
+  onLinkTodo,
+  onUnlinkTodo,
+  onCreateAndLinkTodo,
+}: LinkedTodosRailProps) {
+  const [addPanelOpen, setAddPanelOpen] = useState(false)
+
+  return (
+    <div className="flex w-56 shrink-0 flex-col gap-2 border-l border-slate-200 pl-3 dark:border-white/10">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Linked todos
+        </span>
+        <button
+          type="button"
+          onClick={() => setAddPanelOpen(true)}
+          aria-label="Link a todo"
+          className="shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 p-1 text-white hover:opacity-90"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
+        {linked.length === 0 && (
+          <p className="rounded-lg border border-dashed border-slate-200 px-2 py-4 text-center text-xs text-slate-400 dark:border-white/10 dark:text-slate-500">
+            No todos linked yet.
+          </p>
+        )}
+        {linked.map((t) => (
+          <LinkedTodoCard
+            key={todoKey(t)}
+            todo={t}
+            categories={categories}
+            onOpen={() => onOpenTodo(t)}
+            onUnlink={() => onUnlinkTodo(todoKey(t))}
+          />
+        ))}
+      </div>
+      {addPanelOpen && (
+        <AddLinkPanel
+          activeProfileId={activeProfileId}
+          excludeIds={linked.map(todoKey)}
+          onLink={(todo) => onLinkTodo(todoKey(todo))}
+          onCreate={(title) => {
+            onCreateAndLinkTodo(title)
+            setAddPanelOpen(false)
+          }}
+          onClose={() => setAddPanelOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 interface NoteEditorPaneProps {
   note: Note
   onSave: (id: string, patch: { name?: string; body?: JSONContent | null }) => Promise<void>
+  activeProfileId: string | null
+  categories: Category[]
+  todos: Todo[]
+  onOpenTodo: (todo: Todo) => void
+  onLinkTodo: (todoId: string) => void
+  onUnlinkTodo: (todoId: string) => void
+  onCreateAndLinkTodo: (title: string) => void
 }
 
 // Fills the whole right pane once a note is selected: an editable name field
 // plus the reused ExpandableNotesEditor (toolbar, enlarge-to-modal,
 // dirty-tracking all included as-is - see the module doc on NotesView
 // below). Keyed by note id from the parent, so switching notes remounts this
-// (and the editor inside it) fresh rather than needing manual state resets.
-function NoteEditorPane({ note, onSave }: NoteEditorPaneProps) {
+// (and the editor inside it, and the rail's collapsed/expanded state) fresh
+// rather than needing manual state resets.
+//
+// Linked todos (see .scratch/note-linked-todos/spec.md): a "Linked todos"
+// trigger pill sits above the editor, collapsed by default and showing a
+// count badge once the note has any. Expanding it turns the pane into a
+// third column - editor, then the rail - laid out beside (not over) the
+// editor and the tree; there is no backdrop for the rail itself, only for
+// its own "+" panel (see LinkedTodosRail/AddLinkPanel above).
+function NoteEditorPane({
+  note,
+  onSave,
+  activeProfileId,
+  categories,
+  todos,
+  onOpenTodo,
+  onLinkTodo,
+  onUnlinkTodo,
+  onCreateAndLinkTodo,
+}: NoteEditorPaneProps) {
   const [name, setName] = useState(note.name)
   const [bodyDirty, setBodyDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [railOpen, setRailOpen] = useState(false)
   const editorRef = useRef<RichTextEditorHandle>(null)
 
   const nameDirty = name !== note.name
   const dirty = nameDirty || bodyDirty
+
+  // linkedTodoIds order is authoritative for render order (there's no
+  // reordering feature here - see the spec's Out of Scope section). A
+  // dangling id (its todo since deleted) resolves to undefined and is
+  // dropped, per the no-cascade tolerance documented on the schema.
+  const linked: Todo[] = (note.linkedTodoIds ?? [])
+    .map((linkId) => todos.find((t) => todoKey(t) === linkId))
+    .filter((t): t is Todo => Boolean(t))
 
   async function handleSave() {
     const id = String(getId(note))
@@ -398,37 +710,75 @@ function NoteEditorPane({ note, onSave }: NoteEditorPaneProps) {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="mb-2 flex shrink-0 items-center gap-2">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="Note name"
-          className="w-full flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-lg font-semibold text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-        />
-        {dirty && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
-            className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        )}
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex shrink-0 justify-end">
+        <button
+          type="button"
+          onClick={() => setRailOpen((v) => !v)}
+          aria-label={railOpen ? 'Hide linked todos' : 'Show linked todos'}
+          aria-expanded={railOpen}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-sm ${
+            railOpen
+              ? 'border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-400/40 dark:bg-fuchsia-500/10 dark:text-fuchsia-300'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'
+          }`}
+        >
+          <Link2 size={12} />
+          Linked todos
+          {linked.length > 0 && (
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-1 text-[10px] font-bold text-white">
+              {linked.length}
+            </span>
+          )}
+        </button>
       </div>
-      <div className="min-h-0 flex-1">
-        <ExpandableNotesEditor
-          ref={editorRef}
-          content={note.body}
-          savedContent={note.body}
-          editable
-          toolbar
-          onDirtyChange={setBodyDirty}
-          className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 p-2 dark:border-white/10"
-          contentClassName="min-h-0 flex-1 overflow-y-auto"
-        />
+
+      <div className="flex h-full min-h-0 flex-1 gap-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="mb-2 flex shrink-0 items-center gap-2">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-label="Note name"
+              className="w-full flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-lg font-semibold text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            />
+            {dirty && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSave}
+                className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            )}
+          </div>
+          <div className="min-h-0 flex-1">
+            <ExpandableNotesEditor
+              ref={editorRef}
+              content={note.body}
+              savedContent={note.body}
+              editable
+              toolbar
+              onDirtyChange={setBodyDirty}
+              className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 p-2 dark:border-white/10"
+              contentClassName="min-h-0 flex-1 overflow-y-auto"
+            />
+          </div>
+        </div>
+
+        {railOpen && (
+          <LinkedTodosRail
+            linked={linked}
+            categories={categories}
+            activeProfileId={activeProfileId}
+            onOpenTodo={onOpenTodo}
+            onLinkTodo={onLinkTodo}
+            onUnlinkTodo={onUnlinkTodo}
+            onCreateAndLinkTodo={onCreateAndLinkTodo}
+          />
+        )}
       </div>
     </div>
   )
@@ -447,6 +797,13 @@ interface NotesViewProps {
   // (see the effect below), not the full profile-switch reset, since the
   // user is still looking at whatever they had open.
   refreshSignal?: number
+  // Note-linked-todos (see .scratch/note-linked-todos/spec.md): opens a
+  // todo in the app's normal, full TodoDetail popup, resolved from this
+  // component's own freshly-fetched `todos` - the exact same pattern
+  // WeeklyProgressPanel already uses (`onOpenTodo={setSelectedTodo}` at its
+  // App.tsx call site). TodoDetail itself is unmodified and renders exactly
+  // as it does from any other entry point.
+  onOpenTodo: (todo: Todo) => void
 }
 
 interface PendingConfirm {
@@ -475,9 +832,17 @@ interface PendingConfirm {
 // state a confirm here would need - the folders/notes arrays for computing a
 // folder's cascade-delete count - so lifting it up would just be an extra
 // hop for no benefit).
-export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: NotesViewProps) {
+export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal, onOpenTodo }: NotesViewProps) {
   const [folders, setFolders] = useState<NoteFolder[]>([])
   const [notes, setNotes] = useState<Note[]>([])
+  // Note-linked-todos: NotesView fetches its own categories (for a linked
+  // todo's category chip) and its own todos (to resolve each note's
+  // linkedTodoIds into full Todo objects for the rail card and for
+  // onOpenTodo) independently of App.tsx's own categories/todos state - same
+  // deliberate independence this component already has for folders/notes
+  // (see the module doc above).
+  const [categories, setCategories] = useState<Category[]>([])
+  const [todos, setTodos] = useState<Todo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // The last-clicked folder, or the folder containing the last-opened note;
@@ -540,12 +905,39 @@ export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: Not
     }
   }
 
+  // Read-only, for the linked-todo rail's category chip - best-effort, same
+  // as App.tsx's own loadCategories/loadTodos: a failed fetch just leaves
+  // the rail without chips/cards rather than blocking the rest of the view.
+  async function loadCategories(profileId: string) {
+    try {
+      const res = await fetch(`${API_URL}/api/categories?profileId=${encodeURIComponent(profileId)}`)
+      if (!res.ok) return
+      setCategories(await res.json())
+    } catch {
+      // best-effort; see comment above
+    }
+  }
+
+  async function loadTodos(profileId: string) {
+    try {
+      const res = await fetch(`${API_URL}/api/todos?profileId=${encodeURIComponent(profileId)}`)
+      if (!res.ok) return
+      setTodos(await res.json())
+    } catch {
+      // best-effort; see comment above
+    }
+  }
+
   function refreshFolders() {
     return activeProfileId ? loadFolders(activeProfileId) : Promise.resolve()
   }
 
   function refreshNotes() {
     return activeProfileId ? loadNotes(activeProfileId) : Promise.resolve()
+  }
+
+  function refreshTodos() {
+    return activeProfileId ? loadTodos(activeProfileId) : Promise.resolve()
   }
 
   // Loads (and re-loads on every profile switch) both lists together, same
@@ -556,6 +948,8 @@ export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: Not
     if (!activeProfileId) return
     setLoading(true)
     Promise.all([loadFolders(activeProfileId), loadNotes(activeProfileId)]).finally(() => setLoading(false))
+    void loadCategories(activeProfileId)
+    void loadTodos(activeProfileId)
     setActiveFolderId(null)
     setSelectedNoteId(null)
     setCollapsedFolderIds(new Set())
@@ -633,6 +1027,66 @@ export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: Not
       if (!res.ok) throw new Error(await parseErrorMessage(res))
       const updated: Note = await res.json()
       setNotes((prev) => prev.map((n) => (String(getId(n)) === id ? updated : n)))
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  // Note-linked-todos - immediate persistence, not staged behind the name/
+  // body Save button above (see the reorder-linked-todos precedent this
+  // feature follows): the note's linkedTodoIds array updates optimistically
+  // in local state, then PATCHes right away. On failure, the array reverts
+  // to its last known-good value and the error surfaces via the same
+  // `error` banner every other mutation in this component already uses.
+  async function patchLinkedTodoIds(note: Note, nextIds: string[]): Promise<boolean> {
+    const id = String(getId(note))
+    const previous = note.linkedTodoIds ?? []
+    setNotes((prev) => prev.map((n) => (String(getId(n)) === id ? { ...n, linkedTodoIds: nextIds } : n)))
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/notes/${id}?profileId=${encodeURIComponent(activeProfileId ?? '')}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkedTodoIds: nextIds }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const updated: Note = await res.json()
+      setNotes((prev) => prev.map((n) => (String(getId(n)) === id ? updated : n)))
+      return true
+    } catch (err) {
+      setError((err as Error).message)
+      setNotes((prev) => prev.map((n) => (String(getId(n)) === id ? { ...n, linkedTodoIds: previous } : n)))
+      return false
+    }
+  }
+
+  function handleLinkTodo(note: Note, todoId: string) {
+    const current = note.linkedTodoIds ?? []
+    if (current.includes(todoId)) return Promise.resolve(true)
+    return patchLinkedTodoIds(note, [...current, todoId])
+  }
+
+  function handleUnlinkTodo(note: Note, todoId: string) {
+    const current = note.linkedTodoIds ?? []
+    return patchLinkedTodoIds(note, current.filter((linkedId) => linkedId !== todoId))
+  }
+
+  // Quick-create (reuses the plain POST /api/todos endpoint verbatim, per
+  // the spec - no special-cased creation path) then links the freshly
+  // created todo to the note in the same immediate-persist flow as
+  // handleLinkTodo above.
+  async function handleCreateAndLinkTodo(note: Note, title: string) {
+    setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/todos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, profileId: activeProfileId }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const created: Todo = await res.json()
+      setTodos((prev) => [created, ...prev])
+      await handleLinkTodo(note, String(getId(created)))
     } catch (err) {
       setError((err as Error).message)
     }
@@ -943,7 +1397,18 @@ export function NotesView({ activeProfileId, boardQuickAdd, refreshSignal }: Not
 
       <div className="flex min-h-[60vh] flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
         {selectedNote ? (
-          <NoteEditorPane key={selectedNoteId} note={selectedNote} onSave={handleSaveNote} />
+          <NoteEditorPane
+            key={selectedNoteId}
+            note={selectedNote}
+            onSave={handleSaveNote}
+            activeProfileId={activeProfileId}
+            categories={categories}
+            todos={todos}
+            onOpenTodo={onOpenTodo}
+            onLinkTodo={(todoId) => handleLinkTodo(selectedNote, todoId)}
+            onUnlinkTodo={(todoId) => handleUnlinkTodo(selectedNote, todoId)}
+            onCreateAndLinkTodo={(title) => handleCreateAndLinkTodo(selectedNote, title)}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center text-center text-sm text-slate-400 dark:text-slate-500">
             {`Select a note to edit it here, or create one in "${activeFolderLabel}".`}

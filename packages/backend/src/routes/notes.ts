@@ -16,6 +16,7 @@ interface NoteBody {
   folderId?: string | null
   body?: TiptapNode | null
   profileId?: string
+  linkedTodoIds?: string[]
 }
 
 // POST /api/notes -> create a note attached to the given profileId, with an
@@ -117,10 +118,14 @@ notesRouter.get(
 )
 
 // PATCH /api/notes/:id?profileId=... -> rename, move (`folderId`, `null`
-// for root), and/or save editor content (`body`) - one endpoint for all
-// three, matching ScratchNote's single-PATCH-for-metadata-and-content
-// pattern. profileId is required and checked against the note's own
-// profileId (404, not 403) - mirrors PATCH /api/categories/:id.
+// for root), save editor content (`body`), and/or persist linked-todo
+// references (`linkedTodoIds`) - one endpoint for all four, matching
+// ScratchNote's single-PATCH-for-metadata-and-content pattern. profileId is
+// required and checked against the note's own profileId (404, not 403) -
+// mirrors PATCH /api/categories/:id. linkedTodoIds follows the exact same
+// "just persist the array" contract PATCH /api/todos/:id already established
+// for Todo.linkedTodoIds - see the no-cascade invariant comment on
+// NoteDoc.linkedTodoIds.
 notesRouter.patch(
   '/:id',
   async (
@@ -132,7 +137,7 @@ notesRouter.patch(
       const profileId = requireProfileId(req.query.profileId, res)
       if (!profileId) return
 
-      const { name, folderId, body } = req.body
+      const { name, folderId, body, linkedTodoIds } = req.body
 
       // A non-null folderId must resolve to a folder owned by this same
       // profile (same 404-not-403 convention as the profileId check above),
@@ -148,6 +153,7 @@ notesRouter.patch(
       if (name !== undefined) update.name = name
       if (folderId !== undefined) update.folderId = folderId
       if (body !== undefined) update.body = body
+      if (linkedTodoIds !== undefined) update.linkedTodoIds = linkedTodoIds
 
       const note = await Note.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
         new: true,
@@ -166,7 +172,10 @@ notesRouter.patch(
 
 // DELETE /api/notes/:id?profileId=... -> delete a single note. profileId is
 // required and checked against the note's own profileId, same reasoning as
-// PATCH above.
+// PATCH above. Deliberately never touches any linked Todo - see the
+// no-cascade invariant on NoteDoc.linkedTodoIds. A dangling reference to
+// this note's id doesn't exist anywhere (the relationship is one-directional,
+// note -> todos only), so there's nothing to clean up on the Todo side.
 notesRouter.delete(
   '/:id',
   async (req: Request<{ id: string }, unknown, unknown, { profileId?: string }>, res: Response, next: NextFunction) => {

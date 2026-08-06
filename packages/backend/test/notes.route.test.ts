@@ -18,6 +18,16 @@ interface MockedNoteFolderModel {
   findOne: Mock
 }
 
+// The Note routes never import the Todo model at all (see the no-cascade
+// invariant on NoteDoc.linkedTodoIds) - this mock exists purely so the
+// DELETE test below has something concrete to assert was never called,
+// mirroring how todos.route.test.ts proves its own no-cascade invariant.
+interface MockedTodoModel {
+  find: Mock
+  findById: Mock
+  findByIdAndUpdate: Mock
+}
+
 vi.mock('../src/models/Note.ts', () => {
   return {
     Note: {
@@ -38,11 +48,24 @@ vi.mock('../src/models/NoteFolder.ts', () => {
   }
 })
 
+vi.mock('../src/models/Todo.ts', () => {
+  return {
+    Todo: {
+      find: vi.fn(),
+      findById: vi.fn(),
+      findByIdAndUpdate: vi.fn(),
+    },
+  }
+})
+
 const { Note } = (await import('../src/models/Note.ts')) as unknown as {
   Note: MockedNoteModel
 }
 const { NoteFolder } = (await import('../src/models/NoteFolder.ts')) as unknown as {
   NoteFolder: MockedNoteFolderModel
+}
+const { Todo } = (await import('../src/models/Todo.ts')) as unknown as {
+  Todo: MockedTodoModel
 }
 const { createApp } = await import('../src/app.ts')
 
@@ -314,6 +337,42 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith({ _id: '2', profileId: 'p1' }, { body: doc }, { new: true })
     })
 
+    it('persists a provided linkedTodoIds array', async () => {
+      Note.findOneAndUpdate.mockResolvedValue({ _id: '2', linkedTodoIds: ['t1', 't2'] })
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/notes/2')
+        .query({ profileId: 'p1' })
+        .send({ linkedTodoIds: ['t1', 't2'] })
+
+      expect(res.status).toBe(200)
+      expect(res.body.linkedTodoIds).toEqual(['t1', 't2'])
+      expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: '2', profileId: 'p1' },
+        { linkedTodoIds: ['t1', 't2'] },
+        { new: true },
+      )
+    })
+
+    it('clears linkedTodoIds via an empty array (unlink)', async () => {
+      Note.findOneAndUpdate.mockResolvedValue({ _id: '2', linkedTodoIds: [] })
+
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/notes/2')
+        .query({ profileId: 'p1' })
+        .send({ linkedTodoIds: [] })
+
+      expect(res.status).toBe(200)
+      expect(res.body.linkedTodoIds).toEqual([])
+      expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: '2', profileId: 'p1' },
+        { linkedTodoIds: [] },
+        { new: true },
+      )
+    })
+
     it('rejects a missing profileId', async () => {
       const app = createApp()
       const res = await request(app).patch('/api/notes/2').send({ name: 'x' })
@@ -388,6 +447,19 @@ describe('Note routes', () => {
       expect(res.status).toBe(404)
       expect(Note.findOne).toHaveBeenCalledWith({ _id: '2', profileId: 'profile-b' })
       expect(Note.findByIdAndDelete).not.toHaveBeenCalled()
+    })
+
+    it('does not look up or modify any Todo document (no-cascade invariant, note -> todo direction)', async () => {
+      Note.findOne.mockResolvedValue({ _id: '2', name: 'Recipe', linkedTodoIds: ['t1', 't2'] })
+      Note.findByIdAndDelete.mockResolvedValue({ _id: '2' })
+
+      const app = createApp()
+      const res = await request(app).delete('/api/notes/2').query({ profileId: 'p1' })
+
+      expect(res.status).toBe(204)
+      expect(Todo.find).not.toHaveBeenCalled()
+      expect(Todo.findById).not.toHaveBeenCalled()
+      expect(Todo.findByIdAndUpdate).not.toHaveBeenCalled()
     })
   })
 })

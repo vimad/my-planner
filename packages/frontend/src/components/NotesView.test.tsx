@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import type { BoardQuickAddState, Note, NoteFolder } from '../types'
+import type { BoardQuickAddState, Category, Note, NoteFolder, Todo } from '../types'
 import { NotesView } from './NotesView'
 
 interface FakeResponse {
@@ -78,14 +78,35 @@ const standupNote: Note = {
   body: null,
 }
 
+// Fixtures for the note-linked-todos feature (.scratch/note-linked-todos/spec.md).
+const workCategory: Category = { _id: 'c-work', name: 'Work', color: '#8b5cf6' }
+const epfTodo: Todo = { _id: 't-epf', title: 'Get filled EPF form', categoryId: 'c-work', priority: 'High' }
+const handoutTodo: Todo = { _id: 't-handout', title: 'Print handout', priority: 'Low' }
+const approvalTodo: Todo = { _id: 't-approval', title: 'Chase approval from finance', priority: 'Medium' }
+
+const meetingNote: Note = {
+  _id: 'n-meeting',
+  name: "Today's 1:1 with manager",
+  folderId: null,
+  body: null,
+  // t-missing has no matching todo in todosData below - the dangling-
+  // reference tolerance case (user story 17).
+  linkedTodoIds: ['t-epf', 't-missing'],
+}
+
 let foldersData: NoteFolder[]
 let notesData: Note[]
+let todosData: Todo[]
+let categoriesData: Category[]
 let fetchMock: FetchMock
 
 function stubNotesFetch(): FetchMock {
   return stubFetch((href) => {
+    if (href.includes('/api/todos/search')) return jsonResponse(todosData)
     if (href.includes('/api/note-folders')) return jsonResponse(foldersData)
     if (href.includes('/api/notes')) return jsonResponse(notesData)
+    if (href.includes('/api/todos')) return jsonResponse(todosData)
+    if (href.includes('/api/categories')) return jsonResponse(categoriesData)
     return jsonResponse([])
   })
 }
@@ -94,6 +115,8 @@ describe('NotesView', () => {
   beforeEach(() => {
     foldersData = [recipesFolder, workFolder]
     notesData = [passwordsNote, pastaNote]
+    todosData = []
+    categoriesData = []
     fetchMock = stubNotesFetch()
   })
 
@@ -102,7 +125,7 @@ describe('NotesView', () => {
   })
 
   it('renders the unified tree with folders and notes mixed together, sorted alphabetically', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
@@ -124,7 +147,7 @@ describe('NotesView', () => {
   })
 
   it('shows the empty-state placeholder naming Root until a note is selected', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
 
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
@@ -136,7 +159,7 @@ describe('NotesView', () => {
   })
 
   it('creates a folder at the root via the + Folder button', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -162,7 +185,7 @@ describe('NotesView', () => {
   })
 
   it('creates a note in the active folder via the + Note button and opens it, pre-filled, in the editor pane', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -192,7 +215,7 @@ describe('NotesView', () => {
   })
 
   it('selecting an existing note opens the editor pane pre-filled with its name and body', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -208,7 +231,7 @@ describe('NotesView', () => {
   })
 
   it('saves an edited note name via PATCH /api/notes/:id', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -241,7 +264,7 @@ describe('NotesView', () => {
   })
 
   it('saves an edited note body via PATCH /api/notes/:id', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -271,7 +294,7 @@ describe('NotesView', () => {
   })
 
   it('re-fetches folders and notes, and clears selection, when the active profile changes', async () => {
-    const { rerender } = render(<NotesView activeProfileId="profile-1" />)
+    const { rerender } = render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Passwords')).toBeInTheDocument()
     })
@@ -287,7 +310,7 @@ describe('NotesView', () => {
     notesData = [otherNote]
     fetchMock = stubNotesFetch()
 
-    rerender(<NotesView activeProfileId="profile-2" />)
+    rerender(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-2" />)
 
     await waitFor(() => {
       expect(screen.getByText('Groceries')).toBeInTheDocument()
@@ -304,7 +327,7 @@ describe('NotesView', () => {
   })
 
   it('moves a note to a different folder via the move picker', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -331,7 +354,7 @@ describe('NotesView', () => {
   })
 
   it('moves a folder to a different parent via the move picker', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -359,7 +382,7 @@ describe('NotesView', () => {
     foldersData = [recipesFolder, workFolder, workIdeasFolder]
     fetchMock = stubNotesFetch()
 
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -377,7 +400,7 @@ describe('NotesView', () => {
   })
 
   it('renames a folder inline, saving via PATCH /api/note-folders/:id', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -401,7 +424,7 @@ describe('NotesView', () => {
   })
 
   it('shows a requestConfirm prompt before deleting a note, then calls DELETE /api/notes/:id', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -427,7 +450,7 @@ describe('NotesView', () => {
     notesData = [passwordsNote, pastaNote, standupNote]
     fetchMock = stubNotesFetch()
 
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -451,7 +474,7 @@ describe('NotesView', () => {
   })
 
   it('resets the right pane to the empty-state placeholder when the open note is deleted directly', async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -476,7 +499,7 @@ describe('NotesView', () => {
   })
 
   it("resets the right pane to the empty-state placeholder when the open note's folder is deleted via cascade", async () => {
-    render(<NotesView activeProfileId="profile-1" />)
+    render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
     await waitFor(() => {
       expect(screen.getByText('Root')).toBeInTheDocument()
     })
@@ -522,7 +545,7 @@ describe('NotesView', () => {
     }
 
     it('renders no icon when boardQuickAdd is omitted', async () => {
-      render(<NotesView activeProfileId="profile-1" />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -532,7 +555,7 @@ describe('NotesView', () => {
 
     it('renders the outline pin at rest when the note is not on the active board', async () => {
       const quickAdd = makeQuickAdd()
-      render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -544,7 +567,7 @@ describe('NotesView', () => {
 
     it('renders the filled pin when the note is on the active board', async () => {
       const quickAdd = makeQuickAdd({ activeItemKeys: new Set(['Note:n-passwords']) })
-      render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -556,7 +579,7 @@ describe('NotesView', () => {
 
     it('clicking the outline icon calls onAdd with the note, its label, and the icon element itself - and does not select the note', async () => {
       const quickAdd = makeQuickAdd()
-      render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -573,7 +596,7 @@ describe('NotesView', () => {
 
     it('clicking the filled icon calls onRemove, not onAdd', async () => {
       const quickAdd = makeQuickAdd({ activeItemKeys: new Set(['Note:n-passwords']) })
-      render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -594,7 +617,7 @@ describe('NotesView', () => {
     // aimed at the icon can never land on a newly-shifted sibling instead.
     it('keeps the quick-add icon and the row menu always in the DOM (opacity-hidden, not display-toggled), so hover never shifts a pending click', async () => {
       const quickAdd = makeQuickAdd()
-      render(<NotesView activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" boardQuickAdd={quickAdd} />)
       await waitFor(() => {
         expect(screen.getByText('Root')).toBeInTheDocument()
       })
@@ -605,6 +628,175 @@ describe('NotesView', () => {
 
       fireEvent.click(icon)
       expect(quickAdd.onAdd).toHaveBeenCalledWith('Note', 'n-passwords', 'Passwords', expect.any(HTMLElement))
+    })
+  })
+
+  // .scratch/note-linked-todos/spec.md - the "Linked todos" trigger pill,
+  // its inline rail, and the rail's own "+" add panel (search existing /
+  // create new).
+  describe('linked todos', () => {
+    beforeEach(() => {
+      notesData = [passwordsNote, pastaNote, meetingNote]
+      todosData = [epfTodo, handoutTodo, approvalTodo]
+      categoriesData = [workCategory]
+      fetchMock = stubNotesFetch()
+    })
+
+    async function openMeetingNote() {
+      render(<NotesView onOpenTodo={vi.fn()} activeProfileId="profile-1" />)
+      await waitFor(() => {
+        expect(screen.getByText('Root')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByText("Today's 1:1 with manager"))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Note name')).toHaveValue("Today's 1:1 with manager")
+      })
+    }
+
+    it('renders the trigger collapsed by default, with the badge showing the correct count', async () => {
+      await openMeetingNote()
+
+      const trigger = screen.getByRole('button', { name: 'Show linked todos' })
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      // Only t-epf resolves (t-missing is dangling) - badge shows 1, not 2.
+      expect(within(trigger).getByText('1')).toBeInTheDocument()
+      expect(screen.queryByText('Get filled EPF form')).not.toBeInTheDocument()
+    })
+
+    it('clicking the trigger reveals the rail; clicking it again hides it', async () => {
+      await openMeetingNote()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+      expect(screen.getByText('Get filled EPF form')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Hide linked todos' })).toHaveAttribute('aria-expanded', 'true')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Hide linked todos' }))
+      expect(screen.queryByText('Get filled EPF form')).not.toBeInTheDocument()
+    })
+
+    it('resets the rail to collapsed when a different note is selected', async () => {
+      await openMeetingNote()
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+      expect(screen.getByText('Get filled EPF form')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Passwords'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Note name')).toHaveValue('Passwords')
+      })
+
+      expect(screen.getByRole('button', { name: 'Show linked todos' })).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('Get filled EPF form')).not.toBeInTheDocument()
+    })
+
+    it('a linkedTodoIds entry that does not resolve to a loaded todo is silently omitted from the rail', async () => {
+      await openMeetingNote()
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+
+      expect(screen.getByText('Get filled EPF form')).toBeInTheDocument()
+      // t-missing has no corresponding todo - no broken row, no thrown error.
+      expect(screen.queryByLabelText('Unlink t-missing')).not.toBeInTheDocument()
+    })
+
+    it('clicking a linked todo card calls onOpenTodo with the resolved Todo object', async () => {
+      const onOpenTodo = vi.fn()
+      render(<NotesView onOpenTodo={onOpenTodo} activeProfileId="profile-1" />)
+      await waitFor(() => {
+        expect(screen.getByText('Root')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByText("Today's 1:1 with manager"))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Note name')).toHaveValue("Today's 1:1 with manager")
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+
+      fireEvent.click(screen.getByText('Get filled EPF form'))
+
+      expect(onOpenTodo).toHaveBeenCalledWith(epfTodo)
+    })
+
+    it("clicking a linked todo's unlink control calls the notes PATCH with that id removed from linkedTodoIds", async () => {
+      await openMeetingNote()
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+
+      const updated: Note = { ...meetingNote, linkedTodoIds: ['t-missing'] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(updated, true)) // PATCH
+
+      fireEvent.click(screen.getByLabelText('Unlink Get filled EPF form'))
+
+      await waitFor(() => {
+        const patchCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/notes/n-meeting') && opts?.method === 'PATCH',
+        )
+        expect(patchCall).toBeDefined()
+        expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({ linkedTodoIds: ['t-missing'] })
+      })
+    })
+
+    it('opening the + panel and searching surfaces matching todos excluding already-linked ones; clicking a result links it', async () => {
+      await openMeetingNote()
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Link a todo' }))
+
+      fireEvent.change(screen.getByLabelText('Search todos to link'), { target: { value: 'a' } })
+
+      await waitFor(() => {
+        // Print handout and Chase approval both match "a" and aren't linked
+        // yet - Get filled EPF form is already linked and must be excluded.
+        expect(screen.getByText('Print handout')).toBeInTheDocument()
+        expect(screen.getByText('Chase approval from finance')).toBeInTheDocument()
+      })
+      // "Get filled EPF form" already appears once in the rail itself - the
+      // search results must not add a second copy of it.
+      expect(screen.getAllByText('Get filled EPF form')).toHaveLength(1)
+
+      const updated: Note = { ...meetingNote, linkedTodoIds: ['t-epf', 't-missing', 't-handout'] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(updated, true)) // PATCH
+
+      fireEvent.click(screen.getByText('Print handout'))
+
+      await waitFor(() => {
+        const patchCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/notes/n-meeting') && opts?.method === 'PATCH',
+        )
+        expect(patchCall).toBeDefined()
+        expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({
+          linkedTodoIds: ['t-epf', 't-missing', 't-handout'],
+        })
+      })
+    })
+
+    it('using "Create new" in the panel calls POST /api/todos, then calls the notes PATCH with the new id appended', async () => {
+      await openMeetingNote()
+      fireEvent.click(screen.getByRole('button', { name: 'Show linked todos' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Link a todo' }))
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Create new' }))
+      fireEvent.change(screen.getByLabelText('New todo title'), { target: { value: 'Book meeting room' } })
+
+      const created: Todo = { _id: 't-new', title: 'Book meeting room', priority: 'Medium' }
+      fetchMock.mockImplementationOnce(() => jsonResponse(created, true)) // POST /api/todos
+      const updated: Note = { ...meetingNote, linkedTodoIds: ['t-epf', 't-missing', 't-new'] }
+      fetchMock.mockImplementationOnce(() => jsonResponse(updated, true)) // PATCH /api/notes/n-meeting
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+      await waitFor(() => {
+        const postCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/todos') && !url.includes('search') && opts?.method === 'POST',
+        )
+        expect(postCall).toBeDefined()
+        expect(JSON.parse(postCall![1]?.body ?? '{}')).toEqual({ title: 'Book meeting room', profileId: 'profile-1' })
+      })
+
+      await waitFor(() => {
+        const patchCall = fetchMock.mock.calls.find(
+          ([url, opts]) => url.includes('/api/notes/n-meeting') && opts?.method === 'PATCH',
+        )
+        expect(patchCall).toBeDefined()
+        expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({
+          linkedTodoIds: ['t-epf', 't-missing', 't-new'],
+        })
+      })
     })
   })
 })

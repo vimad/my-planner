@@ -120,6 +120,11 @@ export interface Note {
   name: string
   folderId?: string | null
   body?: JSONContent | null
+  // Flat, one-directional, no-cascade grouping of linked todos' ids - see
+  // the backend NoteDoc comment. A dangling id (its todo since deleted) is
+  // left in place; callers resolving against a `Todo[]` are responsible for
+  // tolerating a lookup miss.
+  linkedTodoIds?: string[]
   createdAt?: string
   updatedAt?: string
 }

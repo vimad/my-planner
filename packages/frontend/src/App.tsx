@@ -1038,6 +1038,7 @@ function AppShell() {
           activeProfileId={activeProfileId}
           boardQuickAdd={boardQuickAdd}
           refreshSignal={notesRefreshSignal}
+          onOpenTodo={setSelectedTodo}
         />
       ) : activeTab === 'boards' ? (
         <BoardsView
