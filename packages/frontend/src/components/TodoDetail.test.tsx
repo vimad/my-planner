@@ -340,6 +340,66 @@ describe('TodoDetail', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  describe('Mark complete footer button', () => {
+    it('does not render when onMarkComplete is omitted', () => {
+      render(
+        <TodoDetail todo={todo} categories={categories} availableTags={[]} onClose={() => {}} onSave={vi.fn()} />,
+      )
+
+      expect(screen.queryByRole('button', { name: 'Mark complete' })).not.toBeInTheDocument()
+    })
+
+    it('does not render for an already-completed todo', () => {
+      render(
+        <TodoDetail
+          todo={{ ...todo, completed: true }}
+          categories={categories}
+          availableTags={[]}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onMarkComplete={vi.fn()}
+        />,
+      )
+
+      expect(screen.queryByRole('button', { name: 'Mark complete' })).not.toBeInTheDocument()
+    })
+
+    it('does not render for the new-todo popup', () => {
+      render(
+        <TodoDetail
+          todo={{ title: 'Plan launch' }}
+          categories={categories}
+          availableTags={[]}
+          onClose={() => {}}
+          onSave={vi.fn()}
+          onMarkComplete={vi.fn()}
+        />,
+      )
+
+      expect(screen.queryByRole('button', { name: 'Mark complete' })).not.toBeInTheDocument()
+    })
+
+    it('calls onMarkComplete with the todo id when clicked, without calling onSave', () => {
+      const onSave = vi.fn()
+      const onMarkComplete = vi.fn()
+      render(
+        <TodoDetail
+          todo={todo}
+          categories={categories}
+          availableTags={[]}
+          onClose={() => {}}
+          onSave={onSave}
+          onMarkComplete={onMarkComplete}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Mark complete' }))
+
+      expect(onMarkComplete).toHaveBeenCalledWith('todo-1')
+      expect(onSave).not.toHaveBeenCalled()
+    })
+  })
+
   it('does not show the Todos tab when no `todos` list is supplied (e.g. the new-todo popup)', () => {
     render(
       <TodoDetail

@@ -560,6 +560,89 @@ describe('App', () => {
       expect(JSON.parse(patchCall![1]?.body ?? '{}')).toMatchObject({ priority: 'High' })
     })
 
+    it('marks the todo complete via the detail view\'s "Mark complete" button, routed through the same confirm dialog as the list checkbox', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'work-id',
+          completed: false,
+          dueDate: null,
+          priority: 'Medium',
+          tags: [],
+          body: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Buy milk'))
+      expect(screen.getByRole('dialog', { name: 'Edit Buy milk' })).toBeInTheDocument()
+
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ ...todosData[0], completed: true }, true),
+      ) // PATCH toggle
+      fetchMock.mockImplementationOnce(() => jsonResponse([{ ...todosData[0], completed: true }])) // refetch GET /api/todos
+      fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByRole('button', { name: 'Mark complete' }))
+      expect(screen.getByText('Mark "Buy milk" as completed?')).toBeInTheDocument()
+      expect(screen.getByLabelText('Add followup')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Edit Buy milk' })).not.toBeInTheDocument()
+      })
+      expect(screen.queryByRole('dialog', { name: 'New todo' })).not.toBeInTheDocument()
+
+      const patchCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+      expect(patchCall![0]).toContain('/api/todos/todo-1/toggle')
+    })
+
+    it('opens a new draft todo in the same category after completing from the detail view when "Add followup" is checked', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'work-id',
+          completed: false,
+          dueDate: null,
+          priority: 'Medium',
+          tags: [],
+          body: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Buy milk'))
+      expect(screen.getByRole('dialog', { name: 'Edit Buy milk' })).toBeInTheDocument()
+
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ ...todosData[0], completed: true }, true),
+      ) // PATCH toggle
+      fetchMock.mockImplementationOnce(() => jsonResponse([{ ...todosData[0], completed: true }])) // refetch GET /api/todos
+      fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByRole('button', { name: 'Mark complete' }))
+      fireEvent.click(screen.getByLabelText('Add followup'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: 'New todo' })).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText('Category')).toHaveValue('work-id')
+      expect(screen.queryByRole('dialog', { name: 'Edit Buy milk' })).not.toBeInTheDocument()
+    })
+
     it('filters the agenda by hitting the search endpoint as the user types', async () => {
       todosData = [
         {

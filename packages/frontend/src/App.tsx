@@ -14,8 +14,6 @@ import { FlyToBoardsBadge, type FlyEvent } from './components/FlyToBoardsBadge'
 import { MiniCalendar } from './components/MiniCalendar'
 import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
-import { PrototypeSwitcher } from './prototype-views/PrototypeSwitcher'
-import './prototype-views/prototype-views.css'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'
@@ -57,23 +55,6 @@ interface PendingConfirm {
   // confirm (false when no checkbox was requested) - see requestConfirm.
   run: (checkboxChecked: boolean) => void
   checkboxLabel?: string
-}
-
-// PROTOTYPE (throwaway) — placement options for TodoDetail's mark-complete +
-// "Add followup" affordance. Only engages when ?completeVariant=A|B|C is
-// present in the URL; absent the param, TodoDetail renders exactly like
-// production. See prototype-views/todo-complete-action/ and
-// TodoDetail.tsx's completeVariant prop. Wipe both once a variant is chosen.
-const COMPLETE_VARIANTS = [
-  { key: 'A', name: 'Footer checkbox + button', Component: () => null },
-  { key: 'B', name: 'Header icon + popover', Component: () => null },
-  { key: 'C', name: 'Inline status strip', Component: () => null },
-]
-
-function readCompleteVariantFromUrl(): string | null {
-  const raw = new URLSearchParams(window.location.search).get('completeVariant')
-  if (raw === null) return null
-  return ['A', 'B', 'C'].includes(raw) ? raw : 'A'
 }
 
 type TabKey = 'todos' | 'notes' | 'boards'
@@ -160,9 +141,6 @@ function AppShell() {
   const [searchResults, setSearchResults] = useState<Todo[] | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [confirmCheckboxChecked, setConfirmCheckboxChecked] = useState(false)
-  // PROTOTYPE state for the TodoDetail mark-complete placement exploration -
-  // see readCompleteVariantFromUrl's doc comment above.
-  const [completeVariant, setCompleteVariant] = useState<string | null>(readCompleteVariantFromUrl)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
@@ -282,45 +260,6 @@ function AppShell() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [pendingConfirm, pendingQuickAdd, selectedTodo, draftTodo])
-
-  // PROTOTYPE — arrow-key cycling + URL sync for the mark-complete-placement
-  // switcher below. No-op unless the prototype is engaged (?completeVariant=).
-  function setCompleteVariantAndUrl(key: string) {
-    setCompleteVariant(key)
-    const params = new URLSearchParams(window.location.search)
-    params.set('completeVariant', key)
-    window.history.replaceState(null, '', `?${params.toString()}`)
-  }
-
-  useEffect(() => {
-    if (!completeVariant) return
-    const current = completeVariant
-    function isEditableTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false
-      if (target.isContentEditable) return true
-      return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT'
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (isEditableTarget(e.target)) return
-      const order = ['A', 'B', 'C']
-      const idx = order.indexOf(current)
-      if (e.key === 'ArrowLeft') setCompleteVariantAndUrl(order[(idx - 1 + order.length) % order.length])
-      if (e.key === 'ArrowRight') setCompleteVariantAndUrl(order[(idx + 1) % order.length])
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [completeVariant])
-
-  // PROTOTYPE — reuses the real mark-complete mutation (handleToggleTodo)
-  // rather than stubbing it, since that mutation already exists and is
-  // already covered by tests; only the placement of the affordance that
-  // triggers it is what this prototype is exploring.
-  function handlePrototypeCompleteTodo(id: string, categoryId: string, withFollowup: boolean) {
-    handleToggleTodo(id).then(() => {
-      setSelectedTodo(null)
-      if (withFollowup) setDraftTodo({ title: '', categoryId })
-    })
-  }
 
   // Selecting a board from the palette reuses the exact same mutation
   // BoardsView's own BoardSwitcher and the tab-embedded switcher use (see
@@ -1023,8 +962,15 @@ function AppShell() {
     matchesDateRange(effectiveDueDate(t, nextOfficeDay, todayISO), selectedDateRange),
   )
 
+  // Shared by both the todo-list checkbox and TodoDetail's "Mark complete"
+  // footer button. `visibleTodos` is filtered by the active category/date
+  // range, so a todo open in the detail popup can be absent from it (e.g.
+  // its due date falls outside the selected range) - selectedTodo is the
+  // fallback lookup for that case.
   function handleTodoToggle(id: string) {
-    const todo = visibleTodos.find((t) => getId(t) === id)
+    const todo =
+      visibleTodos.find((t) => getId(t) === id) ??
+      (selectedTodo && getId(selectedTodo) === id ? selectedTodo : undefined)
     if (todo?.completed) {
       handleToggleTodo(id)
     } else {
@@ -1032,6 +978,10 @@ function AppShell() {
         `Mark "${todo?.title ?? 'this todo'}" as completed?`,
         async (withFollowup) => {
           await handleToggleTodo(id)
+          // Closes the detail popup if it's the todo just completed - the
+          // "Mark complete" button inside TodoDetail routes through this
+          // same handler, and there's nothing left to edit once it's done.
+          if (selectedTodo && getId(selectedTodo) === id) setSelectedTodo(null)
           // Opens a fresh draft todo in the same category right after
           // completing this one - a shortcut for "this is done, and here's
           // the next thing in that bucket."
@@ -1297,17 +1247,7 @@ function AppShell() {
           onSave={handleUpdateTodo}
           onSaveNotes={handleSaveNotes}
           onReorderLinkedTodos={patchTodo}
-          completeVariant={completeVariant as 'A' | 'B' | 'C' | undefined}
-          onCompleteTodo={handlePrototypeCompleteTodo}
-        />
-      )}
-
-      {/* PROTOTYPE — mark-complete placement switcher, see readCompleteVariantFromUrl's doc comment above. */}
-      {completeVariant && (
-        <PrototypeSwitcher
-          variants={COMPLETE_VARIANTS}
-          current={completeVariant}
-          onChange={setCompleteVariantAndUrl}
+          onMarkComplete={handleTodoToggle}
         />
       )}
 
