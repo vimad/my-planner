@@ -51,7 +51,10 @@ async function parseErrorMessage(res: Response): Promise<string> {
 
 interface PendingConfirm {
   message: string
-  run: () => void
+  // Receives the confirm dialog's optional checkbox state at the moment of
+  // confirm (false when no checkbox was requested) - see requestConfirm.
+  run: (checkboxChecked: boolean) => void
+  checkboxLabel?: string
 }
 
 type TabKey = 'todos' | 'notes' | 'boards'
@@ -137,6 +140,7 @@ function AppShell() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Todo[] | null>(null)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
+  const [confirmCheckboxChecked, setConfirmCheckboxChecked] = useState(false)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
@@ -283,9 +287,12 @@ function AppShell() {
   }
 
   // Gates a destructive/hard-to-undo action (delete, mark complete) behind
-  // an explicit confirm click. `run` fires only if the user confirms.
-  function requestConfirm(message: string, run: () => void) {
-    setPendingConfirm({ message, run })
+  // an explicit confirm click. `run` fires only if the user confirms, and
+  // receives whatever the dialog's optional checkbox was set to (false if
+  // `checkboxLabel` wasn't passed, since no checkbox is rendered at all).
+  function requestConfirm(message: string, run: (checkboxChecked: boolean) => void, checkboxLabel?: string) {
+    setConfirmCheckboxChecked(false)
+    setPendingConfirm({ message, run, checkboxLabel })
   }
 
   // Category chips double as a multi-select filter: clicking one toggles it
@@ -960,7 +967,17 @@ function AppShell() {
     if (todo?.completed) {
       handleToggleTodo(id)
     } else {
-      requestConfirm(`Mark "${todo?.title ?? 'this todo'}" as completed?`, () => handleToggleTodo(id))
+      requestConfirm(
+        `Mark "${todo?.title ?? 'this todo'}" as completed?`,
+        async (withFollowup) => {
+          await handleToggleTodo(id)
+          // Opens a fresh draft todo in the same category right after
+          // completing this one - a shortcut for "this is done, and here's
+          // the next thing in that bucket."
+          if (withFollowup) setDraftTodo({ title: '', categoryId: todo?.categoryId })
+        },
+        'Complete with follow-up action',
+      )
     }
   }
 
@@ -1235,11 +1252,15 @@ function AppShell() {
       {pendingConfirm && (
         <ConfirmDialog
           message={pendingConfirm.message}
+          checkboxLabel={pendingConfirm.checkboxLabel}
+          checkboxChecked={confirmCheckboxChecked}
+          onCheckboxChange={setConfirmCheckboxChecked}
           onCancel={() => setPendingConfirm(null)}
           onConfirm={() => {
             const { run } = pendingConfirm
+            const checked = confirmCheckboxChecked
             setPendingConfirm(null)
-            run()
+            run(checked)
           }}
         />
       )}

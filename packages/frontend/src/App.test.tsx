@@ -347,6 +347,45 @@ describe('App', () => {
       const patchCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
       expect(patchCall).toBeDefined()
       expect(patchCall![0]).toContain('/api/todos/todo-1/toggle')
+      // No follow-up draft todo popup when the confirm dialog's checkbox
+      // was left unchecked (the default).
+      expect(screen.queryByRole('dialog', { name: 'New todo' })).not.toBeInTheDocument()
+    })
+
+    it('opens a new draft todo in the same category after marking complete when "Complete with follow-up action" is checked', async () => {
+      todosData = [
+        {
+          _id: 'todo-1',
+          title: 'Buy milk',
+          categoryId: 'work-id',
+          completed: false,
+          dueDate: null,
+        },
+      ]
+
+      render(<App />)
+      await waitFor(() => {
+        expect(screen.getByText('Buy milk')).toBeInTheDocument()
+      })
+
+      fetchMock.mockImplementationOnce(() =>
+        jsonResponse({ ...todosData[0], completed: true }, true),
+      ) // PATCH toggle
+      fetchMock.mockImplementationOnce(() => jsonResponse([{ ...todosData[0], completed: true }])) // refetch GET /api/todos
+      fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
+
+      fireEvent.click(screen.getByLabelText('Complete Buy milk'))
+      fireEvent.click(screen.getByLabelText('Complete with follow-up action'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: 'New todo' })).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText('Category')).toHaveValue('work-id')
+
+      const patchCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+      expect(patchCall![0]).toContain('/api/todos/todo-1/toggle')
     })
 
     it('does not mark a todo complete when the confirmation is cancelled', async () => {
