@@ -976,7 +976,7 @@ function AppShell() {
           // the next thing in that bucket."
           if (withFollowup) setDraftTodo({ title: '', categoryId: todo?.categoryId })
         },
-        'Complete with follow-up action',
+        'Add followup',
       )
     }
   }

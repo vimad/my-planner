@@ -5,9 +5,9 @@ interface ConfirmDialogProps {
   onConfirm: () => void
   onCancel: () => void
   // Opt-in extra checkbox rendered on the left of the footer, opposite the
-  // Cancel/Confirm buttons (e.g. mark-complete's "Complete with follow-up
-  // action") - omitted entirely for every other caller of this shared
-  // dialog (delete todo/category/scratch note, etc).
+  // Cancel/Confirm buttons (e.g. mark-complete's "Add followup") - omitted
+  // entirely for every other caller of this shared dialog (delete
+  // todo/category/scratch note, etc).
   checkboxLabel?: string
   checkboxChecked?: boolean
   onCheckboxChange?: (checked: boolean) => void
@@ -38,12 +38,12 @@ export function ConfirmDialog({
         <p className="mb-5 text-sm text-slate-700 dark:text-slate-200">{message}</p>
         <div className="flex items-center justify-between gap-2">
           {checkboxLabel ? (
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <label className="flex items-center gap-1 text-[10px] font-medium text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={checkboxChecked ?? false}
                 onChange={(e) => onCheckboxChange?.(e.target.checked)}
-                className="h-3.5 w-3.5 accent-fuchsia-500"
+                className="h-2.5 w-2.5 accent-fuchsia-500"
               />
               {checkboxLabel}
             </label>

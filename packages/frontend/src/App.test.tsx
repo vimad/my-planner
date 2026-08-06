@@ -352,7 +352,7 @@ describe('App', () => {
       expect(screen.queryByRole('dialog', { name: 'New todo' })).not.toBeInTheDocument()
     })
 
-    it('opens a new draft todo in the same category after marking complete when "Complete with follow-up action" is checked', async () => {
+    it('opens a new draft todo in the same category after marking complete when "Add followup" is checked', async () => {
       todosData = [
         {
           _id: 'todo-1',
@@ -375,7 +375,7 @@ describe('App', () => {
       fetchMock.mockImplementationOnce(() => jsonResponse([uncategorized, work])) // refetch GET /api/categories
 
       fireEvent.click(screen.getByLabelText('Complete Buy milk'))
-      fireEvent.click(screen.getByLabelText('Complete with follow-up action'))
+      fireEvent.click(screen.getByLabelText('Add followup'))
       fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
       await waitFor(() => {
