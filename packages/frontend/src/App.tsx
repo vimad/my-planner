@@ -24,6 +24,7 @@ import { useBoards } from './hooks/useBoards'
 import { itemKey } from './utils/boardItemKey'
 import { effectiveDueDate, localTodayISO, matchesDateRange, type DateRange } from './utils/dateAgenda'
 import { getId } from './utils/getId'
+import { profileSlug } from './utils/profileSlug'
 import { applyTheme, getInitialTheme } from './utils/theme'
 import type { BoardItemType, BoardQuickAddState, Category, Profile, ScratchLine, ScratchNote, Todo } from './types'
 
@@ -55,14 +56,14 @@ function isTabKey(value: string | undefined): value is TabKey {
 // and which tab" so a refresh (or a shared/bookmarked link) lands back on
 // the same place instead of always resetting to the first profile's Todos
 // tab. Every path renders the same AppShell - there's only one page layout -
-// so this just needs enough route variants to capture `:profileId` and
+// so this just needs enough route variants to capture `:profileSlug` and
 // `:tab` whenever either is present in the URL.
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/:profileId/:tab" element={<AppShell />} />
-        <Route path="/:profileId" element={<AppShell />} />
+        <Route path="/:profileSlug/:tab" element={<AppShell />} />
+        <Route path="/:profileSlug" element={<AppShell />} />
         <Route path="/" element={<AppShell />} />
         <Route path="*" element={<AppShell />} />
       </Routes>
@@ -71,7 +72,7 @@ function App() {
 }
 
 function AppShell() {
-  const { profileId: routeProfileId, tab: routeTab } = useParams<{ profileId: string; tab: string }>()
+  const { profileSlug: routeProfileSlug, tab: routeTab } = useParams<{ profileSlug: string; tab: string }>()
   const navigate = useNavigate()
   const {
     profiles,
@@ -85,6 +86,11 @@ function AppShell() {
     setActiveBoardId,
     refreshProfiles,
   } = useActiveProfile()
+  // Resolved here (rather than down near `activeBoardId`, which also reads
+  // it) since the URL sync effect below needs it too - the URL's profile
+  // segment is this profile's slugified name, not its id.
+  const activeProfile = profiles.find((profile) => getId(profile) === activeProfileId) ?? null
+  const activeProfileSlug = activeProfile ? profileSlug(activeProfile.name) : null
   // Boards themselves are owned here (not by BoardsView) so the quick-add
   // icon (TodoItem/NotesView) and the Boards tab badge - both siblings of
   // BoardsView, needing the same active board's data regardless of which
@@ -160,40 +166,56 @@ function AppShell() {
   // (ProfileSwitcher's onSelect, createProfile switching into a freshly
   // created profile, deleteProfile falling back to another one - all of
   // which just call useActiveProfile's own setActiveProfileId directly)
-  // into a navigation call:
+  // into a navigation call. The URL segment itself is the profile's
+  // slugified *name* (assumed unique - there's no accounts/multi-user
+  // concept here to force real uniqueness) rather than its id, since a name
+  // is what's actually readable in a URL:
   //
-  // - URL -> state: a route profile id that just changed (per the ref
-  //   below), is known-valid, and differs from activeProfileId - i.e. the
-  //   user followed a link, used back/forward, or edited the URL bar -
-  //   adopts it via setActiveProfileId.
-  // - state -> URL: anything else that leaves routeProfileId/routeTab out
-  //   of sync with activeProfileId/activeTab (activeProfileId changed via
-  //   one of the call sites above, or the initial `/`-with-no-profileId
-  //   load) pushes the URL to match, replacing history rather than growing
-  //   it so back/forward steps over a profile switch once instead of twice.
+  // - URL -> state: a route profile slug that just changed (per the ref
+  //   below) and matches a known profile whose id differs from
+  //   activeProfileId - i.e. the user followed a link, used back/forward,
+  //   or edited the URL bar - adopts that profile's id via
+  //   setActiveProfileId.
+  // - state -> URL: anything else that leaves routeProfileSlug/routeTab out
+  //   of sync with activeProfileSlug/activeTab (activeProfileId changed via
+  //   one of the call sites above, the active profile got renamed - which
+  //   changes its slug - or the initial `/`-with-no-profile load) pushes
+  //   the URL to match, replacing history rather than growing it so
+  //   back/forward steps over a profile switch once instead of twice.
   //
-  // The `prevRouteProfileId` ref (not just comparing routeProfileId to
-  // activeProfileId) is what tells the two directions apart: without it, a
-  // state-driven switch (e.g. ProfileSwitcher) would look identical to a
+  // The `prevRouteProfileSlug` ref (not just comparing routeProfileSlug to
+  // activeProfileSlug) is what tells the two directions apart: without it,
+  // a state-driven switch (e.g. ProfileSwitcher) would look identical to a
   // URL-driven one for one render - both just have the two out of sync -
   // and this would immediately snap activeProfileId back to the stale
   // route, undoing the user's selection.
-  const prevRouteProfileIdRef = useRef<string | undefined>(undefined)
+  const prevRouteProfileSlugRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     if (!activeProfileId) return
-    const routeProfileJustChanged = routeProfileId !== prevRouteProfileIdRef.current
-    prevRouteProfileIdRef.current = routeProfileId
+    const routeProfileJustChanged = routeProfileSlug !== prevRouteProfileSlugRef.current
+    prevRouteProfileSlugRef.current = routeProfileSlug
 
-    const routeProfileIsKnown = profiles.some((profile) => getId(profile) === routeProfileId)
-    if (routeProfileJustChanged && routeProfileId && routeProfileId !== activeProfileId && routeProfileIsKnown) {
-      setActiveProfileId(routeProfileId)
+    const routeMatchedProfileId = routeProfileSlug
+      ? getId(profiles.find((profile) => profileSlug(profile.name) === routeProfileSlug))
+      : undefined
+    if (routeProfileJustChanged && routeMatchedProfileId && routeMatchedProfileId !== activeProfileId) {
+      setActiveProfileId(routeMatchedProfileId)
       return
     }
-    if (routeProfileId !== activeProfileId || !isTabKey(routeTab)) {
-      navigate(`/${activeProfileId}/${activeTab}`, { replace: true })
+    if (routeProfileSlug !== activeProfileSlug || !isTabKey(routeTab)) {
+      navigate(`/${encodeURIComponent(activeProfileSlug ?? '')}/${activeTab}`, { replace: true })
     }
-  }, [activeProfileId, routeProfileId, routeTab, activeTab, profiles, navigate, setActiveProfileId])
+  }, [
+    activeProfileId,
+    activeProfileSlug,
+    routeProfileSlug,
+    routeTab,
+    activeTab,
+    profiles,
+    navigate,
+    setActiveProfileId,
+  ])
 
   // Global Ctrl+A shortcut for opening the board-switcher palette. Skipped
   // while focus is in a text field/editor (including tiptap's
@@ -834,10 +856,9 @@ function AppShell() {
     categories.map((category) => [String(getId(category)), category]),
   )
 
-  // Resolved once here (rather than inside BoardsView) since App.tsx already
-  // owns the profiles list - see .scratch/boards/spec.md's "active board
-  // lives on Profile" decision.
-  const activeProfile = profiles.find((profile) => getId(profile) === activeProfileId) ?? null
+  // activeProfile itself is resolved up near the URL sync effect (rather
+  // than inside BoardsView) since App.tsx already owns the profiles list -
+  // see .scratch/boards/spec.md's "active board lives on Profile" decision.
   const activeBoardId = activeProfile?.activeBoardId ?? null
   const activeBoard = boards.find((b) => getId(b) === activeBoardId) ?? null
 
@@ -921,7 +942,7 @@ function AppShell() {
                 type="button"
                 role="tab"
                 aria-selected={activeTab === tab.key}
-                onClick={() => activeProfileId && navigate(`/${activeProfileId}/${tab.key}`)}
+                onClick={() => activeProfileSlug && navigate(`/${encodeURIComponent(activeProfileSlug)}/${tab.key}`)}
                 className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
                   activeTab === tab.key
                     ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
