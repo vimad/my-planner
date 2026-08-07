@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import type { KeyboardEvent } from 'react'
 
 interface TodoTagSearchProps {
   searchQuery: string
@@ -24,8 +24,6 @@ export function TodoTagSearch({
   onToggleTag,
   onClearTags,
 }: TodoTagSearchProps) {
-  const [focused, setFocused] = useState(false)
-
   const trimmed = searchQuery.trim().toLowerCase()
   const suggestions = trimmed
     ? availableTags.filter((t) => !selectedTags.includes(t) && t.toLowerCase().includes(trimmed))
@@ -47,11 +45,7 @@ export function TodoTagSearch({
 
   return (
     <div className="relative mb-4">
-      <div
-        className={`flex w-full flex-wrap items-center gap-1.5 rounded-lg border bg-slate-50 px-2 py-1.5 dark:bg-white/5 ${
-          focused ? 'border-fuchsia-400/60' : 'border-slate-200 dark:border-white/10'
-        }`}
-      >
+      <div className="flex w-full flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 focus-within:border-fuchsia-400/60 dark:border-white/10 dark:bg-white/5">
         {selectedTags.map((tag) => (
           <span
             key={tag}
@@ -73,8 +67,6 @@ export function TodoTagSearch({
           value={searchQuery}
           onChange={(e) => onSearchQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           placeholder={selectedTags.length > 0 ? 'Search, or type a tag...' : 'Search todos, or type a tag to filter...'}
           aria-label="Search todos or filter by tag"
           className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
