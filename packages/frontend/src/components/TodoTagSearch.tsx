@@ -1,21 +1,29 @@
-// PROTOTYPE — variant B: tags live inside the search box itself. Typing
-// still runs the normal live title/body search; if what's typed matches a
-// known tag, a suggestion appears that "graduates" the text into a
-// persistent chip token sitting inside the same field. No new UI real
-// estate beyond the existing search input.
 import { useState, type KeyboardEvent } from 'react'
-import type { TagFilterVariantProps } from './types'
 
-export const name = 'Tokenized search box'
+interface TodoTagSearchProps {
+  searchQuery: string
+  onSearchQueryChange: (value: string) => void
+  availableTags: string[]
+  selectedTags: string[]
+  onToggleTag: (tag: string) => void
+  onClearTags: () => void
+}
 
-export function VariantTokenized({
+// Tags live inside the search box itself rather than a separate filter
+// control: typing still runs the normal live title/body search (see
+// App.tsx's search effect), and if what's typed matches a known tag, a
+// suggestion appears that "graduates" the text into a persistent chip token
+// sitting inside the same field. Chosen over a filter-icon popover and a
+// collapsible tag strip after prototyping all three - see the "Prototype:
+// tag-based filtering for the Todos tab (A/B/C)" commit.
+export function TodoTagSearch({
   searchQuery,
   onSearchQueryChange,
   availableTags,
   selectedTags,
   onToggleTag,
   onClearTags,
-}: TagFilterVariantProps) {
+}: TodoTagSearchProps) {
   const [focused, setFocused] = useState(false)
 
   const trimmed = searchQuery.trim().toLowerCase()
@@ -89,7 +97,7 @@ export function VariantTokenized({
           className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-[#1a1229]"
         >
           {suggestions.map((tag) => (
-            <li key={tag}>
+            <li key={tag} role="option" aria-selected="false">
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}

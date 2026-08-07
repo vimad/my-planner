@@ -108,8 +108,11 @@ describe('App', () => {
     localStorage.clear()
     fetchMock = stubFetch((href) => {
       // Checked before the generic '/api/todos' branch below, since
-      // '/api/todos/search?...' also contains that substring.
+      // '/api/todos/search?...' and '/api/todos/tags?...' both also contain
+      // that substring. Tests that care about actual tag values override
+      // this per-call via mockImplementationOnce (see e.g. below).
       if (href.includes('/api/todos/search')) return jsonResponse(searchData)
+      if (href.includes('/api/todos/tags')) return jsonResponse([])
       if (href.includes('/api/todos')) return jsonResponse(todosData)
       if (href.includes('/api/categories')) return jsonResponse(categoriesData)
       if (href.includes('/api/boards')) return jsonResponse(boardsData)
@@ -669,7 +672,7 @@ describe('App', () => {
 
       searchData = [todosData[0]]
 
-      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: 'milk' } })
+      fireEvent.change(screen.getByLabelText('Search todos or filter by tag'), { target: { value: 'milk' } })
 
       await waitFor(() => {
         expect(screen.queryByText('Ship feature')).not.toBeInTheDocument()
@@ -681,7 +684,7 @@ describe('App', () => {
       expect(searchCall![0]).toContain('q=milk')
 
       // Clearing the query falls back to the normal unfiltered agenda.
-      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: '' } })
+      fireEvent.change(screen.getByLabelText('Search todos or filter by tag'), { target: { value: '' } })
 
       await waitFor(() => {
         expect(screen.getByText('Ship feature')).toBeInTheDocument()
@@ -1387,7 +1390,7 @@ describe('App', () => {
         expect(screen.getByText('Ship feature')).toBeInTheDocument()
       })
 
-      fireEvent.change(screen.getByLabelText('Search todos'), { target: { value: 'feature' } })
+      fireEvent.change(screen.getByLabelText('Search todos or filter by tag'), { target: { value: 'feature' } })
 
       await waitFor(() => {
         const searchCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/todos/search'))

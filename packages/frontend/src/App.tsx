@@ -19,8 +19,7 @@ import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
-// PROTOTYPE — tag-filter UI variants. See components/tagFilterPrototype/TagFilterPrototypeSwitcher.tsx.
-import { TagFilterPrototypeSwitcher } from './components/tagFilterPrototype/TagFilterPrototypeSwitcher'
+import { TodoTagSearch } from './components/TodoTagSearch'
 import { WeeklyProgressPanel } from './components/WeeklyProgressPanel'
 import { useActiveProfile } from './hooks/useActiveProfile'
 import { useBoards } from './hooks/useBoards'
@@ -144,9 +143,10 @@ function AppShell() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [confirmCheckboxChecked, setConfirmCheckboxChecked] = useState(false)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
-  // PROTOTYPE — tag-filter UI variants (packages/frontend/src/components/tagFilterPrototype).
-  // Wipe alongside that folder once a variant is picked.
-  const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([])
+  // Tags selected via TodoTagSearch's tokenized search box - sent to
+  // GET /api/todos/search alongside the free-text query (see the search
+  // effect below), not filtered client-side.
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
@@ -436,17 +436,19 @@ function AppShell() {
   }, [activeProfileId])
 
   // Hits the real backend search endpoint (GET /api/todos/search) as the
-  // user types, per ticket 11 — deliberately not client-side filtering of
-  // the already-loaded `todos`, so the endpoint is exercised end-to-end. An
-  // empty query clears searchResults, which makes the agenda fall back to
-  // the normal unfiltered `todos` list. `ignore` guards against an in-flight
+  // user types or toggles a tag chip (the tokenized search box folds tag
+  // selection into the same field - see TodoTagSearch.tsx), per ticket 11 -
+  // deliberately not client-side filtering of the already-loaded `todos`, so
+  // the endpoint is exercised end-to-end. An empty query with no tags
+  // selected clears searchResults, which makes the agenda fall back to the
+  // normal unfiltered `todos` list. `ignore` guards against an in-flight
   // request from a stale keystroke resolving after a newer one. Also keyed
   // on activeProfileId so switching profiles while a search is active
   // immediately re-runs it scoped to the newly-active profile instead of
   // leaving the previous profile's stale results on screen.
   useEffect(() => {
     const trimmed = searchQuery.trim()
-    if (!trimmed || !activeProfileId) {
+    if ((!trimmed && selectedTags.length === 0) || !activeProfileId) {
       setSearchResults(null)
       return
     }
@@ -454,9 +456,10 @@ function AppShell() {
     let ignore = false
     async function runSearch() {
       try {
-        const res = await fetch(
-          `${API_URL}/api/todos/search?profileId=${encodeURIComponent(activeProfileId as string)}&q=${encodeURIComponent(trimmed)}`,
-        )
+        const params = new URLSearchParams({ profileId: activeProfileId as string })
+        if (trimmed) params.set('q', trimmed)
+        if (selectedTags.length > 0) params.set('tags', selectedTags.join(','))
+        const res = await fetch(`${API_URL}/api/todos/search?${params.toString()}`)
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         const data = await res.json()
         if (!ignore) setSearchResults(data)
@@ -469,7 +472,7 @@ function AppShell() {
     return () => {
       ignore = true
     }
-  }, [searchQuery, activeProfileId])
+  }, [searchQuery, selectedTags, activeProfileId])
 
   // New categories always attach to whichever profile is currently active -
   // there's no manual profile picker on CategoryForm (see the Profiles spec:
@@ -945,10 +948,11 @@ function AppShell() {
     onRemove: handleQuickRemove,
   }
 
-  // While a search query is active, the agenda shows the backend search
-  // results instead of the unfiltered `todos` — `todos` itself stays
-  // unfiltered so MiniCalendar and category counts are unaffected by search.
-  const searchedTodos = searchQuery.trim() ? (searchResults ?? []) : todos
+  // While a search query or tag filter is active, the agenda shows the
+  // backend search results (which already apply both) instead of the
+  // unfiltered `todos` — `todos` itself stays unfiltered so MiniCalendar and
+  // category counts are unaffected by search/tag filtering.
+  const searchedTodos = searchQuery.trim() || selectedTags.length > 0 ? (searchResults ?? []) : todos
 
   // Category chip filter is an OR across the selected categories, applied on
   // top of search; empty selection means "no filter, show everything".
@@ -957,20 +961,13 @@ function AppShell() {
       ? searchedTodos.filter((t) => selectedCategoryIds.includes(String(t.categoryId)))
       : searchedTodos
 
-  // PROTOTYPE — tag filter (AND across selected tags), narrows on top of
-  // search + category. Wipe alongside components/tagFilterPrototype.
-  const tagFiltered =
-    selectedTagFilters.length > 0
-      ? categoryFiltered.filter((t) => selectedTagFilters.every((tag) => t.tags?.includes(tag)))
-      : categoryFiltered
-
   // MiniCalendar's date/range filter narrows on top of search + category,
   // matched against each todo's effective due date (its real dueDate, or the
   // shared next office day when office-linked) so office-linked todos
   // participate the same as any other. A null selectedDateRange means "no
   // filter, show everything" (matchesDateRange's null-range behavior).
   const todayISO = localTodayISO()
-  const visibleTodos = tagFiltered.filter((t) =>
+  const visibleTodos = categoryFiltered.filter((t) =>
     matchesDateRange(effectiveDueDate(t, nextOfficeDay, todayISO), selectedDateRange),
   )
 
@@ -1170,17 +1167,17 @@ function AppShell() {
               />
               <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
                 <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
-                <TagFilterPrototypeSwitcher
+                <TodoTagSearch
                   searchQuery={searchQuery}
                   onSearchQueryChange={setSearchQuery}
                   availableTags={availableTags}
-                  selectedTags={selectedTagFilters}
+                  selectedTags={selectedTags}
                   onToggleTag={(tag) =>
-                    setSelectedTagFilters((tags) =>
+                    setSelectedTags((tags) =>
                       tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag],
                     )
                   }
-                  onClearTags={() => setSelectedTagFilters([])}
+                  onClearTags={() => setSelectedTags([])}
                 />
                 <div className="mb-4 flex items-center gap-4">
                   <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
