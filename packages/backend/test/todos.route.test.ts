@@ -382,6 +382,45 @@ describe('Todo routes', () => {
       expect(res.body).toEqual(docs)
       expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['work-id'] } })
     })
+
+    it('filters by tags (AND across every selected tag) alongside the text query', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app)
+        .get('/api/todos/search')
+        .query({ q: 'milk', tags: 'urgent,work', profileId: 'profile-1' })
+
+      expect(Todo.find).toHaveBeenCalledWith({
+        categoryId: { $in: ['work-id'] },
+        $or: [{ title: { $regex: 'milk', $options: 'i' } }, { bodyText: { $regex: 'milk', $options: 'i' } }],
+        tags: { $all: ['urgent', 'work'] },
+      })
+    })
+
+    it('filters by tags alone when q is empty', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app).get('/api/todos/search').query({ tags: 'urgent', profileId: 'profile-1' })
+
+      expect(Todo.find).toHaveBeenCalledWith({
+        categoryId: { $in: ['work-id'] },
+        tags: { $all: ['urgent'] },
+      })
+    })
+
+    it('ignores a missing/empty tags param', async () => {
+      Category.find.mockResolvedValue([{ _id: 'work-id' }])
+      Todo.find.mockReturnValue({ sort: vi.fn().mockResolvedValue([]) })
+
+      const app = createApp()
+      await request(app).get('/api/todos/search').query({ tags: '', profileId: 'profile-1' })
+
+      expect(Todo.find).toHaveBeenCalledWith({ categoryId: { $in: ['work-id'] } })
+    })
   })
 
   describe('GET /api/todos', () => {

@@ -149,17 +149,20 @@ todosRouter.get(
   },
 )
 
-// GET /api/todos/search?profileId=...&q=... -> case-insensitive search over
-// title and the denormalized bodyText extract (see utils/tiptapText.js),
-// scoped to a profile the same way as GET / above. Simple regex match per
-// the spec's explicit v1 guidance (no MongoDB text indexes needed at this
-// data volume). A missing/empty q returns all of the profile's todos, which
-// is the more useful default for a "type to filter" search box that starts
-// empty. Must be registered before any /:id-shaped route (see /tags above).
+// GET /api/todos/search?profileId=...&q=...&tags=... -> case-insensitive
+// search over title and the denormalized bodyText extract (see
+// utils/tiptapText.js), scoped to a profile the same way as GET / above.
+// Simple regex match per the spec's explicit v1 guidance (no MongoDB text
+// indexes needed at this data volume). A missing/empty q returns all of the
+// profile's todos, which is the more useful default for a "type to filter"
+// search box that starts empty. `tags` is a comma-separated list (mirrors
+// notes.ts's `excludeIds` convention) narrowed with AND semantics ($all) -
+// every listed tag must be present, on top of whatever q matches. Must be
+// registered before any /:id-shaped route (see /tags above).
 todosRouter.get(
   '/search',
   async (
-    req: Request<Record<string, never>, unknown, unknown, { q?: string; profileId?: string }>,
+    req: Request<Record<string, never>, unknown, unknown, { q?: string; tags?: string; profileId?: string }>,
     res: Response,
     next: NextFunction,
   ) => {
@@ -168,14 +171,17 @@ todosRouter.get(
       if (!profileId) return
 
       const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+      const tags =
+        typeof req.query.tags === 'string' && req.query.tags.length > 0 ? req.query.tags.split(',') : []
       const categoryIds = await resolveCategoryIdsForProfile(profileId)
 
-      const filter = q
-        ? {
-            categoryId: { $in: categoryIds },
-            $or: [{ title: { $regex: q, $options: 'i' } }, { bodyText: { $regex: q, $options: 'i' } }],
-          }
-        : { categoryId: { $in: categoryIds } }
+      const filter: Record<string, unknown> = { categoryId: { $in: categoryIds } }
+      if (q) {
+        filter.$or = [{ title: { $regex: q, $options: 'i' } }, { bodyText: { $regex: q, $options: 'i' } }]
+      }
+      if (tags.length > 0) {
+        filter.tags = { $all: tags }
+      }
 
       const todos = await Todo.find(filter).sort({ createdAt: -1 })
       res.json(todos)
