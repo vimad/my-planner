@@ -4,7 +4,8 @@ import type { ComponentType } from 'react'
 export interface SwitcherVariant {
   key: string
   name: string
-  Component: ComponentType
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  Component: ComponentType<any>
 }
 
 interface PrototypeSwitcherProps {

@@ -19,6 +19,8 @@ import type { PromoteOptions } from './components/ScratchNoteCard'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
+// PROTOTYPE — tag-filter UI variants. See components/tagFilterPrototype/TagFilterPrototypeSwitcher.tsx.
+import { TagFilterPrototypeSwitcher } from './components/tagFilterPrototype/TagFilterPrototypeSwitcher'
 import { WeeklyProgressPanel } from './components/WeeklyProgressPanel'
 import { useActiveProfile } from './hooks/useActiveProfile'
 import { useBoards } from './hooks/useBoards'
@@ -142,6 +144,9 @@ function AppShell() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const [confirmCheckboxChecked, setConfirmCheckboxChecked] = useState(false)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
+  // PROTOTYPE — tag-filter UI variants (packages/frontend/src/components/tagFilterPrototype).
+  // Wipe alongside that folder once a variant is picked.
+  const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([])
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | null>(null)
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
@@ -952,13 +957,20 @@ function AppShell() {
       ? searchedTodos.filter((t) => selectedCategoryIds.includes(String(t.categoryId)))
       : searchedTodos
 
+  // PROTOTYPE — tag filter (AND across selected tags), narrows on top of
+  // search + category. Wipe alongside components/tagFilterPrototype.
+  const tagFiltered =
+    selectedTagFilters.length > 0
+      ? categoryFiltered.filter((t) => selectedTagFilters.every((tag) => t.tags?.includes(tag)))
+      : categoryFiltered
+
   // MiniCalendar's date/range filter narrows on top of search + category,
   // matched against each todo's effective due date (its real dueDate, or the
   // shared next office day when office-linked) so office-linked todos
   // participate the same as any other. A null selectedDateRange means "no
   // filter, show everything" (matchesDateRange's null-range behavior).
   const todayISO = localTodayISO()
-  const visibleTodos = categoryFiltered.filter((t) =>
+  const visibleTodos = tagFiltered.filter((t) =>
     matchesDateRange(effectiveDueDate(t, nextOfficeDay, todayISO), selectedDateRange),
   )
 
@@ -1158,13 +1170,17 @@ function AppShell() {
               />
               <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
                 <TodoQuickAdd onAdd={handleQuickAddTodo} onOpenFull={handleOpenFullTodo} />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search todos by title or body..."
-                  aria-label="Search todos"
-                  className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+                <TagFilterPrototypeSwitcher
+                  searchQuery={searchQuery}
+                  onSearchQueryChange={setSearchQuery}
+                  availableTags={availableTags}
+                  selectedTags={selectedTagFilters}
+                  onToggleTag={(tag) =>
+                    setSelectedTagFilters((tags) =>
+                      tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag],
+                    )
+                  }
+                  onClearTags={() => setSelectedTagFilters([])}
                 />
                 <div className="mb-4 flex items-center gap-4">
                   <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
