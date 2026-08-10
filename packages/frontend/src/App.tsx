@@ -22,6 +22,7 @@ import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { TodoTagSearch } from './components/TodoTagSearch'
 import { WeeklyProgressPanel } from './components/WeeklyProgressPanel'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { useActiveProfile } from './hooks/useActiveProfile'
 import { useBoards } from './hooks/useBoards'
 import { itemKey } from './utils/boardItemKey'
@@ -1055,6 +1056,7 @@ function AppShell() {
             onDeleteRequest={handleDeleteProfileRequest}
           />
         )}
+        <WorkspaceSwitcher current="planner" onNavigate={(target) => target === 'sprint' && navigate('/sprint')} />
       </Header>
 
       {(error || profileError) && (

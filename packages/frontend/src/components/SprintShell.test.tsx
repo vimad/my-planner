@@ -131,7 +131,7 @@ describe('SprintShell', () => {
     expect(window.location.pathname).toBe('/sprint/team-a/epics')
   })
 
-  it('does not render the Todos/Notes/Boards chrome on a /sprint route, and the wordmark navigates back to "/"', async () => {
+  it('does not render the Todos/Notes/Boards chrome on a /sprint route, and the workspace switcher navigates back to "/"', async () => {
     window.history.pushState({}, '', '/sprint/team-a/planning')
 
     render(<App />)
@@ -141,8 +141,10 @@ describe('SprintShell', () => {
     })
     expect(screen.queryByRole('tab', { name: 'Todos' })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: 'Sprint' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back to app' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Planner →' }))
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'My Planner' })).toBeInTheDocument()
