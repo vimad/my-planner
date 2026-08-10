@@ -161,11 +161,16 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
     }
   }, [teamId])
 
-  // Locally-mirrored workflow-status set - global (not team/sprint scoped),
-  // fetched once. Refreshed server-side as a side effect of every sync
-  // action (services/statusSync.ts); re-fetching here on every sync isn't
-  // needed for the board to render correctly (a brand-new status column
-  // would only ever appear alongside a ticket that's also freshly synced).
+  // Locally-mirrored workflow-status set - global (not team/sprint scoped).
+  // Refreshed server-side as a side effect of every sync action
+  // (services/statusSync.ts's refreshStatusSet), so this re-fetches on the
+  // same refreshTick as `tickets` - otherwise a ticket landing in a status
+  // this session's stale `statuses` snapshot doesn't have yet (e.g. this
+  // person's sync is the first one to ever run, or the first since a new
+  // board column appeared) has nowhere to render: occupiedColumns only ever
+  // builds from `statuses`, so the ticket would silently vanish from the
+  // board even though the roster's own count (read straight from
+  // `tickets`) correctly shows it.
   useEffect(() => {
     let ignore = false
     setLoadingStatuses(true)
@@ -189,7 +194,7 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
     return () => {
       ignore = true
     }
-  }, [])
+  }, [refreshTick])
 
   // Cached tickets in scope - re-run on team/sprint change or an explicit
   // sync (refreshTick).

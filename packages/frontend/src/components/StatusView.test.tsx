@@ -56,6 +56,7 @@ function ticket(overrides: Partial<Ticket> & { jiraKey: string; assigneeAccountI
 }
 
 let ticketsData: Ticket[]
+let statusesData: Status[]
 let fetchMock: FetchMock
 
 function stubFetch(): FetchMock {
@@ -65,7 +66,7 @@ function stubFetch(): FetchMock {
 
     if (href.includes('/api/sprints')) return jsonResponse([sprint])
     if (href.includes('/api/team-memberships')) return jsonResponse([membershipAda, membershipGrace])
-    if (href.includes('/api/statuses')) return jsonResponse(statuses)
+    if (href.includes('/api/statuses')) return jsonResponse(statusesData)
 
     if (href.endsWith('/api/status-sync') && method === 'POST') {
       const body: { personId: string } = JSON.parse(init?.body ?? '{}')
@@ -78,6 +79,11 @@ function stubFetch(): FetchMock {
         type: null,
       })
       ticketsData = [...ticketsData.filter((t) => t.jiraKey !== discovered.jiraKey), discovered]
+      // Mirrors the backend's real behavior (services/statusSync.ts's
+      // refreshStatusSet): every sync also refreshes the mirrored Status
+      // set wholesale, as a side effect independent of which ticket was
+      // discovered.
+      statusesData = statuses
       return jsonResponse([discovered])
     }
 
@@ -96,6 +102,7 @@ function getIdOf(p: Person): string {
 describe('StatusView', () => {
   beforeEach(() => {
     ticketsData = []
+    statusesData = statuses
     fetchMock = stubFetch()
   })
 
@@ -109,6 +116,31 @@ describe('StatusView', () => {
     const roster = await screen.findByLabelText('Team roster')
     expect(within(roster).getByText('Ada Lovelace')).toBeInTheDocument()
     expect(await screen.findByText(/No tickets discovered yet — sync Ada Lovelace/)).toBeInTheDocument()
+  })
+
+  it('re-fetches the mirrored status set on sync, so a ticket landing in a column the session\'s stale status snapshot lacked still renders (not just counted in the roster)', async () => {
+    // This session's Status view loaded before the local Status mirror had
+    // ever been populated (e.g. this is the very first sync anyone's run) -
+    // the initial GET /api/statuses returns empty, same as a brand-new app.
+    statusesData = []
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+    await screen.findByLabelText('Team roster')
+
+    fireEvent.click(screen.getByRole('button', { name: "Sync Ada Lovelace's tickets" }))
+
+    // The roster count reads straight from `tickets`, so it updates
+    // regardless of whether `statuses` is stale.
+    await waitFor(() => expect(screen.getByText('1 ticket', { exact: false })).toBeInTheDocument())
+
+    // The board itself is built from `statuses`, though - without a
+    // refetch there, the newly-discovered "Dev WIP" ticket would have no
+    // column to land in and the board would wrongly still say nothing's
+    // been discovered.
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    expect(within(board).getByText('Dev WIP', { exact: false })).toBeInTheDocument()
+    expect(within(board).getByText('WOSMVP-999')).toBeInTheDocument()
   })
 
   it("syncing a person populates their board", async () => {
