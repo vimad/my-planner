@@ -128,6 +128,7 @@ describe('TeamRoster', () => {
     render(<TeamRoster team={team} />)
     await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
 
+    fireEvent.click(screen.getByRole('button', { name: 'Existing person' }))
     fireEvent.change(screen.getByLabelText('Search people'), { target: { value: 'Grace' } })
     await waitFor(() => expect(screen.getByText('Grace Hopper · grace@example.com')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Grace Hopper · grace@example.com'))

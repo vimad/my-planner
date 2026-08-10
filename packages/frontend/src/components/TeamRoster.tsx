@@ -134,7 +134,7 @@ function AddPersonForm({
   ) => Promise<void>
   searchJiraUsers: (query: string) => Promise<JiraUserSuggestion[] | null>
 }) {
-  const [mode, setMode] = useState<'existing' | 'jira' | 'manual'>('existing')
+  const [mode, setMode] = useState<'existing' | 'jira' | 'manual'>('jira')
   const [query, setQuery] = useState('')
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
 
@@ -208,7 +208,7 @@ function AddPersonForm({
   }
 
   function resetForm() {
-    switchMode('existing')
+    switchMode(jiraSearchAvailable ? 'jira' : 'manual')
     setRole(ROLES[0])
     setCapacityInput('')
   }
@@ -272,14 +272,14 @@ function AddPersonForm({
       className="flex flex-col gap-1.5 rounded-xl border border-dashed border-slate-200 p-2 dark:border-white/10"
     >
       <div className="flex items-center gap-1">
-        <ModeButton active={mode === 'existing'} onClick={() => switchMode('existing')}>
-          Existing person
-        </ModeButton>
         {jiraSearchAvailable && (
           <ModeButton active={mode === 'jira'} onClick={() => switchMode('jira')}>
             Search Jira
           </ModeButton>
         )}
+        <ModeButton active={mode === 'existing'} onClick={() => switchMode('existing')}>
+          Existing person
+        </ModeButton>
         <ModeButton active={mode === 'manual'} onClick={() => switchMode('manual')}>
           Manual entry
         </ModeButton>
