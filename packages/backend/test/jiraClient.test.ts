@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   bulkFetchIssues,
   findCustomField,
+  getBoardConfiguration,
   listSprints,
   resolveBoard,
   searchJql,
@@ -105,6 +106,17 @@ describe('jiraClient', () => {
     const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body)
     expect(secondBody.nextPageToken).toBe('page-2')
     expect(issues.map((i) => i.key)).toEqual(['WOSMVP-1', 'WOSMVP-2'])
+  })
+
+  it('getBoardConfiguration fetches the board configuration endpoint', async () => {
+    const config = { columnConfig: { columns: [{ name: 'To Do' }, { name: 'In Progress' }, { name: 'Done' }] } }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(config))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await getBoardConfiguration(235)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://wealthos.atlassian.net/rest/agile/1.0/board/235/configuration')
+    expect(result).toEqual(config)
   })
 
   it('findCustomField returns the matching fields', async () => {

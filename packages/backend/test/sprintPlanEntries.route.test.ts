@@ -34,6 +34,10 @@ vi.mock('../src/models/SprintPlanEntry.ts', () => ({
   },
 }))
 
+vi.mock('../src/services/statusSync.ts', () => ({
+  refreshStatusSet: vi.fn(),
+}))
+
 const { bulkFetchIssues } = (await import('../src/services/jiraClient.ts')) as unknown as { bulkFetchIssues: Mock }
 const { Ticket } = (await import('../src/models/Ticket.ts')) as unknown as { Ticket: MockedTicketModel }
 const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) as unknown as {

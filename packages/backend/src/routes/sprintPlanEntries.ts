@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { SprintPlanEntry } from '../models/SprintPlanEntry.ts'
 import type { TicketDoc } from '../models/Ticket.ts'
+import { refreshStatusSet } from '../services/statusSync.ts'
 import { fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
 import { isDuplicateKeyError } from '../utils/mongoErrors.ts'
 
@@ -83,6 +84,7 @@ sprintPlanEntriesRouter.post(
       }
 
       await applyReassignmentResets(teamId, sprintId, synced)
+      await refreshStatusSet()
 
       const order = await nextOrderForAssignee(teamId, sprintId, primary.ticket.assigneeAccountId)
       const entry = await SprintPlanEntry.create({ teamId, sprintId, ticketId: primary.ticket._id, order })
@@ -133,6 +135,7 @@ sprintPlanEntriesRouter.post(
 
       const synced = await fullSyncTickets(jiraKeys)
       await applyReassignmentResets(teamId, sprintId, synced)
+      await refreshStatusSet()
 
       const refreshed = await SprintPlanEntry.find({ teamId, sprintId }).populate('ticketId').sort({ order: 1 })
       res.json(refreshed)

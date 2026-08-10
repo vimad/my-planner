@@ -1,5 +1,5 @@
 import type { HydratedDocument } from 'mongoose'
-import { bulkFetchIssues, type JiraIssue } from './jiraClient.ts'
+import { bulkFetchIssues, searchJql, type JiraIssue } from './jiraClient.ts'
 import { Ticket, type TicketDoc } from '../models/Ticket.ts'
 
 // "Stream" custom field id — resolved once via `field/search?query=Stream`
@@ -142,6 +142,50 @@ export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[
     })
   }
   return synced
+}
+
+const LIGHTWEIGHT_FIELDS = ['summary', 'status']
+
+// Lightweight sync (spec's "Sync semantics & staleness"): the Status view's
+// per-person sync icon fetches only title + status via search/jql and
+// upserts a Ticket doc touching only title/status/lastSyncedAt. Every other
+// field is left exactly as-is on an already-Full-synced ticket, or
+// defaulted (null, [] for labels) the first time this jiraKey is ever seen —
+// rendered with a muted "?" type badge until some Full sync (e.g. via
+// Planning) fills it in.
+export async function lightweightSyncTickets(jql: string): Promise<HydratedDocument<TicketDoc>[]> {
+  const issues = await searchJql(jql, LIGHTWEIGHT_FIELDS)
+  const syncedAt = new Date()
+
+  const tickets: HydratedDocument<TicketDoc>[] = []
+  for (const issue of issues) {
+    const status = issue.fields.status as { name?: string } | undefined
+    const title = typeof issue.fields.summary === 'string' ? issue.fields.summary : ''
+
+    const ticket = await Ticket.findOneAndUpdate(
+      { jiraKey: issue.key },
+      {
+        $set: { title, status: status?.name ?? '', lastSyncedAt: syncedAt },
+        $setOnInsert: {
+          jiraKey: issue.key,
+          type: null,
+          assigneeAccountId: null,
+          assigneeDisplayName: null,
+          assigneeEmail: null,
+          estimateHours: null,
+          labels: [],
+          stream: null,
+          epicKey: null,
+          parentKey: null,
+          subtaskKind: null,
+          currentSprintKey: null,
+        },
+      },
+      { upsert: true, new: true },
+    )
+    tickets.push(ticket as HydratedDocument<TicketDoc>)
+  }
+  return tickets
 }
 
 // Effort (CONTEXT.md): sum of a ticket's sub-tasks' estimateHours (queried

@@ -5,7 +5,10 @@ import mongoose, { Schema } from 'mongoose'
 // duplication. See CONTEXT.md ("Ticket") and spec's "Domain model".
 export interface TicketDoc {
   jiraKey: string // full key e.g. "WOSMVP-14782", unique
-  type: string
+  // null only for a ticket discovered exclusively via Lightweight sync
+  // (search/jql's fields=summary,status doesn't include issuetype) — renders
+  // as a muted "?" type badge until some Full sync fills it in.
+  type: string | null
   title: string
   status: string
   // Matched against Person.jiraAccountId; no match = unmapped, a
@@ -30,7 +33,7 @@ export interface TicketDoc {
 
 const ticketSchema = new Schema<TicketDoc>({
   jiraKey: { type: String, required: true, unique: true },
-  type: { type: String, required: true },
+  type: { type: String, default: null },
   title: { type: String, required: true },
   status: { type: String, required: true },
   assigneeAccountId: { type: String, default: null },

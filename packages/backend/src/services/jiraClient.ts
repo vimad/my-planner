@@ -61,6 +61,16 @@ export interface JiraUser {
   emailAddress?: string | null
 }
 
+export interface JiraBoardColumn {
+  name: string
+}
+
+export interface JiraBoardConfiguration {
+  columnConfig: {
+    columns: JiraBoardColumn[]
+  }
+}
+
 interface JiraConfig {
   baseUrl: string
   email: string
@@ -137,6 +147,13 @@ export async function listSprints(boardId: number, states?: JiraSprintState[]): 
   const query = states && states.length > 0 ? `?state=${states.join(',')}` : ''
   const data = await jiraJson<{ values: JiraSprint[] }>(`${AGILE_PREFIX}/board/${boardId}/sprint${query}`)
   return data.values
+}
+
+// Backs the Status set's "refresh wholesale from the board's workflow
+// column configuration" (spec's "Sync semantics & staleness") — one entry
+// per board column, in column order.
+export async function getBoardConfiguration(boardId: number): Promise<JiraBoardConfiguration> {
+  return jiraJson<JiraBoardConfiguration>(`${AGILE_PREFIX}/board/${boardId}/configuration`)
 }
 
 export async function bulkFetchIssues(keys: string[], fields?: string[]): Promise<JiraBulkFetchResult> {

@@ -3,6 +3,7 @@ import type { JiraIssue } from '../src/services/jiraClient.ts'
 
 vi.mock('../src/services/jiraClient.ts', () => ({
   bulkFetchIssues: vi.fn(),
+  searchJql: vi.fn(),
 }))
 
 interface MockedTicketModel {
@@ -19,9 +20,14 @@ vi.mock('../src/models/Ticket.ts', () => ({
   },
 }))
 
-const { bulkFetchIssues } = (await import('../src/services/jiraClient.ts')) as unknown as { bulkFetchIssues: Mock }
+const { bulkFetchIssues, searchJql } = (await import('../src/services/jiraClient.ts')) as unknown as {
+  bulkFetchIssues: Mock
+  searchJql: Mock
+}
 const { Ticket } = (await import('../src/models/Ticket.ts')) as unknown as { Ticket: MockedTicketModel }
-const { mapIssueToTicketFields, fullSyncTickets, computeEffortHours } = await import('../src/services/ticketSync.ts')
+const { mapIssueToTicketFields, fullSyncTickets, lightweightSyncTickets, computeEffortHours } = await import(
+  '../src/services/ticketSync.ts'
+)
 
 function issue(key: string, fields: Record<string, unknown> = {}): JiraIssue {
   return {
@@ -221,6 +227,77 @@ describe('fullSyncTickets', () => {
     expect(synced.isNew).toBe(false)
     expect(synced.previousAssigneeAccountId).toBe('acct-old')
     expect(synced.ticket.assigneeAccountId).toBe('acct-new')
+  })
+})
+
+describe('lightweightSyncTickets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('searches with fields=summary,status and creates a new Ticket with only title/status populated, other fields null', async () => {
+    searchJql.mockResolvedValue([issue('WOSMVP-900', { summary: 'Discovered ticket', status: { name: 'In Progress' } })])
+    Ticket.findOneAndUpdate.mockResolvedValue({
+      jiraKey: 'WOSMVP-900',
+      title: 'Discovered ticket',
+      status: 'In Progress',
+      type: null,
+      assigneeAccountId: null,
+      estimateHours: null,
+      labels: [],
+      stream: null,
+      epicKey: null,
+      parentKey: null,
+      subtaskKind: null,
+      currentSprintKey: null,
+    })
+
+    const [ticket] = await lightweightSyncTickets('assignee = "acct-1" AND sprint = 632 AND labels in ("Odyssey")')
+
+    expect(searchJql).toHaveBeenCalledWith('assignee = "acct-1" AND sprint = 632 AND labels in ("Odyssey")', [
+      'summary',
+      'status',
+    ])
+    expect(Ticket.findOneAndUpdate).toHaveBeenCalledWith(
+      { jiraKey: 'WOSMVP-900' },
+      expect.objectContaining({
+        $set: { title: 'Discovered ticket', status: 'In Progress', lastSyncedAt: expect.any(Date) },
+        $setOnInsert: expect.objectContaining({
+          jiraKey: 'WOSMVP-900',
+          type: null,
+          assigneeAccountId: null,
+          estimateHours: null,
+          labels: [],
+        }),
+      }),
+      { upsert: true, new: true },
+    )
+    expect(ticket.type).toBeNull()
+    expect(ticket.assigneeAccountId).toBeNull()
+  })
+
+  it('on an already Full-synced ticket, only touches title/status/lastSyncedAt, leaving other fields as-is', async () => {
+    searchJql.mockResolvedValue([issue('WOSMVP-1', { summary: 'Updated title', status: { name: 'Done' } })])
+    Ticket.findOneAndUpdate.mockResolvedValue({
+      jiraKey: 'WOSMVP-1',
+      title: 'Updated title',
+      status: 'Done',
+      type: 'Story',
+      assigneeAccountId: 'acct-1',
+      estimateHours: 5,
+      stream: 'Product Roadmap',
+    })
+
+    const [ticket] = await lightweightSyncTickets('assignee = "acct-1" AND sprint = 632 AND labels in ("Odyssey")')
+
+    const [, update] = Ticket.findOneAndUpdate.mock.calls[0]
+    expect(update.$set).toEqual({ title: 'Updated title', status: 'Done', lastSyncedAt: expect.any(Date) })
+    expect(Object.keys(update.$set)).not.toContain('type')
+    expect(Object.keys(update.$set)).not.toContain('assigneeAccountId')
+    expect(ticket.type).toBe('Story')
+    expect(ticket.assigneeAccountId).toBe('acct-1')
+    expect(ticket.estimateHours).toBe(5)
+    expect(ticket.stream).toBe('Product Roadmap')
   })
 })
 
