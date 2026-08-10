@@ -1,0 +1,7 @@
+# Status view boards only render columns the selected person has a ticket in
+
+For a single person's Status-view board, only render a status column (To Do, Dev WIP, Review, Testing WIP, To Be Merged, Merged, Done) that has at least one of that person's cached tickets in it right now. A possible-but-empty column (e.g. "Merged" when nobody's ticket is there) is omitted from the board entirely, not shown as an empty column with a blank placeholder.
+
+We considered always rendering all seven locally-mirrored statuses (ticket 03) as columns, with empty ones shown blank — the literal Jira-board mirror, and what the reference screenshot and the original variant comparison both did. We rejected always-seven because one person's tickets are rarely spread across most of a seven-status workflow at once; in practice a person occupies two or three statuses at a time, so a fixed seven-column board is mostly empty space around a small cluster of real cards. Since the board is single-person by design (this repo's Sprint status view has no multi-assignee swimlane mode), that empty space has no other content to fill it and just reads as blankness rather than useful structure.
+
+This only applies to the single-person board. If a future multi-person/swimlane view is built, a shared column header row makes sense there since it's comparing several people against the same axis — this decision doesn't extend to that case.
