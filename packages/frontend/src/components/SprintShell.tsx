@@ -7,6 +7,7 @@ import { applyTheme, getInitialTheme } from '../utils/theme'
 import type { Team } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Header } from './Header'
+import { PlanningView } from './PlanningView'
 import { TeamSwitcher } from './TeamSwitcher'
 
 type SprintTab = 'planning' | 'status' | 'epics'
@@ -115,7 +116,7 @@ function TeamShell({
 
       <Routes>
         <Route index element={<Navigate to="planning" replace />} />
-        <Route path="planning" element={<SprintStubView label="Planning" />} />
+        <Route path="planning" element={<PlanningView team={team} />} />
         <Route path="status" element={<SprintStubView label="Status" />} />
         <Route path="epics" element={<SprintStubView label="Epics" />} />
       </Routes>

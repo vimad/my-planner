@@ -155,6 +155,85 @@ export interface JiraUserSuggestion {
   emailAddress?: string | null
 }
 
+// A cached snapshot of a Jira board sprint - see backend models/Sprint.ts.
+export type SprintState = 'active' | 'future' | 'closed'
+
+export interface Sprint {
+  _id?: string
+  id?: string
+  jiraSprintId: string
+  name: string
+  state: SprintState
+  startDate?: string | null
+  endDate?: string | null
+  lastSyncedAt?: string
+}
+
+// The one representation of a Jira issue, shared across Planning/Status/Epic
+// views - mirrors backend models/Ticket.ts exactly (ADR 0001: matching is
+// strictly by jiraAccountId, never the display-only assignee fields).
+export interface Ticket {
+  _id?: string
+  id?: string
+  jiraKey: string
+  type: string | null
+  title: string
+  status: string
+  assigneeAccountId: string | null
+  assigneeDisplayName: string | null
+  assigneeEmail: string | null
+  estimateHours: number | null
+  labels: string[]
+  stream: string | null
+  epicKey: string | null
+  parentKey: string | null
+  subtaskKind: 'Dev' | 'Test' | null
+  currentSprintKey: string | null
+  lastSyncedAt: string
+}
+
+// Join: Team x Sprint x Ticket - a ticket manually added to a team's plan
+// for a sprint. `ticketId` comes back populated from
+// GET /api/sprint-plan-entries, per ticket 13's API contract (mirrors
+// TeamMembership.personId's populated-on-GET convention). `order` is
+// per-assignee (ticket 10's resolution), not global.
+export interface SprintPlanEntry {
+  _id?: string
+  id?: string
+  teamId: string
+  sprintId: string
+  ticketId: Ticket
+  addedAt?: string
+  order: number
+}
+
+// The Team x Sprint header - manually entered, holiday-adjusted working
+// days, never derived from a calendar. See backend models/TeamSprintPlan.ts.
+export interface TeamSprintPlan {
+  _id?: string
+  id?: string
+  teamId: string
+  sprintId: string
+  workingDays: number
+}
+
+// One row of GET /api/teams/:teamId/sprints/:sprintId/capacity's response -
+// the Total/Available/Planned/Remaining formula computed server-side (see
+// backend routes/capacity.ts), one per current TeamMembership on the team.
+export interface SprintCapacity {
+  teamMembershipId: string
+  personId: string
+  personName: string
+  role: Role
+  capacityPercentOverride: number | null
+  effectivePercentage: number
+  leaveDays: number
+  total: number
+  available: number
+  planned: number
+  remaining: number
+}
+
 // Notes — a third, durable/organized concept alongside Todos and Scratchpad
 // (see .scratch/notes-section/spec.md). Deliberately minimal: no priority,
 // tags, due dates, or completion. `parentId`/`folderId` are `null` (never

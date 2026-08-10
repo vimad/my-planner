@@ -1,0 +1,284 @@
+import { useCallback, useEffect, useState } from 'react'
+import { getId } from '../utils/getId'
+import type { Sprint, SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
+
+async function parseErrorMessage(res: Response): Promise<string> {
+  try {
+    const data = await res.json()
+    return data?.error ?? `Request failed with status ${res.status}`
+  } catch {
+    return `Request failed with status ${res.status}`
+  }
+}
+
+// Accepts a bare number ("14802"), a full key ("WOSMVP-14802"), or a
+// lowercase/no-dash variant, and normalizes to the full key - mirrors the
+// prototype's useSprintPlanState.normalizeInput. Returns null for blank
+// input.
+function normalizeJiraKey(raw: string): string | null {
+  const trimmed = raw
+    .trim()
+    .toUpperCase()
+    .replace(/^WOSMVP-?/, '')
+  return trimmed ? `WOSMVP-${trimmed}` : null
+}
+
+interface PlanFetchResult {
+  planConfigured: boolean
+  capacity: SprintCapacity[]
+  entries: SprintPlanEntry[]
+}
+
+// Fetched together since the Planning view always renders them side by side
+// - the capacity strip and the "Tickets by person" table read from entries
+// too (Planned is derived from the same SprintPlanEntry list).
+async function fetchCapacityAndEntries(teamId: string, sprintId: string): Promise<PlanFetchResult> {
+  const [capacityRes, entriesRes] = await Promise.all([
+    fetch(`${API_URL}/api/teams/${teamId}/sprints/${sprintId}/capacity`),
+    fetch(`${API_URL}/api/sprint-plan-entries?teamId=${teamId}&sprintId=${sprintId}`),
+  ])
+
+  let planConfigured = true
+  let capacity: SprintCapacity[] = []
+  if (capacityRes.status === 404) {
+    // No TeamSprintPlan (working days) entered for this sprint yet - a
+    // valid, expected state (spec never assumes one exists), not an error.
+    planConfigured = false
+  } else if (!capacityRes.ok) {
+    throw new Error(await parseErrorMessage(capacityRes))
+  } else {
+    capacity = await capacityRes.json()
+  }
+
+  if (!entriesRes.ok) throw new Error(await parseErrorMessage(entriesRes))
+  const entries: SprintPlanEntry[] = await entriesRes.json()
+
+  return { planConfigured, capacity, entries }
+}
+
+export interface UseSprintPlanResult {
+  sprints: Sprint[]
+  loadingSprints: boolean
+  sprintsError: string | null
+  selectedSprintId: string | null
+  setSelectedSprintId: (id: string) => void
+
+  memberships: TeamMembership[]
+  loadingMemberships: boolean
+
+  planConfigured: boolean
+  capacity: SprintCapacity[]
+  entries: SprintPlanEntry[]
+  loadingPlan: boolean
+  planError: string | null
+
+  savingWorkingDays: boolean
+  setWorkingDays: (workingDays: number) => Promise<void>
+
+  addingTicket: boolean
+  addTicketError: string | null
+  addTicket: (rawInput: string) => Promise<void>
+}
+
+// Backs ticket 18's Planning view: the sprint selector, capacity strip, and
+// "Tickets by person" table, all scoped to one team. Three independent
+// fetches (sprints, memberships, capacity+entries) since each has its own
+// loading/error lifecycle and the view renders progressively as they land
+// (e.g. the roster table doesn't need to wait on the Jira-backed sprint
+// list).
+export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
+  const [sprints, setSprints] = useState<Sprint[]>([])
+  const [loadingSprints, setLoadingSprints] = useState(true)
+  const [sprintsError, setSprintsError] = useState<string | null>(null)
+  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null)
+
+  const [memberships, setMemberships] = useState<TeamMembership[]>([])
+  const [loadingMemberships, setLoadingMemberships] = useState(true)
+
+  const [planConfigured, setPlanConfigured] = useState(false)
+  const [capacity, setCapacity] = useState<SprintCapacity[]>([])
+  const [entries, setEntries] = useState<SprintPlanEntry[]>([])
+  const [loadingPlan, setLoadingPlan] = useState(true)
+  const [planError, setPlanError] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refreshPlan = useCallback(() => setRefreshTick((t) => t + 1), [])
+
+  const [savingWorkingDays, setSavingWorkingDays] = useState(false)
+  const [addingTicket, setAddingTicket] = useState(false)
+  const [addTicketError, setAddTicketError] = useState<string | null>(null)
+
+  // Sprint list - resolves the team's Jira board and re-selects an active
+  // sprint (falling back to the first) whenever the previously-selected id
+  // is missing from the fresh list, which also covers a team switch (the
+  // old team's sprint id never appears in the new team's list).
+  useEffect(() => {
+    if (!teamId) {
+      setSprints([])
+      setSelectedSprintId(null)
+      setLoadingSprints(false)
+      return
+    }
+
+    let ignore = false
+    setLoadingSprints(true)
+    setSprintsError(null)
+
+    fetch(`${API_URL}/api/sprints?teamId=${teamId}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        return (await res.json()) as Sprint[]
+      })
+      .then((data) => {
+        if (ignore) return
+        setSprints(data)
+        setSelectedSprintId((prev) => {
+          if (prev && data.some((s) => getId(s) === prev)) return prev
+          const active = data.find((s) => s.state === 'active')
+          return getId(active ?? data[0]) ?? null
+        })
+      })
+      .catch((err) => {
+        if (!ignore) setSprintsError((err as Error).message)
+      })
+      .finally(() => {
+        if (!ignore) setLoadingSprints(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [teamId])
+
+  // Team roster - independent of which sprint is selected.
+  useEffect(() => {
+    if (!teamId) {
+      setMemberships([])
+      setLoadingMemberships(false)
+      return
+    }
+
+    let ignore = false
+    setLoadingMemberships(true)
+
+    fetch(`${API_URL}/api/team-memberships?teamId=${teamId}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        return (await res.json()) as TeamMembership[]
+      })
+      .then((data) => {
+        if (!ignore) setMemberships(data)
+      })
+      .catch(() => {
+        // Surfaced via the capacity/entries error path instead of a second
+        // banner - the roster table just renders empty until it settles.
+      })
+      .finally(() => {
+        if (!ignore) setLoadingMemberships(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [teamId])
+
+  // Capacity + plan entries - re-run on team/sprint change or an explicit
+  // refreshPlan() call (after adding a ticket or setting working days).
+  useEffect(() => {
+    if (!teamId || !selectedSprintId) {
+      setPlanConfigured(false)
+      setCapacity([])
+      setEntries([])
+      setLoadingPlan(false)
+      return
+    }
+
+    let ignore = false
+    setLoadingPlan(true)
+    setPlanError(null)
+
+    fetchCapacityAndEntries(teamId, selectedSprintId)
+      .then((result) => {
+        if (ignore) return
+        setPlanConfigured(result.planConfigured)
+        setCapacity(result.capacity)
+        setEntries(result.entries)
+      })
+      .catch((err) => {
+        if (!ignore) setPlanError((err as Error).message)
+      })
+      .finally(() => {
+        if (!ignore) setLoadingPlan(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [teamId, selectedSprintId, refreshTick])
+
+  const setWorkingDays = useCallback(
+    async (workingDays: number) => {
+      if (!teamId || !selectedSprintId) return
+      setSavingWorkingDays(true)
+      try {
+        const res = await fetch(`${API_URL}/api/team-sprint-plans`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId, sprintId: selectedSprintId, workingDays }),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } finally {
+        setSavingWorkingDays(false)
+      }
+    },
+    [teamId, selectedSprintId, refreshPlan],
+  )
+
+  const addTicket = useCallback(
+    async (rawInput: string) => {
+      if (!teamId || !selectedSprintId) return
+      const jiraKey = normalizeJiraKey(rawInput)
+      if (!jiraKey) return
+
+      setAddingTicket(true)
+      setAddTicketError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/sprint-plan-entries`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId, sprintId: selectedSprintId, jiraKey }),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setAddTicketError((err as Error).message)
+        throw err
+      } finally {
+        setAddingTicket(false)
+      }
+    },
+    [teamId, selectedSprintId, refreshPlan],
+  )
+
+  return {
+    sprints,
+    loadingSprints,
+    sprintsError,
+    selectedSprintId,
+    setSelectedSprintId,
+    memberships,
+    loadingMemberships,
+    planConfigured,
+    capacity,
+    entries,
+    loadingPlan,
+    planError,
+    savingWorkingDays,
+    setWorkingDays,
+    addingTicket,
+    addTicketError,
+    addTicket,
+  }
+}

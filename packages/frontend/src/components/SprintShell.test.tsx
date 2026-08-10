@@ -27,17 +27,33 @@ function jsonResponse(body: unknown, ok = true): Promise<FakeResponse> {
 
 let teamsData: Team[]
 let fetchMock: FetchMock
+// Set by a test just before firing a team create/rename action, read by
+// stubFetch's POST/PATCH /api/teams handling below - keyed on method+URL
+// rather than "the next mockImplementationOnce call", since PlanningView
+// (ticket 18) now fires its own background fetches (sprints, memberships)
+// on every render, and those can race a bare call-order-based mock.
+let pendingCreatedTeam: Team | null = null
+let pendingRenamedTeam: Team | null = null
 
 // Stubs every endpoint AppShell's own effects touch too, since navigating
 // to /sprint/* and back still shares one App tree - a stray unhandled URL
-// would otherwise throw instead of silently no-op'ing.
+// would otherwise throw instead of silently no-op'ing. Also stubs the
+// Planning view's own read-only endpoints (sprints/memberships/capacity/
+// entries) with safe empty data, since SprintShell now mounts the real
+// PlanningView (ticket 18) rather than a static stub.
 function stubFetch(): FetchMock {
-  const mock: FetchMock = vi.fn((url) => {
+  const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
+    const method = init?.method ?? 'GET'
     if (href.includes('/api/todos/weekly-summary')) {
       return jsonResponse({ weekStart: '2024-01-01', weekEnd: '2024-01-07', categories: [] })
     }
+    if (method === 'POST' && href.endsWith('/api/teams')) return jsonResponse(pendingCreatedTeam ?? {}, true)
+    if (method === 'PATCH' && href.includes('/api/teams/')) return jsonResponse(pendingRenamedTeam ?? {}, true)
+    if (method === 'DELETE' && href.includes('/api/teams/')) return jsonResponse({}, true)
     if (href.includes('/api/teams')) return jsonResponse(teamsData)
+    if (href.includes('/api/sprints')) return jsonResponse([])
+    if (href.includes('/api/team-memberships')) return jsonResponse([])
     if (href.includes('/api/todos')) return jsonResponse([])
     if (href.includes('/api/categories')) return jsonResponse([])
     if (href.includes('/api/boards')) return jsonResponse([])
@@ -55,6 +71,8 @@ describe('SprintShell', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/')
     teamsData = [teamA, teamB]
+    pendingCreatedTeam = null
+    pendingRenamedTeam = null
     localStorage.clear()
     fetchMock = stubFetch()
   })
@@ -72,7 +90,9 @@ describe('SprintShell', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/sprint/team-a/planning')
     })
-    expect(screen.getByText('Planning view coming soon.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
+    })
     expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -92,7 +112,7 @@ describe('SprintShell', () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByText('Planning view coming soon.')).toBeInTheDocument()
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('tab', { name: 'Status' }))
@@ -114,7 +134,7 @@ describe('SprintShell', () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByText('Planning view coming soon.')).toBeInTheDocument()
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
     })
     expect(screen.queryByRole('tab', { name: 'Todos' })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
@@ -148,7 +168,7 @@ describe('SprintShell', () => {
 
     // Create
     const created: Team = { _id: 'team-c', name: 'Team C', jiraLabels: ['team-c-label'] }
-    fetchMock.mockImplementationOnce(() => jsonResponse(created, true)) // POST /api/teams
+    pendingCreatedTeam = created
 
     fireEvent.click(screen.getByLabelText('Manage teams'))
     fireEvent.change(screen.getByLabelText('New team name'), { target: { value: 'Team C' } })
@@ -164,7 +184,7 @@ describe('SprintShell', () => {
 
     // Rename
     const renamed = { ...teamA, name: 'Team Alpha' }
-    fetchMock.mockImplementationOnce(() => jsonResponse(renamed, true)) // PATCH
+    pendingRenamedTeam = renamed
 
     fireEvent.click(screen.getByLabelText('Rename Team A'))
     fireEvent.change(screen.getByLabelText('Team name'), { target: { value: 'Team Alpha' } })
@@ -179,8 +199,6 @@ describe('SprintShell', () => {
     expect(JSON.parse(patchCall![1]?.body ?? '{}')).toEqual({ name: 'Team Alpha' })
 
     // Delete
-    fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
-
     fireEvent.click(screen.getByLabelText('Delete Team B'))
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
@@ -216,10 +234,8 @@ describe('SprintShell', () => {
 
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText('Planning view coming soon.')).toBeInTheDocument()
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
     })
-
-    fetchMock.mockImplementationOnce(() => jsonResponse({}, true)) // DELETE
 
     fireEvent.click(screen.getByLabelText('Manage teams'))
     fireEvent.click(screen.getByLabelText('Delete Team A'))
