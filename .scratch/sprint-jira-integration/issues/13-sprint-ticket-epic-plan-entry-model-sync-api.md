@@ -20,3 +20,9 @@
   - Reassignment handling: whenever a Full sync updates a `Ticket.assigneeAccountId` to a different person than before, any `SprintPlanEntry` referencing it gets its `order` reset to `max(order) + 1` among that new assignee's current entries in the same team+sprint.
 - [x] `packages/backend/src/routes/epics.ts`: `GET /api/epics?sprintId=` — active epics for a sprint with child-ticket rollup, sourced from `Ticket.epicKey`.
 - [x] Backend tests cover: single-ticket Full sync creating the parent + sub-task `Ticket` docs, the whole-plan sync endpoint batching correctly, Effort computation (zero/one/two+ sub-tasks), the reassignment-resets-order behavior, the `order` PATCH endpoint, and the epic rollup query.
+
+## Comments
+
+**Bug found and fixed while building ticket 20 (epics pill strip):** `fullSyncTickets` (`services/ticketSync.ts`) never actually followed a synced ticket's epic — it upserted `Ticket` docs (`epicKey` included) but nothing ever wrote to the `Epic` collection, so `GET /api/epics`'s `Epic.find({ jiraKey: { $in: epicKeys } })` always returned `[]`. Net effect: the epics strip stayed empty for real usage even when synced tickets had a valid `epicKey`, since only the sibling ticket that's actually planned gets synced — untouched siblings never get a `Ticket` doc at all, which is fine/expected (rollup is phase-1-accepted to only count synced siblings), but the *epic itself* not existing meant the whole epic silently never appeared regardless of how many siblings were synced.
+
+Fixed in `fullSyncTickets`: after upserting every synced ticket, it now also bulk-fetches the distinct `epicKey`s among them and upserts `title`/`status`/`lastSyncedAt` onto an `Epic` doc per key — matching this ticket's own spec quote ("single-ticket entry: fetches and caches that one ticket (+ its sub-tasks, epic if any)") which the original implementation missed. Covered by three new tests in `test/ticketSync.test.ts`.
