@@ -8,6 +8,7 @@ import type { Team } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Header } from './Header'
 import { PlanningView } from './PlanningView'
+import { StatusView } from './StatusView'
 import { TeamSwitcher } from './TeamSwitcher'
 
 type SprintTab = 'planning' | 'status' | 'epics'
@@ -18,8 +19,9 @@ const SPRINT_TABS: readonly { key: SprintTab; label: string }[] = [
   { key: 'epics', label: 'Epics' },
 ]
 
-// Read-only-for-now placeholder for the Planning/Status/Epics sub-views,
-// built out in tickets 18/20/21.
+// Read-only-for-now placeholder for the Epics sub-view, built out in
+// ticket 20 (its full implementation lives inside PlanningView's
+// EpicPillStrip, per the spec - no dedicated route beyond this stub).
 function SprintStubView({ label }: { label: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
@@ -117,7 +119,7 @@ function TeamShell({
       <Routes>
         <Route index element={<Navigate to="planning" replace />} />
         <Route path="planning" element={<PlanningView team={team} />} />
-        <Route path="status" element={<SprintStubView label="Status" />} />
+        <Route path="status" element={<StatusView team={team} />} />
         <Route path="epics" element={<SprintStubView label="Epics" />} />
       </Routes>
     </>

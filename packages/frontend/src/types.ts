@@ -169,6 +169,20 @@ export interface Sprint {
   lastSyncedAt?: string
 }
 
+// One value from the Jira board's real workflow column configuration,
+// mirrored locally - mirrors backend models/Status.ts exactly. Refreshed
+// wholesale from Jira as a side effect of every sync action, never
+// hand-edited; `category` drives only the Status view column header's
+// subtle accent color, never which tickets group into it (that's `name`).
+export interface Status {
+  _id?: string
+  id?: string
+  name: string
+  order: number
+  category: 'todo' | 'in_progress' | 'done'
+  lastSyncedAt: string
+}
+
 // A cached snapshot of a Jira epic - mirrors backend models/Epic.ts, plus
 // the child-ticket rollup GET /api/epics?sprintId= computes server-side
 // from Ticket.epicKey (childCount/doneCount are never stored on the Epic

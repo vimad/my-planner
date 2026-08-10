@@ -1,4 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
+import { Sprint } from '../models/Sprint.ts'
+import { Team } from '../models/Team.ts'
+import { Ticket } from '../models/Ticket.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 
 export const ticketsRouter = Router()
@@ -7,6 +10,32 @@ interface DevQaOverrideBody {
   devPersonId?: string | null
   qaPersonId?: string | null
 }
+
+// GET /api/tickets?teamId=&sprintId= -> every cached Ticket currently in
+// that sprint (Ticket.currentSprintKey, Jira's live answer) and within the
+// team's Jira label filter — the same scope Lightweight sync's JQL applies
+// per-person (routes/statusSync.ts), minus the assignee clause, so the
+// Status view can read cached data for the whole roster (per-row ticket
+// count/last-synced) without syncing anyone first, and re-read it after a
+// per-person sync without a second bespoke endpoint.
+ticketsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { teamId, sprintId } = req.query
+
+    if (!teamId || typeof teamId !== 'string' || !sprintId || typeof sprintId !== 'string') {
+      return res.status(400).json({ error: 'teamId and sprintId are required' })
+    }
+
+    const [team, sprint] = await Promise.all([Team.findById(teamId), Sprint.findById(sprintId)])
+    if (!team) return res.status(404).json({ error: 'Team not found' })
+    if (!sprint) return res.status(404).json({ error: 'Sprint not found' })
+
+    const tickets = await Ticket.find({ currentSprintKey: sprint.jiraSprintId, labels: { $in: team.jiraLabels } })
+    res.json(tickets)
+  } catch (err) {
+    next(err)
+  }
+})
 
 // PUT /api/tickets/:ticketId/dev-qa-override -> body
 // { devPersonId?, qaPersonId? }. Upserts the ticket's TicketDevQaOverride,

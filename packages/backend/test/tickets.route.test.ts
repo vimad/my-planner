@@ -4,15 +4,71 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 interface MockedTicketDevQaOverrideModel {
   findOneAndUpdate: Mock
 }
+interface MockedTeamModel {
+  findById: Mock
+}
+interface MockedSprintModel {
+  findById: Mock
+}
+interface MockedTicketModel {
+  find: Mock
+}
 
 vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
   TicketDevQaOverride: { findOneAndUpdate: vi.fn() },
 }))
+vi.mock('../src/models/Team.ts', () => ({ Team: { findById: vi.fn() } }))
+vi.mock('../src/models/Sprint.ts', () => ({ Sprint: { findById: vi.fn() } }))
+vi.mock('../src/models/Ticket.ts', () => ({ Ticket: { find: vi.fn() } }))
 
 const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
   TicketDevQaOverride: MockedTicketDevQaOverrideModel
 }
+const { Team } = (await import('../src/models/Team.ts')) as unknown as { Team: MockedTeamModel }
+const { Sprint } = (await import('../src/models/Sprint.ts')) as unknown as { Sprint: MockedSprintModel }
+const { Ticket } = (await import('../src/models/Ticket.ts')) as unknown as { Ticket: MockedTicketModel }
 const { createApp } = await import('../src/app.ts')
+
+describe('GET /api/tickets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects a missing teamId/sprintId', async () => {
+    const app = createApp()
+    const res = await request(app).get('/api/tickets').query({ teamId: 't1' })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when the team does not exist', async () => {
+    Team.findById.mockResolvedValue(null)
+    const app = createApp()
+    const res = await request(app).get('/api/tickets').query({ teamId: 't1', sprintId: 's1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 404 when the sprint does not exist', async () => {
+    Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
+    Sprint.findById.mockResolvedValue(null)
+    const app = createApp()
+    const res = await request(app).get('/api/tickets').query({ teamId: 't1', sprintId: 's1' })
+    expect(res.status).toBe(404)
+  })
+
+  it("returns cached tickets scoped to the sprint's jiraSprintId and the team's jiraLabels", async () => {
+    Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
+    Sprint.findById.mockResolvedValue({ jiraSprintId: '632' })
+    const tickets = [{ jiraKey: 'WOSMVP-100', status: 'To Do' }]
+    Ticket.find.mockResolvedValue(tickets)
+
+    const app = createApp()
+    const res = await request(app).get('/api/tickets').query({ teamId: 't1', sprintId: 's1' })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual(tickets)
+    expect(Ticket.find).toHaveBeenCalledWith({ currentSprintKey: '632', labels: { $in: ['Odyssey'] } })
+  })
+})
 
 describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
   beforeEach(() => {

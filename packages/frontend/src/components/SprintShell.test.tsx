@@ -117,9 +117,12 @@ describe('SprintShell', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Status' }))
     await waitFor(() => {
-      expect(screen.getByText('Status view coming soon.')).toBeInTheDocument()
+      expect(window.location.pathname).toBe('/sprint/team-a/status')
     })
-    expect(window.location.pathname).toBe('/sprint/team-a/status')
+    // StatusView (ticket 21) shares Planning's own "no sprints" wording for
+    // its sprint selector, so this also confirms the real view mounted
+    // (rather than erroring) with the same empty-sprints stub data.
+    expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Epics' }))
     await waitFor(() => {
