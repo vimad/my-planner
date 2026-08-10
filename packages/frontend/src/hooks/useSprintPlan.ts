@@ -31,6 +31,17 @@ interface PlanFetchResult {
   entries: SprintPlanEntry[]
 }
 
+// One row-reorder's worth of a save-on-drop PATCH (ticket 19): `field` picks
+// which of SprintPlanEntry's three independent order namespaces this
+// placement belongs to (see SprintPlanEntry.ts) - a non-split placement
+// always patches `order`, a Split ticket's dev-row or qa-row placement
+// patches only that role's own devOrder/qaOrder.
+export interface SprintPlanEntryOrderPatch {
+  entryId: string
+  field: 'order' | 'devOrder' | 'qaOrder'
+  value: number
+}
+
 // Fetched together since the Planning view always renders them side by side
 // - the capacity strip and the "Tickets by person" table read from entries
 // too (Planned is derived from the same SprintPlanEntry list).
@@ -94,6 +105,22 @@ export interface UseSprintPlanResult {
   // DevQaAssignmentPopup save action. Refreshes the plan on success so the
   // badge moves into the newly-picked person's row.
   saveDevQaOverride: (ticketId: string, body: { devPersonId?: string | null; qaPersonId?: string | null }) => Promise<void>
+
+  // PATCH /api/sprint-plan-entries/:id per patch (ticket 19's drag-reorder
+  // save-on-drop) - optimistic, patching local `entries` state immediately
+  // so the reorder feels instant, then rolling every patch in the drop back
+  // to its pre-drag value if any PATCH fails (mirrors TodoDetail.tsx's
+  // linked-todo drag-reorder). No separate loading/error state exposed -
+  // same minimal-UX convention as that existing reorder.
+  reorderEntries: (patches: SprintPlanEntryOrderPatch[]) => Promise<void>
+
+  syncingPlan: boolean
+  syncPlanError: string | null
+  // POST /api/sprint-plan-entries/sync (ticket 13) - ticket 19's global
+  // "Sync plan" button. Refreshes capacity+entries together on success via
+  // refreshPlan(), same as every other plan-mutating action in this hook,
+  // rather than patching local state from the sync response directly.
+  syncPlan: () => Promise<void>
 }
 
 // Backs ticket 18's Planning view: the sprint selector, capacity strip, and
@@ -124,6 +151,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
+  const [syncingPlan, setSyncingPlan] = useState(false)
+  const [syncPlanError, setSyncPlanError] = useState<string | null>(null)
 
   // Sprint list - resolves the team's Jira board and re-selects an active
   // sprint (falling back to the first) whenever the previously-selected id
@@ -302,6 +331,54 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [refreshPlan],
   )
 
+  const reorderEntries = useCallback(
+    async (patches: SprintPlanEntryOrderPatch[]) => {
+      if (patches.length === 0) return
+      const previous = entries
+      setEntries((prev) =>
+        prev.map((e) => {
+          const patch = patches.find((p) => p.entryId === (getId(e) ?? ''))
+          return patch ? { ...e, [patch.field]: patch.value } : e
+        }),
+      )
+      try {
+        await Promise.all(
+          patches.map(async (p) => {
+            const res = await fetch(`${API_URL}/api/sprint-plan-entries/${p.entryId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ [p.field]: p.value }),
+            })
+            if (!res.ok) throw new Error(await parseErrorMessage(res))
+          }),
+        )
+      } catch {
+        setEntries(previous)
+      }
+    },
+    [entries],
+  )
+
+  const syncPlan = useCallback(async () => {
+    if (!teamId || !selectedSprintId) return
+    setSyncingPlan(true)
+    setSyncPlanError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/sprint-plan-entries/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId, sprintId: selectedSprintId }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      refreshPlan()
+    } catch (err) {
+      setSyncPlanError((err as Error).message)
+      throw err
+    } finally {
+      setSyncingPlan(false)
+    }
+  }, [teamId, selectedSprintId, refreshPlan])
+
   return {
     sprints,
     loadingSprints,
@@ -323,5 +400,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
+    reorderEntries,
+    syncingPlan,
+    syncPlanError,
+    syncPlan,
   }
 }

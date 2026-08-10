@@ -606,5 +606,43 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).patch('/api/sprint-plan-entries/nope').send({ order: 1 })
       expect(res.status).toBe(404)
     })
+
+    it('updates devOrder only, leaving order/qaOrder untouched (Split ticket dev-row drag)', async () => {
+      const populate = vi.fn().mockResolvedValue({ _id: 'e1', devOrder: 2 })
+      SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ devOrder: 2 })
+
+      expect(res.status).toBe(200)
+      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { devOrder: 2 }, { new: true })
+    })
+
+    it('updates qaOrder only, leaving order/devOrder untouched (Split ticket qa-row drag)', async () => {
+      const populate = vi.fn().mockResolvedValue({ _id: 'e1', qaOrder: 3 })
+      SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ qaOrder: 3 })
+
+      expect(res.status).toBe(200)
+      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { qaOrder: 3 }, { new: true })
+    })
+
+    it('rejects a non-numeric devOrder/qaOrder', async () => {
+      const app = createApp()
+      const res1 = await request(app).patch('/api/sprint-plan-entries/e1').send({ devOrder: 'x' })
+      expect(res1.status).toBe(400)
+      const res2 = await request(app).patch('/api/sprint-plan-entries/e1').send({ qaOrder: 'x' })
+      expect(res2.status).toBe(400)
+      expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects a body with none of order/devOrder/qaOrder present', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/sprint-plan-entries/e1').send({})
+      expect(res.status).toBe(400)
+      expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
   })
 })

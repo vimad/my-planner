@@ -33,6 +33,8 @@ interface SyncPlanBody {
 
 interface ReorderBody {
   order?: number
+  devOrder?: number
+  qaOrder?: number
 }
 
 // A team's current TeamMembership roster, reduced to what
@@ -305,19 +307,36 @@ sprintPlanEntriesRouter.post(
   },
 )
 
-// PATCH /api/sprint-plan-entries/:id -> body { order }. Drag-reorder
-// save-on-drop (ticket 19 is the UI consumer).
+// PATCH /api/sprint-plan-entries/:id -> body { order?, devOrder?, qaOrder? },
+// only-touch-what's-present (same convention as PUT
+// /api/tickets/:ticketId/dev-qa-override). Drag-reorder save-on-drop (ticket
+// 19 is the UI consumer): a non-split placement patches `order`; a Split
+// ticket's dev-row or qa-row placement patches only that role's own
+// devOrder/qaOrder, never both in the same request.
 sprintPlanEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, ReorderBody>, res: Response, next: NextFunction) => {
     try {
-      const { order } = req.body
+      const { order, devOrder, qaOrder } = req.body
+      const update: Partial<Record<'order' | 'devOrder' | 'qaOrder', number>> = {}
 
-      if (typeof order !== 'number') {
-        return res.status(400).json({ error: 'order must be a number' })
+      if (order !== undefined) {
+        if (typeof order !== 'number') return res.status(400).json({ error: 'order must be a number' })
+        update.order = order
+      }
+      if (devOrder !== undefined) {
+        if (typeof devOrder !== 'number') return res.status(400).json({ error: 'devOrder must be a number' })
+        update.devOrder = devOrder
+      }
+      if (qaOrder !== undefined) {
+        if (typeof qaOrder !== 'number') return res.status(400).json({ error: 'qaOrder must be a number' })
+        update.qaOrder = qaOrder
+      }
+      if (Object.keys(update).length === 0) {
+        return res.status(400).json({ error: 'order, devOrder or qaOrder is required' })
       }
 
-      const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, { order }, { new: true }).populate(
+      const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, update, { new: true }).populate(
         'ticketId',
       )
 

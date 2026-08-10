@@ -1,4 +1,6 @@
+import type { DragEndEvent } from '@dnd-kit/core'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useRef, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { PlanningView } from './PlanningView'
 import type {
@@ -11,6 +13,52 @@ import type {
   TeamMembership,
   Ticket,
 } from '../types'
+
+// dnd-kit's real drag gesture recognition needs real layout
+// (getBoundingClientRect) that jsdom can't provide, so pointer/keyboard drag
+// physics aren't ours to re-test here - dnd-kit owns that contract. Instead,
+// DndContext is stubbed to hand back its onDragEnd callback directly,
+// same approach BoardsView.test.tsx/TodoDetail.test.tsx already established.
+// PlanningView mounts one independent DndContext per person row (ticket 19's
+// "no cross-row dragging"), so - unlike those single-DndContext views - each
+// mounted DndContext is captured by row-mount-order index (stable across
+// re-renders via useRef, since membership row order never changes) rather
+// than a single shared variable.
+let dragEndByRowIndex: Array<(event: DragEndEvent) => void | Promise<void>> = []
+let nextRowIndex = 0
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  return {
+    ...actual,
+    DndContext: ({
+      children,
+      onDragEnd,
+    }: {
+      children: ReactNode
+      onDragEnd: (event: DragEndEvent) => void | Promise<void>
+    }) => {
+      const indexRef = useRef<number | null>(null)
+      if (indexRef.current === null) indexRef.current = nextRowIndex++
+      dragEndByRowIndex[indexRef.current] = onDragEnd
+      return children
+    },
+  }
+})
+vi.mock('@dnd-kit/sortable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/sortable')>()
+  return {
+    ...actual,
+    SortableContext: ({ children }: { children: ReactNode }) => children,
+    useSortable: () => ({
+      attributes: {},
+      listeners: {},
+      setNodeRef: () => {},
+      transform: null,
+      transition: null,
+      isDragging: false,
+    }),
+  }
+})
 
 interface FakeResponse {
   ok: boolean
@@ -149,6 +197,14 @@ function entry(
   }
 }
 
+// Configures the next POST /api/sprint-plan-entries/sync stub response
+// (ticket 19's "Sync plan" tests): bumps every ticket's lastSyncedAt to now,
+// and - when set - reassigns one entry's ticket to a different accountId,
+// mirroring the real reassignment-reset behavior that moves a badge into
+// its new assignee's row (routes/sprintPlanEntries.ts's
+// applyReassignmentResets).
+let syncReassign: { entryId: string; newAccountId: string } | null = null
+
 function stubFetch(): FetchMock {
   const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
@@ -173,6 +229,29 @@ function stubFetch(): FetchMock {
         return { ...e, devQa: nextDevQa }
       })
       return jsonResponse({ ticketId, ...body })
+    }
+
+    if (href.endsWith('/api/sprint-plan-entries/sync') && method === 'POST') {
+      entriesData = entriesData.map((e) => {
+        const reassigned = syncReassign && e._id === syncReassign.entryId
+        return {
+          ...e,
+          ticketId: {
+            ...e.ticketId,
+            ...(reassigned ? { assigneeAccountId: syncReassign!.newAccountId } : {}),
+            lastSyncedAt: new Date().toISOString(),
+          },
+        }
+      })
+      return jsonResponse(entriesData)
+    }
+
+    const patchMatch = href.match(/\/api\/sprint-plan-entries\/([^/?]+)$/)
+    if (patchMatch && method === 'PATCH') {
+      const id = patchMatch[1]
+      const body: { order?: number; devOrder?: number; qaOrder?: number } = JSON.parse(init?.body ?? '{}')
+      entriesData = entriesData.map((e) => (e._id === id ? { ...e, ...body } : e))
+      return jsonResponse(entriesData.find((e) => e._id === id))
     }
 
     if (href.includes('/api/sprint-plan-entries') && method === 'POST') {
@@ -200,6 +279,9 @@ describe('PlanningView', () => {
   beforeEach(() => {
     entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0)]
     fetchMock = stubFetch()
+    syncReassign = null
+    dragEndByRowIndex = []
+    nextRowIndex = 0
   })
 
   afterEach(() => {
@@ -408,6 +490,221 @@ describe('PlanningView', () => {
         expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('700')).toBeInTheDocument(),
       )
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Drag-reorder (ticket 19)', () => {
+    it("reorders two tickets within a person's row via a save-on-drop PATCH, and the new order survives a reload", async () => {
+      entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0), entry('e3', newTicket, 1)]
+      fetchMock = stubFetch()
+
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
+      await waitFor(() => expect(within(adaRow).getByText('200')).toBeInTheDocument())
+
+      // Ada's row (memberships[0], mounted first) is dragEndByRowIndex[0] -
+      // see the DndContext mock above. Drag WOSMVP-100 (order 0) past
+      // WOSMVP-200 (order 1): both entries are "affected" (both cross a
+      // position), so both PATCH.
+      await dragEndByRowIndex[0]?.({ active: { id: 'e1-main' }, over: { id: 'e3-main' } } as DragEndEvent)
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e1',
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ order: 1 }) }),
+        ),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries/e3',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ order: 0 }) }),
+      )
+
+      // "Survives a reload": entriesData (what GET reads from) was mutated
+      // by the PATCH stub, so a fresh mount (a stand-in for a reload) reads
+      // the new order back and renders the badges in the new sequence.
+      const { container } = render(<PlanningView team={team} />)
+      const reloadedAdaRow = await within(container).findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(reloadedAdaRow).getByText('200')).toBeInTheDocument())
+      const badges = within(reloadedAdaRow).getAllByText(/^(100|200)$/)
+      expect(badges[0].textContent).toContain('200')
+      expect(badges[1].textContent).toContain('100')
+    })
+
+    it('does not PATCH anything when a drag is dropped back on its own position', async () => {
+      entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0), entry('e3', newTicket, 1)]
+      fetchMock = stubFetch()
+
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fetchMock.mockClear()
+      await dragEndByRowIndex[0]?.({ active: { id: 'e1-main' }, over: { id: 'e1-main' } } as DragEndEvent)
+
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringContaining('/api/sprint-plan-entries/e1'),
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+
+    it("only patches a placement's own role field, never a co-placed role sharing the same entry or an unrelated plain order", async () => {
+      // eBoth is a Split ticket resolved dev *and* qa to Ada - it lands in
+      // Ada's row twice, once per role (devOrder 0, qaOrder 0). eDevOnly is
+      // a second Split ticket resolved dev to Ada (qa to Grace, elsewhere) -
+      // devOrder 1, giving the dev-role group two members so a drag among
+      // them produces a real devOrder change. Dragging eDevOnly's dev badge
+      // ahead of eBoth's dev badge must only ever patch devOrder - eBoth's
+      // own qaOrder (same entry id!) and e1's unrelated plain order must
+      // never be touched (ticket 19: "dragging one only ever writes that
+      // role's own devOrder/qaOrder, never the other").
+      const splitBoth = ticket({ jiraKey: 'WOSMVP-301', assigneeAccountId: null, title: 'Both dev and qa', type: 'Story' })
+      const splitDevOnly = ticket({ jiraKey: 'WOSMVP-302', assigneeAccountId: null, title: 'Dev only', type: 'Story' })
+      entriesData = [
+        entry('e1', adaTicket, 0),
+        entry('e-both', splitBoth, 1, { devQa: { dev: resolvedSubtask('p1'), qa: resolvedSubtask('p1') }, devOrder: 0, qaOrder: 0 }),
+        entry('e-devonly', splitDevOnly, 2, { devQa: { dev: resolvedSubtask('p1'), qa: resolvedSubtask('p2') }, devOrder: 1 }),
+      ]
+      fetchMock = stubFetch()
+
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('302')).toBeInTheDocument())
+
+      await dragEndByRowIndex[0]?.({ active: { id: 'e-devonly-dev' }, over: { id: 'e-both-dev' } } as DragEndEvent)
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e-both',
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ devOrder: 1 }) }),
+        ),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries/e-devonly',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ devOrder: 0 }) }),
+      )
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries/e-both',
+        expect.objectContaining({ body: expect.stringContaining('qaOrder') }),
+      )
+      expect(fetchMock).not.toHaveBeenCalledWith('http://localhost:4100/api/sprint-plan-entries/e1', expect.anything())
+    })
+
+    it('rolls back the optimistic reorder if the PATCH fails', async () => {
+      entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0), entry('e3', newTicket, 1)]
+      const base = stubFetch()
+      fetchMock = vi.fn((url, init) => {
+        const href = String(url)
+        const method = init?.method ?? 'GET'
+        const patchMatch = href.match(/\/api\/sprint-plan-entries\/([^/?]+)$/)
+        if (patchMatch && method === 'PATCH') return jsonResponse({ error: 'boom' }, 500)
+        return base(url, init)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
+      await waitFor(() => expect(within(adaRow).getByText('200')).toBeInTheDocument())
+
+      await dragEndByRowIndex[0]?.({ active: { id: 'e1-main' }, over: { id: 'e3-main' } } as DragEndEvent)
+
+      // The failed PATCH rolls the local optimistic reorder back - badge
+      // order in the row returns to its pre-drag order (100 before 200).
+      await waitFor(() => {
+        const badges = within(adaRow).getAllByText(/^(100|200)$/)
+        expect(badges[0].textContent).toContain('100')
+        expect(badges[1].textContent).toContain('200')
+      })
+    })
+  })
+
+  describe('Sync plan (ticket 19)', () => {
+    it('shows a loading state while syncing, then returns to idle on success', async () => {
+      // The default stub resolves the sync POST near-instantly, too fast
+      // for the transient "Syncing…" state to be reliably observable -
+      // deferred here so the loading state stays put until asserted on.
+      let resolveSync: ((response: FakeResponse) => void) | undefined
+      const base = stubFetch()
+      fetchMock = vi.fn((url, init) => {
+        const href = String(url)
+        const method = init?.method ?? 'GET'
+        if (href.endsWith('/api/sprint-plan-entries/sync') && method === 'POST') {
+          return new Promise<FakeResponse>((resolve) => {
+            resolveSync = resolve
+          })
+        }
+        return base(url, init)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      const button = screen.getByRole('button', { name: 'Sync plan' })
+      fireEvent.click(button)
+
+      expect(await screen.findByRole('button', { name: 'Syncing…' })).toBeDisabled()
+
+      resolveSync?.({ ok: true, status: 200, json: () => Promise.resolve(entriesData) })
+
+      expect(await screen.findByRole('button', { name: 'Sync plan' })).not.toBeDisabled()
+    })
+
+    it("refreshes every ticket's staleness display on completion", async () => {
+      const staleTicket = ticket({
+        jiraKey: 'WOSMVP-900',
+        assigneeAccountId: 'acc-1',
+        title: 'Stale ticket',
+        lastSyncedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      })
+      entriesData = [entry('e-stale', staleTicket, 0)]
+      fetchMock = stubFetch()
+
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badgeBefore = await within(adaRow).findByText('900')
+      expect(badgeBefore).toHaveAttribute('title', expect.stringContaining('2h ago'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Sync plan' }))
+
+      await waitFor(() => {
+        const badgeAfter = within(adaRow).getByText('900')
+        expect(badgeAfter).toHaveAttribute('title', expect.stringContaining('just now'))
+      })
+    })
+
+    it('shows an error message when the sync request fails, and re-enables the button', async () => {
+      const base = stubFetch()
+      fetchMock = vi.fn((url, init) => {
+        const href = String(url)
+        if (href.endsWith('/api/sprint-plan-entries/sync')) return jsonResponse({ error: 'Jira unreachable' }, 502)
+        return base(url, init)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Sync plan' }))
+
+      expect(await screen.findByText('Jira unreachable')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Sync plan' })).not.toBeDisabled()
+    })
+
+    it("moves a reassigned ticket's badge into its new assignee's row after a sync", async () => {
+      entriesData = [entry('e1', adaTicket, 0)]
+      syncReassign = { entryId: 'e1', newAccountId: 'acc-2' }
+      fetchMock = stubFetch()
+
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Sync plan' }))
+
+      const graceRow = await screen.findByLabelText('Tickets for Grace Hopper')
+      await waitFor(() => expect(within(graceRow).getByText('100')).toBeInTheDocument())
+      await waitFor(() => expect(within(adaRow).queryByText('100')).not.toBeInTheDocument())
     })
   })
 })

@@ -1,5 +1,9 @@
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useSprintPlan } from '../hooks/useSprintPlan'
+import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { getId } from '../utils/getId'
 import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
@@ -12,6 +16,49 @@ import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
 interface PlacedEntry {
   entry: SprintPlanEntry
   role?: 'dev' | 'qa'
+}
+
+function placementKey(p: PlacedEntry): string {
+  return `${getId(p.entry) ?? p.entry.ticketId.jiraKey}-${p.role ?? 'main'}`
+}
+
+// Which of SprintPlanEntry's three independent order namespaces (ticket 23's
+// devOrder/qaOrder alongside the original order) a placement belongs to -
+// see SprintPlanEntry.ts. A non-split placement (`role` unset) always uses
+// `order`; a Split ticket's dev-row or qa-row placement uses only its own
+// role's field.
+function placementField(p: PlacedEntry): 'order' | 'devOrder' | 'qaOrder' {
+  if (p.role === 'dev') return 'devOrder'
+  if (p.role === 'qa') return 'qaOrder'
+  return 'order'
+}
+
+function placementFieldValue(p: PlacedEntry): number {
+  const field = placementField(p)
+  if (field === 'devOrder') return p.entry.devOrder ?? 0
+  if (field === 'qaOrder') return p.entry.qaOrder ?? 0
+  return p.entry.order
+}
+
+// Ticket 19's drag-reorder save-on-drop: reorders `placements` per the drag
+// result, then re-numbers each field-type group (order / devOrder / qaOrder)
+// within the row independently, 0-indexed by its new position among only
+// its own group - mirroring nextOrderForAssignee/nextOrderForRole's
+// server-side placement math. Only entries whose field value actually
+// changed are returned, so a drop that doesn't cross a group boundary
+// doesn't PATCH unrelated entries.
+function computeReorderPatches(placements: PlacedEntry[], oldIndex: number, newIndex: number): SprintPlanEntryOrderPatch[] {
+  const reordered = arrayMove(placements, oldIndex, newIndex)
+  const counters: Record<'order' | 'devOrder' | 'qaOrder', number> = { order: 0, devOrder: 0, qaOrder: 0 }
+  const patches: SprintPlanEntryOrderPatch[] = []
+  for (const p of reordered) {
+    const field = placementField(p)
+    const value = counters[field]++
+    if (placementFieldValue(p) !== value) {
+      patches.push({ entryId: getId(p.entry) ?? '', field, value })
+    }
+  }
+  return patches
 }
 
 function relativeTime(iso: string): string {
@@ -122,6 +169,28 @@ function WorkingDaysForm({ saving, onSave }: { saving: boolean; onSave: (days: n
   )
 }
 
+// Ticket 19's global full-resync action - deliberately the only resync
+// affordance anywhere in the Planning view (no per-ticket resync button, per
+// the spec). Full syncs every ticket already in the plan (POST
+// /api/sprint-plan-entries/sync, ticket 13) then refetches capacity+entries
+// together, so every ticket's staleness (TicketBadge's title tooltip) and
+// any reassignment-driven row move land in one pass.
+function SyncPlanButton({ syncing, error, onSync }: { syncing: boolean; error: string | null; onSync: () => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onSync}
+        disabled={syncing}
+        className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+      >
+        {syncing ? 'Syncing…' : 'Sync plan'}
+      </button>
+      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+    </div>
+  )
+}
+
 function AddToPlanForm({
   value,
   onChange,
@@ -162,8 +231,11 @@ function AddToPlanForm({
   )
 }
 
-// A read-only ticket-number pill (drag-reorder is ticket 19), except in its
-// `needsAssignment` variant (ticket 24) which is itself the click target
+// A ticket-number pill, wrapped by SortableTicketBadge (below) for drag-
+// reorder within a real per-person row (ticket 19) - the Unmapped/Needs
+// dev/qa catch-all rows render it bare, undraggable, since their placements
+// don't share a single meaningful order group (see PersonRow). In its
+// `needsAssignment` variant (ticket 24) it's itself the click target
 // that opens DevQaAssignmentPopup for that ticket. The full title/status/
 // staleness lives in the title tooltip rather than on the face of the
 // badge, per the ticket's "enough to identify the ticket". `role` renders a
@@ -229,16 +301,50 @@ function TicketBadge({
   )
 }
 
+// Makes one badge draggable/sortable via dnd-kit, mirroring TodoDetail's
+// SortableLinkedTodoRow / BoardsView's SortableBoardCard: a small separate
+// drag-handle button (not the badge itself) owns useSortable's
+// listeners/attributes, keeping the needsAssignment variant's own onClick
+// (never used here - only a resolved, non-flagged placement ever lands in a
+// real per-person row, see ticketsByMembershipId) conflict-free by
+// construction.
+function SortableTicketBadge({ placement }: { placement: PlacedEntry }) {
+  const key = placementKey(placement)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: key })
+  const style = { transform: CSS.Transform.toString(transform), transition }
+  const label = placement.role ? `${placement.entry.ticketId.jiraKey} (${placement.role})` : placement.entry.ticketId.jiraKey
+
+  return (
+    <span ref={setNodeRef} style={style} className={`inline-flex items-center gap-0.5 ${isDragging ? 'opacity-50' : ''}`}>
+      <button
+        type="button"
+        aria-label={`Reorder ${label}`}
+        {...attributes}
+        {...listeners}
+        className="shrink-0 cursor-grab touch-none rounded px-0.5 text-[10px] leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-700 active:cursor-grabbing dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        ⠿
+      </button>
+      <TicketBadge entry={placement.entry} role={placement.role} />
+    </span>
+  )
+}
+
 function PersonRow({
   name,
   placements,
   variant = 'normal',
   onOpenPopup,
+  onReorder,
 }: {
   name: string
   placements: PlacedEntry[]
   variant?: 'normal' | 'unmapped' | 'needsAssignment'
   onOpenPopup?: (ticketId: string) => void
+  // Save-on-drop reorder within this row only (ticket 19) - undefined for
+  // the Unmapped/Needs dev/qa catch-all rows, which stay undraggable (see
+  // TicketBadge's comment above).
+  onReorder?: (patches: SprintPlanEntryOrderPatch[]) => void
 }) {
   const unmapped = variant === 'unmapped'
   const needsAssignment = variant === 'needsAssignment'
@@ -255,6 +361,26 @@ function PersonRow({
       ? 'text-sky-600/70 dark:text-sky-300/60'
       : 'text-slate-400'
 
+  // Only a real per-person row is sortable: dragging within Unmapped mixes
+  // placements from unrelated real Jira assignees whose `order` values
+  // aren't a meaningful group together (SprintPlanEntry.ts's "meaningful
+  // only relative to other entries sharing this ticket's current
+  // assignee"), and Needs dev/qa's badges are already the popup's own click
+  // target. `sortable` gates DndContext/SortableContext below, not the
+  // hooks (dnd-kit's own hooks aren't used unconditionally here - only
+  // useSensors, safe to call every render regardless).
+  const sortable = variant === 'normal' && !!onReorder
+  const dragSensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = placements.findIndex((p) => placementKey(p) === active.id)
+    const newIndex = placements.findIndex((p) => placementKey(p) === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    onReorder?.(computeReorderPatches(placements, oldIndex, newIndex))
+  }
+
   return (
     <div
       aria-label={`Tickets for ${name}`}
@@ -263,11 +389,21 @@ function PersonRow({
       <span className={`pt-0.5 text-sm font-medium ${nameClass}`}>{flagged ? `${unmapped ? '⚠' : '❓'} ${name}` : name}</span>
       {placements.length === 0 ? (
         <span className={`pt-0.5 text-xs ${emptyClass}`}>No tickets planned</span>
+      ) : sortable ? (
+        <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={placements.map(placementKey)} strategy={rectSortingStrategy}>
+            <div className="flex flex-wrap gap-1.5">
+              {placements.map((p) => (
+                <SortableTicketBadge key={placementKey(p)} placement={p} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {placements.map(({ entry, role }) => (
             <TicketBadge
-              key={`${getId(entry) ?? entry.ticketId.jiraKey}-${role ?? 'main'}`}
+              key={placementKey({ entry, role })}
               entry={entry}
               role={role}
               unmapped={unmapped}
@@ -282,9 +418,9 @@ function PersonRow({
 }
 
 // Ticket 18's core Planning surface: sprint selector, capacity strip, the
-// "Add to plan" entry bar, and the "Tickets by person" table - all
-// read-only towards drag order (ticket 19) and epics (ticket 20). Mounted
-// by SprintShell at /sprint/:teamSlug/planning once a team is resolved.
+// "Add to plan" entry bar, and the "Tickets by person" table, plus ticket
+// 19's per-row drag-reorder and global "Sync plan" resync. Mounted by
+// SprintShell at /sprint/:teamSlug/planning once a team is resolved.
 export function PlanningView({ team }: { team: Team }) {
   const teamId = getId(team) ?? null
   const {
@@ -308,6 +444,10 @@ export function PlanningView({ team }: { team: Team }) {
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
+    reorderEntries,
+    syncingPlan,
+    syncPlanError,
+    syncPlan,
   } = useSprintPlan(teamId)
 
   const [entryValue, setEntryValue] = useState('')
@@ -481,7 +621,10 @@ export function PlanningView({ team }: { team: Team }) {
           />
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-            <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
+              <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
+            </div>
             {loadingMemberships ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
             ) : memberships.length === 0 ? (
@@ -496,6 +639,7 @@ export function PlanningView({ team }: { team: Team }) {
                     name={membership.personId.name}
                     placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
                     onOpenPopup={setPopupTicketId}
+                    onReorder={reorderEntries}
                   />
                 ))}
                 <PersonRow name="Unmapped" placements={unmappedPlacements} variant="unmapped" onOpenPopup={setPopupTicketId} />
