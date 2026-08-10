@@ -19,6 +19,7 @@ import { statusSyncRouter } from './routes/statusSync.ts'
 import { teamMembershipsRouter } from './routes/teamMemberships.ts'
 import { teamSprintPlansRouter } from './routes/teamSprintPlans.ts'
 import { teamsRouter } from './routes/teams.ts'
+import { ticketsRouter } from './routes/tickets.ts'
 import { todosRouter } from './routes/todos.ts'
 
 interface CreateAppOptions {
@@ -52,6 +53,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   app.use('/api/team-sprint-plans', teamSprintPlansRouter)
   app.use('/api/teams', teamsRouter)
   app.use('/api/teams', capacityRouter)
+  app.use('/api/tickets', ticketsRouter)
   app.use('/api/todos', todosRouter)
   app.use('/api/scratch-notes', scratchNotesRouter)
   app.use('/api/settings', settingsRouter)

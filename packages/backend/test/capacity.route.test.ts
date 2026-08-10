@@ -35,6 +35,15 @@ vi.mock('../src/models/SprintPlanEntry.ts', () => ({
 vi.mock('../src/services/ticketSync.ts', () => ({
   computeEffortHours: vi.fn(),
 }))
+// isSplitTicket is real (a trivial pure predicate) — only the two
+// DB-touching functions are mocked, same posture as computeEffortHours
+// above: the route's own wiring is under test here, resolveDevQa's actual
+// resolution logic gets its own coverage in devQaResolution.test.ts.
+vi.mock('../src/services/devQaResolution.ts', () => ({
+  isSplitTicket: (type: unknown) => type === 'Story' || type === 'Bug',
+  resolveDevQa: vi.fn(),
+  roleSubtaskEstimateHours: vi.fn(),
+}))
 
 const { TeamSprintPlan } = (await import('../src/models/TeamSprintPlan.ts')) as unknown as {
   TeamSprintPlan: MockedTeamSprintPlanModel
@@ -53,6 +62,10 @@ const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) a
 }
 const { computeEffortHours } = (await import('../src/services/ticketSync.ts')) as unknown as {
   computeEffortHours: Mock
+}
+const { resolveDevQa, roleSubtaskEstimateHours } = (await import('../src/services/devQaResolution.ts')) as unknown as {
+  resolveDevQa: Mock
+  roleSubtaskEstimateHours: Mock
 }
 const { createApp } = await import('../src/app.ts')
 
@@ -175,5 +188,86 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
 
     expect(res.status).toBe(200)
     expect(res.body[0].planned).toBe(0)
+  })
+
+  describe('Split ticket (Story/Bug) Planned — ticket 23', () => {
+    function twoMemberships() {
+      return [
+        membership({ _id: 'm1', personId: { _id: 'p1', name: 'Ada', jiraAccountId: 'acct-a' } }),
+        membership({ _id: 'm2', personId: { _id: 'p2', name: 'Bob', jiraAccountId: 'acct-b' } }),
+      ]
+    }
+
+    it("sums only the ticket's own [Dev]/[Test] Sub-task estimate onto whichever person each role resolves to — never the parent's own estimateHours, never computeEffortHours", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 10 })
+      TeamMembership.find.mockReturnValue(withPopulate(twoMemberships()))
+      CapacityEntry.findOne.mockResolvedValue({ leaveDays: 0 })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          { ticketId: { jiraKey: 'WOSMVP-10', type: 'Story', assigneeAccountId: null, estimateHours: 999 } },
+        ]),
+      )
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'subtask', personId: 'p1' },
+        qa: { status: 'resolved', source: 'subtask', personId: 'p2' },
+      })
+      roleSubtaskEstimateHours.mockImplementation(async (jiraKey: string, kind: string) => (kind === 'Dev' ? 5 : 3))
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(computeEffortHours).not.toHaveBeenCalled()
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-10', 'Dev')
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-10', 'Test')
+      const byPerson = Object.fromEntries(res.body.map((c: { personId: string; planned: number }) => [c.personId, c.planned]))
+      expect(byPerson.p1).toBe(5)
+      expect(byPerson.p2).toBe(3)
+    })
+
+    it('a role resolved (e.g. via Override) with no real Sub-task of that kind contributes 0, and a needs-assignment role is never queried for hours', async () => {
+      TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 10 })
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ leaveDays: 0 })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([{ ticketId: { jiraKey: 'WOSMVP-11', type: 'Bug', assigneeAccountId: null } }]),
+      )
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'override', personId: 'p1' },
+        qa: { status: 'needs-assignment' },
+      })
+      roleSubtaskEstimateHours.mockResolvedValue(0)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledTimes(1)
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-11', 'Dev')
+      expect(res.body[0].planned).toBe(0)
+    })
+
+    it("a Split ticket never falls into the non-split assigneeAccountId/computeEffortHours path, even when the parent's own assigneeAccountId happens to match a person", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 10 })
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ leaveDays: 0 })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          { ticketId: { jiraKey: 'WOSMVP-12', type: 'Story', assigneeAccountId: 'acct-a', estimateHours: 999 } },
+        ]),
+      )
+      resolveDevQa.mockResolvedValue({ dev: { status: 'needs-assignment' }, qa: { status: 'needs-assignment' } })
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(computeEffortHours).not.toHaveBeenCalled()
+      expect(roleSubtaskEstimateHours).not.toHaveBeenCalled()
+      expect(res.body[0].planned).toBe(0)
+    })
   })
 })

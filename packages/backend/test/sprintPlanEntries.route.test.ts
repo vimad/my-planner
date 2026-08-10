@@ -34,6 +34,33 @@ vi.mock('../src/models/SprintPlanEntry.ts', () => ({
   },
 }))
 
+interface MockedTeamMembershipModel {
+  find: Mock
+}
+
+vi.mock('../src/models/TeamMembership.ts', () => ({
+  TeamMembership: { find: vi.fn() },
+}))
+
+interface MockedTicketDevQaOverrideModel {
+  findOne: Mock
+}
+
+vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
+  TicketDevQaOverride: { findOne: vi.fn() },
+}))
+
+// isSplitTicket is real (a trivial pure predicate) — only resolveDevQa (the
+// DB-touching part) is mocked, same posture as capacity.route.test.ts. Its
+// own resolution logic gets its own coverage in devQaResolution.test.ts;
+// this file is only about sprintPlanEntries.ts's wiring around it (GET's
+// inlined devQa, POST's devOrder/qaOrder seeding, and the reassignment
+// reset extension).
+vi.mock('../src/services/devQaResolution.ts', () => ({
+  isSplitTicket: (type: unknown) => type === 'Story' || type === 'Bug',
+  resolveDevQa: vi.fn(),
+}))
+
 vi.mock('../src/services/statusSync.ts', () => ({
   refreshStatusSet: vi.fn(),
 }))
@@ -43,7 +70,18 @@ const { Ticket } = (await import('../src/models/Ticket.ts')) as unknown as { Tic
 const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) as unknown as {
   SprintPlanEntry: MockedSprintPlanEntryModel
 }
+const { TeamMembership } = (await import('../src/models/TeamMembership.ts')) as unknown as {
+  TeamMembership: MockedTeamMembershipModel
+}
+const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
+  TicketDevQaOverride: MockedTicketDevQaOverrideModel
+}
+const { resolveDevQa } = (await import('../src/services/devQaResolution.ts')) as unknown as { resolveDevQa: Mock }
 const { createApp } = await import('../src/app.ts')
+
+function withMembershipPopulate(result: unknown) {
+  return { populate: vi.fn().mockResolvedValue(result) }
+}
 
 function issue(key: string, fields: Record<string, unknown> = {}): JiraIssue {
   return {
@@ -178,6 +216,79 @@ describe('SprintPlanEntry routes', () => {
 
       expect(res.status).toBe(409)
     })
+
+    it('seeds devOrder for a newly added Split ticket whose dev role resolves immediately, leaving qaOrder unset while qa is needs-assignment', async () => {
+      bulkFetchIssues.mockResolvedValueOnce({
+        issues: [issue('WOSMVP-600', { issuetype: { name: 'Story', subtask: false } })],
+        issueErrors: [],
+      })
+      Ticket.findOne.mockResolvedValue(null)
+      Ticket.findOneAndUpdate.mockResolvedValueOnce({
+        _id: 't-600',
+        jiraKey: 'WOSMVP-600',
+        type: 'Story',
+        assigneeAccountId: null,
+      })
+
+      // Both nextOrderForAssignee (order) and nextOrderForRole (devOrder)
+      // see an otherwise-empty plan here — this test is about the seeding
+      // wiring, not row-placement math (that's nextOrderForAssignee's own
+      // existing "places a new entry..." test, mirrored for devOrder below).
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([]))
+      TeamMembership.find.mockReturnValue(withMembershipPopulate([{ personId: { _id: 'p1', jiraAccountId: 'acct-dev' } }]))
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'subtask', personId: 'p1' },
+        qa: { status: 'needs-assignment' },
+      })
+
+      SprintPlanEntry.create.mockResolvedValue({
+        populate: vi.fn().mockResolvedValue({ _id: 'entry-600', order: 0, devOrder: 0 }),
+      })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/sprint-plan-entries')
+        .send({ teamId: 'team-1', sprintId: 'sprint-1', jiraKey: 'WOSMVP-600' })
+
+      expect(res.status).toBe(201)
+      expect(SprintPlanEntry.create).toHaveBeenCalledWith({
+        teamId: 'team-1',
+        sprintId: 'sprint-1',
+        ticketId: 't-600',
+        order: 0,
+        devOrder: 0,
+      })
+    })
+
+    it('does not resolve dev/qa or touch TeamMembership when the added ticket is not a Split ticket', async () => {
+      bulkFetchIssues.mockResolvedValueOnce({
+        issues: [issue('WOSMVP-601', { issuetype: { name: 'Task', subtask: false } })],
+        issueErrors: [],
+      })
+      Ticket.findOne.mockResolvedValue(null)
+      Ticket.findOneAndUpdate.mockResolvedValueOnce({
+        _id: 't-601',
+        jiraKey: 'WOSMVP-601',
+        type: 'Task',
+        assigneeAccountId: null,
+      })
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([]))
+      SprintPlanEntry.create.mockResolvedValue({ populate: vi.fn().mockResolvedValue({ _id: 'entry-601' }) })
+
+      const app = createApp()
+      await request(app)
+        .post('/api/sprint-plan-entries')
+        .send({ teamId: 'team-1', sprintId: 'sprint-1', jiraKey: 'WOSMVP-601' })
+
+      expect(resolveDevQa).not.toHaveBeenCalled()
+      expect(TeamMembership.find).not.toHaveBeenCalled()
+      expect(SprintPlanEntry.create).toHaveBeenCalledWith({
+        teamId: 'team-1',
+        sprintId: 'sprint-1',
+        ticketId: 't-601',
+        order: 0,
+      })
+    })
   })
 
   describe('GET /api/sprint-plan-entries', () => {
@@ -197,6 +308,59 @@ describe('SprintPlanEntry routes', () => {
       expect(res.status).toBe(200)
       expect(SprintPlanEntry.find).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
       expect(res.body).toEqual(docs)
+    })
+
+    it("inlines a Split entry's resolved dev/qa Role assignment as devQa, leaving a non-split entry's shape completely unchanged", async () => {
+      const nonSplitEntry = { _id: 'e1', order: 0, ticketId: { _id: 'tk-1', jiraKey: 'WOSMVP-1' } }
+      const splitEntry = {
+        _id: 'e2',
+        order: 0,
+        devOrder: 1,
+        qaOrder: 2,
+        ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+        toObject() {
+          return {
+            _id: 'e2',
+            order: 0,
+            devOrder: 1,
+            qaOrder: 2,
+            ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+          }
+        },
+      }
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([nonSplitEntry, splitEntry]))
+      TeamMembership.find.mockReturnValue(withMembershipPopulate([{ personId: { _id: 'p1', jiraAccountId: 'acct-a' } }]))
+      const devQa = { dev: { status: 'resolved', source: 'subtask', personId: 'p1' }, qa: { status: 'needs-assignment' } }
+      resolveDevQa.mockResolvedValue(devQa)
+
+      const app = createApp()
+      const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+      expect(res.status).toBe(200)
+      expect(TeamMembership.find).toHaveBeenCalledWith({ teamId: 't1' })
+      expect(resolveDevQa).toHaveBeenCalledWith(splitEntry.ticketId, [{ personId: 'p1', jiraAccountId: 'acct-a' }])
+      expect(res.body).toEqual([
+        nonSplitEntry,
+        {
+          _id: 'e2',
+          order: 0,
+          devOrder: 1,
+          qaOrder: 2,
+          ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+          devQa,
+        },
+      ])
+    })
+
+    it('skips the TeamMembership lookup entirely when the plan has no Split entries at all', async () => {
+      const docs = [{ _id: 'e1', order: 0, ticketId: { jiraKey: 'WOSMVP-1' } }]
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate(docs))
+
+      const app = createApp()
+      await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+      expect(TeamMembership.find).not.toHaveBeenCalled()
+      expect(resolveDevQa).not.toHaveBeenCalled()
     })
   })
 
@@ -302,6 +466,115 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).post('/api/sprint-plan-entries/sync').send({ teamId: 't1' })
       expect(res.status).toBe(400)
       expect(bulkFetchIssues).not.toHaveBeenCalled()
+    })
+
+    it("resets a Split ticket's devOrder when its [Dev] Sub-task assignee changes, but leaves qaOrder untouched when qa is pinned by a TicketDevQaOverride (ADR 0004)", async () => {
+      // Plan has one Split entry (parent WOSMVP-500, devOrder 2, qaOrder 1).
+      // This sync discovers both its [Dev] and [Test] sub-task assignees
+      // changed. dev isn't Overridden -> resolves to someone new -> devOrder
+      // resets. qa *is* Overridden -> must never move, even though its
+      // sub-task assignee also changed.
+      SprintPlanEntry.find
+        .mockReturnValueOnce(findWithPopulate([{ ticketId: { jiraKey: 'WOSMVP-500' } }])) // gather plan jiraKeys
+        .mockReturnValueOnce(
+          findWithPopulate([{ devOrder: 2, qaOrder: 1, ticketId: { _id: 'parent-500', type: 'Story' } }]),
+        ) // nextOrderForRole('dev', ...), excludes parent-500 itself
+        .mockReturnValueOnce(findWithPopulate([])) // final refresh
+
+      bulkFetchIssues
+        .mockResolvedValueOnce({
+          issues: [issue('WOSMVP-500', { issuetype: { name: 'Story' }, subtasks: [{ key: 'WOSMVP-501' }, { key: 'WOSMVP-502' }] })],
+          issueErrors: [],
+        })
+        .mockResolvedValueOnce({
+          issues: [
+            issue('WOSMVP-501', {
+              issuetype: { name: 'Sub-task', subtask: true },
+              summary: '[Dev]Do the thing',
+              assignee: { accountId: 'acct-new-dev' },
+            }),
+            issue('WOSMVP-502', {
+              issuetype: { name: 'Sub-task', subtask: true },
+              summary: '[Test]Do the thing',
+              assignee: { accountId: 'acct-new-qa' },
+            }),
+          ],
+          issueErrors: [],
+        })
+
+      Ticket.findOne.mockImplementation(async (filter: { jiraKey: string }) => {
+        if (filter.jiraKey === 'WOSMVP-500') return { _id: 'parent-500', jiraKey: 'WOSMVP-500', type: 'Story', assigneeAccountId: null }
+        if (filter.jiraKey === 'WOSMVP-501') return { jiraKey: 'WOSMVP-501', assigneeAccountId: 'acct-old-dev' }
+        return { jiraKey: 'WOSMVP-502', assigneeAccountId: 'acct-old-qa' }
+      })
+      Ticket.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }) => {
+        if (filter.jiraKey === 'WOSMVP-500') return { _id: 'parent-500', jiraKey: 'WOSMVP-500', type: 'Story', assigneeAccountId: null }
+        if (filter.jiraKey === 'WOSMVP-501') {
+          return { _id: 'sub-501', jiraKey: 'WOSMVP-501', parentKey: 'WOSMVP-500', subtaskKind: 'Dev', assigneeAccountId: 'acct-new-dev' }
+        }
+        return { _id: 'sub-502', jiraKey: 'WOSMVP-502', parentKey: 'WOSMVP-500', subtaskKind: 'Test', assigneeAccountId: 'acct-new-qa' }
+      })
+
+      TicketDevQaOverride.findOne.mockResolvedValue({ devPersonId: null, qaPersonId: 'person-existing-qa-override' })
+      TeamMembership.find.mockReturnValue(withMembershipPopulate([]))
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'subtask', personId: 'person-new-dev' },
+        qa: { status: 'resolved', source: 'subtask', personId: 'person-new-qa' },
+      })
+
+      const entry = { _id: 'entry-1', devOrder: 2, qaOrder: 1, save: vi.fn().mockResolvedValue(undefined) }
+      SprintPlanEntry.findOne.mockImplementation(async (filter: { ticketId: string }) =>
+        filter.ticketId === 'parent-500' ? entry : null,
+      )
+
+      const app = createApp()
+      const res = await request(app).post('/api/sprint-plan-entries/sync').send({ teamId: 't1', sprintId: 's1' })
+
+      expect(res.status).toBe(200)
+      expect(TicketDevQaOverride.findOne).toHaveBeenCalledWith({ ticketId: 'parent-500' })
+      expect(resolveDevQa).toHaveBeenCalledTimes(1) // only for the non-pinned (dev) role
+      expect(entry.devOrder).toBe(0) // reset to the end of person-new-dev's (empty) row
+      expect(entry.qaOrder).toBe(1) // untouched — pinned by the Override
+      expect(entry.save).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not touch devOrder/qaOrder, TeamMembership, or TicketDevQaOverride when no Sub-task assignee changed', async () => {
+      SprintPlanEntry.find
+        .mockReturnValueOnce(findWithPopulate([{ ticketId: { jiraKey: 'WOSMVP-700' } }]))
+        .mockReturnValueOnce(findWithPopulate([]))
+
+      bulkFetchIssues
+        .mockResolvedValueOnce({
+          issues: [issue('WOSMVP-700', { issuetype: { name: 'Story' }, subtasks: [{ key: 'WOSMVP-701' }] })],
+          issueErrors: [],
+        })
+        .mockResolvedValueOnce({
+          issues: [
+            issue('WOSMVP-701', {
+              issuetype: { name: 'Sub-task', subtask: true },
+              summary: '[Dev]Do the thing',
+              assignee: { accountId: 'acct-dev' },
+            }),
+          ],
+          issueErrors: [],
+        })
+
+      Ticket.findOne.mockImplementation(async (filter: { jiraKey: string }) => {
+        if (filter.jiraKey === 'WOSMVP-700') return { jiraKey: 'WOSMVP-700', type: 'Story', assigneeAccountId: null }
+        return { jiraKey: 'WOSMVP-701', assigneeAccountId: 'acct-dev' } // unchanged
+      })
+      Ticket.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }) => {
+        if (filter.jiraKey === 'WOSMVP-700') return { _id: 'parent-700', jiraKey: 'WOSMVP-700', type: 'Story', assigneeAccountId: null }
+        return { _id: 'sub-701', jiraKey: 'WOSMVP-701', parentKey: 'WOSMVP-700', subtaskKind: 'Dev', assigneeAccountId: 'acct-dev' }
+      })
+
+      const app = createApp()
+      const res = await request(app).post('/api/sprint-plan-entries/sync').send({ teamId: 't1', sprintId: 's1' })
+
+      expect(res.status).toBe(200)
+      expect(TeamMembership.find).not.toHaveBeenCalled()
+      expect(TicketDevQaOverride.findOne).not.toHaveBeenCalled()
+      expect(SprintPlanEntry.findOne).not.toHaveBeenCalled()
     })
   })
 
