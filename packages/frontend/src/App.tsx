@@ -11,12 +11,13 @@ import { CompletedTodos } from './components/CompletedTodos'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { CreateBoardPrompt } from './components/CreateBoardPrompt'
 import { FlyToBoardsBadge, type FlyEvent } from './components/FlyToBoardsBadge'
+import { Header } from './components/Header'
 import { MiniCalendar } from './components/MiniCalendar'
 import { NotesView } from './components/NotesView'
 import { ProfileSwitcher } from './components/ProfileSwitcher'
 import { Scratchpad, type DraftScratchLine } from './components/Scratchpad'
 import type { PromoteOptions } from './components/ScratchNoteCard'
-import { ThemeToggle } from './components/ThemeToggle'
+import { SprintShell } from './components/SprintShell'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { TodoTagSearch } from './components/TodoTagSearch'
@@ -76,6 +77,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/sprint/*" element={<SprintShell />} />
         <Route path="/:profileSlug/:tab" element={<AppShell />} />
         <Route path="/:profileSlug" element={<AppShell />} />
         <Route path="/" element={<AppShell />} />
@@ -1010,59 +1012,50 @@ function AppShell() {
 
   return (
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
-      <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-3xl font-extrabold text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-300">
-            My Planner
-          </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Here's what's glowing today.</p>
+      <Header theme={theme} onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
+        <div
+          role="tablist"
+          aria-label="View"
+          className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+        >
+          {(
+            [
+              { key: 'todos', label: 'Todos' },
+              { key: 'notes', label: 'Notes' },
+              { key: 'boards', label: 'Boards' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              onClick={() => activeProfileSlug && navigate(`/${encodeURIComponent(activeProfileSlug)}/${tab.key}`)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                activeTab === tab.key
+                  ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                  : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+              }`}
+            >
+              {tab.key === 'boards' ? (
+                <BoardsTabBadge ref={badgeRef} label={tab.label} count={activeBoard?.items.length ?? 0} bumped={badgeBumped} />
+              ) : (
+                tab.label
+              )}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-3">
-          <div
-            role="tablist"
-            aria-label="View"
-            className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
-          >
-            {(
-              [
-                { key: 'todos', label: 'Todos' },
-                { key: 'notes', label: 'Notes' },
-                { key: 'boards', label: 'Boards' },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab.key}
-                onClick={() => activeProfileSlug && navigate(`/${encodeURIComponent(activeProfileSlug)}/${tab.key}`)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-                  activeTab === tab.key
-                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-                }`}
-              >
-                {tab.key === 'boards' ? (
-                  <BoardsTabBadge ref={badgeRef} label={tab.label} count={activeBoard?.items.length ?? 0} bumped={badgeBumped} />
-                ) : (
-                  tab.label
-                )}
-              </button>
-            ))}
-          </div>
-          {!profilesLoading && profiles.length > 0 && (
-            <ProfileSwitcher
-              profiles={profiles}
-              activeProfileId={activeProfileId}
-              onSelect={setActiveProfileId}
-              onCreate={createProfile}
-              onRename={handleRenameProfile}
-              onDeleteRequest={handleDeleteProfileRequest}
-            />
-          )}
-          <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
-        </div>
-      </header>
+        {!profilesLoading && profiles.length > 0 && (
+          <ProfileSwitcher
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onSelect={setActiveProfileId}
+            onCreate={createProfile}
+            onRename={handleRenameProfile}
+            onDeleteRequest={handleDeleteProfileRequest}
+          />
+        )}
+      </Header>
 
       {(error || profileError) && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">

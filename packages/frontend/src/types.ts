@@ -100,6 +100,19 @@ export interface Profile {
   updatedAt?: string
 }
 
+// A named group of people scoped to a Jira label, independent of Profile -
+// never bound to one (see .scratch/sprint-jira-integration/spec.md's "Team,
+// Person, membership"). `jiraLabels` is an array on the wire (future
+// flexibility) even though phase 1's UI only ever edits a single entry.
+export interface Team {
+  _id?: string
+  id?: string
+  name: string
+  jiraLabels: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
 // Notes — a third, durable/organized concept alongside Todos and Scratchpad
 // (see .scratch/notes-section/spec.md). Deliberately minimal: no priority,
 // tags, due dates, or completion. `parentId`/`folderId` are `null` (never
