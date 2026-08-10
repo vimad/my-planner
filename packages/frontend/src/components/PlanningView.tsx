@@ -3,8 +3,10 @@ import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
+import { EpicPillStrip } from './EpicPillStrip'
 import { getId } from '../utils/getId'
 import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
 
@@ -449,6 +451,7 @@ export function PlanningView({ team }: { team: Team }) {
     syncPlanError,
     syncPlan,
   } = useSprintPlan(teamId)
+  const { epics, loadingEpics, epicsError } = useEpics(selectedSprintId)
 
   const [entryValue, setEntryValue] = useState('')
   // Ticket id of a just-added Split ticket, watched for below until it
@@ -594,6 +597,8 @@ export function PlanningView({ team }: { team: Team }) {
 
       {selectedSprintId && (
         <>
+          <EpicPillStrip epics={epics} loading={loadingEpics} error={epicsError} />
+
           {loadingPlan ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">Loading capacity…</p>
           ) : planError ? (

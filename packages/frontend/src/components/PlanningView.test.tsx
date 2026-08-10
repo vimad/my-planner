@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { PlanningView } from './PlanningView'
 import type {
   DevQaRoleResolution,
+  Epic,
   Person,
   Sprint,
   SprintCapacity,
@@ -159,6 +160,16 @@ const addTicketCatalog: Record<string, { ticket: Ticket; devQa?: { dev: DevQaRol
   'WOSMVP-700': { ticket: unmappedQaAddTicket, devQa: unmappedQaDevQa },
 }
 
+const epicRow: Epic = {
+  _id: 'epic-1',
+  jiraKey: 'WOSMVP-900',
+  title: 'Checkout revamp',
+  status: 'In Progress',
+  lastSyncedAt: new Date().toISOString(),
+  childCount: 6,
+  doneCount: 2,
+}
+
 const capacityRow: SprintCapacity = {
   teamMembershipId: 'm1',
   personId: 'p1',
@@ -212,6 +223,7 @@ function stubFetch(): FetchMock {
 
     if (href.includes('/api/sprints')) return jsonResponse([sprint])
     if (href.includes('/api/team-memberships')) return jsonResponse([membershipAda, membershipGrace])
+    if (href.includes('/api/epics')) return jsonResponse([epicRow])
 
     if (href.includes('/dev-qa-override') && method === 'PUT') {
       const match = href.match(/\/api\/tickets\/([^/]+)\/dev-qa-override/)
@@ -286,6 +298,15 @@ describe('PlanningView', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it("renders the selected sprint's active epics as a pill strip, sourced from GET /api/epics", async () => {
+    render(<PlanningView team={team} />)
+
+    const strip = await screen.findByLabelText('Active epics')
+    expect(within(strip).getByText('Checkout revamp')).toBeInTheDocument()
+    expect(within(strip).getByText('(2/6)')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/epics?sprintId=sprint-1'))
   })
 
   it('renders capacity cards with the API-computed numbers', async () => {

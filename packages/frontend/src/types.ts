@@ -169,6 +169,21 @@ export interface Sprint {
   lastSyncedAt?: string
 }
 
+// A cached snapshot of a Jira epic - mirrors backend models/Epic.ts, plus
+// the child-ticket rollup GET /api/epics?sprintId= computes server-side
+// from Ticket.epicKey (childCount/doneCount are never stored on the Epic
+// doc itself, see routes/epics.ts).
+export interface Epic {
+  _id?: string
+  id?: string
+  jiraKey: string
+  title: string
+  status: string
+  lastSyncedAt: string
+  childCount: number
+  doneCount: number
+}
+
 // The one representation of a Jira issue, shared across Planning/Status/Epic
 // views - mirrors backend models/Ticket.ts exactly (ADR 0001: matching is
 // strictly by jiraAccountId, never the display-only assignee fields).
