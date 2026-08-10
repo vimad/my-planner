@@ -143,6 +143,22 @@ describe('StatusView', () => {
     expect(within(board).getByText('WOSMVP-999')).toBeInTheDocument()
   })
 
+  it("matches a ticket's status against a board column case-insensitively (Jira's board-column name and workflow status name aren't guaranteed the same casing)", async () => {
+    // Confirmed live against wealthos.atlassian.net: a real ticket's
+    // `status` came back "DEV WIP" (all caps, from the issue's actual
+    // workflow status) while the mirrored board column's `name` is
+    // "Dev WIP" (mixed case, from the board's own column config) - the two
+    // are independently-editable Jira surfaces for "the same" status.
+    ticketsData = [ticket({ jiraKey: 'WOSMVP-400', assigneeAccountId: 'acc-1', status: 'DEV WIP', title: 'Case mismatch' })]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    expect(within(board).getByText('Case mismatch')).toBeInTheDocument()
+    expect(within(board).getByText('Dev WIP', { exact: false })).toBeInTheDocument()
+  })
+
   it("syncing a person populates their board", async () => {
     render(<StatusView team={team} />)
     await screen.findByLabelText('Team roster')

@@ -17,6 +17,20 @@ function relativeTime(iso: string | null): string {
   return `Synced ${diffDay}d ago`
 }
 
+// Jira's board-column config (Status.name, services/statusSync.ts's
+// refreshStatusSet) and an issue's actual workflow status (Ticket.status,
+// straight off `fields.status.name`) are two independently-editable Jira
+// surfaces that happen to describe "the same" status in the common case -
+// but nothing guarantees matching casing between them. Confirmed live
+// against wealthos.atlassian.net: a ticket's `status` came back "DEV WIP"
+// while the mirrored board column's `name` is "Dev WIP" (and "Merged"
+// tickets against a "MERGED" column) - an exact string match silently
+// drops the ticket from every column, which reads as "nothing synced"
+// even though the sync worked.
+function sameStatus(ticketStatus: string, statusName: string): boolean {
+  return ticketStatus.trim().toLowerCase() === statusName.trim().toLowerCase()
+}
+
 function exactTime(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : 'never synced'
 }
@@ -147,7 +161,7 @@ export function StatusView({ team }: { team: Team }) {
   const occupiedColumns = useMemo(
     () =>
       statuses
-        .map((status) => ({ status, tickets: selectedTickets.filter((t) => t.status === status.name) }))
+        .map((status) => ({ status, tickets: selectedTickets.filter((t) => sameStatus(t.status, status.name)) }))
         .filter((column) => column.tickets.length > 0),
     [statuses, selectedTickets],
   )
