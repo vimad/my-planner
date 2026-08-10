@@ -14,6 +14,13 @@ pnpm workspace with two packages:
 - `pnpm test` — typecheck both packages (`pnpm typecheck`), then run all tests (Vitest)
 - `pnpm typecheck` — typecheck both packages (`tsc --noEmit`) without running tests
 
+## Jira integration — READ-ONLY, critical
+
+The Jira instance this app connects to is the user's **production** Jira. For now, all Jira operations must be **read-only** — never create, edit, comment on, transition, delete, or otherwise mutate anything in Jira. Only reading/searching/fetching Jira data is allowed.
+
+- This applies to both app code (API calls the backend/frontend make to Jira) and anything you do directly (e.g. via MCP tools or scripts) — no write/mutate calls to Jira, ever, unless the user explicitly says otherwise in the moment.
+- Workflow for Jira-related features: implement the change, then tell the user how to manually test it themselves against their real Jira instance. The user will do the testing and report back feedback — do not attempt to test Jira-writing behavior yourself, even against seemingly safe/sandbox-looking tickets.
+
 ## Manual/browser verification
 
 The dev database holds the user's real personal todos, spread across real profiles (Work, Personal, ...). When verifying a feature by driving the actual running app (e.g. via the chrome-devtools MCP), never create, edit, link, complete, or delete anything in a real profile:
