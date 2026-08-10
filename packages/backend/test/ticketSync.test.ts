@@ -11,6 +11,9 @@ interface MockedTicketModel {
   findOneAndUpdate: Mock
   find: Mock
 }
+interface MockedEpicModel {
+  findOneAndUpdate: Mock
+}
 
 vi.mock('../src/models/Ticket.ts', () => ({
   Ticket: {
@@ -19,12 +22,18 @@ vi.mock('../src/models/Ticket.ts', () => ({
     find: vi.fn(),
   },
 }))
+vi.mock('../src/models/Epic.ts', () => ({
+  Epic: {
+    findOneAndUpdate: vi.fn(),
+  },
+}))
 
 const { bulkFetchIssues, searchJql } = (await import('../src/services/jiraClient.ts')) as unknown as {
   bulkFetchIssues: Mock
   searchJql: Mock
 }
 const { Ticket } = (await import('../src/models/Ticket.ts')) as unknown as { Ticket: MockedTicketModel }
+const { Epic } = (await import('../src/models/Epic.ts')) as unknown as { Epic: MockedEpicModel }
 const { mapIssueToTicketFields, fullSyncTickets, lightweightSyncTickets, computeEffortHours } = await import(
   '../src/services/ticketSync.ts'
 )
@@ -227,6 +236,61 @@ describe('fullSyncTickets', () => {
     expect(synced.isNew).toBe(false)
     expect(synced.previousAssigneeAccountId).toBe('acct-old')
     expect(synced.ticket.assigneeAccountId).toBe('acct-new')
+  })
+
+  it("fetches and upserts an Epic doc for a synced ticket's epic, so GET /api/epics (fed only by this) can find it", async () => {
+    bulkFetchIssues
+      .mockResolvedValueOnce({
+        issues: [issue('WOSMVP-100', { parent: { key: 'WOSMVP-500', fields: { issuetype: { name: 'Epic' } } } })],
+        issueErrors: [],
+      })
+      .mockResolvedValueOnce({
+        issues: [issue('WOSMVP-500', { summary: 'The epic title', status: { name: 'In Progress' } })],
+        issueErrors: [],
+      })
+    Ticket.findOne.mockResolvedValue(null)
+    Ticket.findOneAndUpdate.mockResolvedValue({ _id: 'id-100', jiraKey: 'WOSMVP-100', assigneeAccountId: null })
+
+    await fullSyncTickets(['WOSMVP-100'])
+
+    // Second bulkFetchIssues call is the sub-tasks pass (none here, so
+    // skipped) - the epic fetch is the second real call.
+    expect(bulkFetchIssues).toHaveBeenNthCalledWith(2, ['WOSMVP-500'])
+    expect(Epic.findOneAndUpdate).toHaveBeenCalledWith(
+      { jiraKey: 'WOSMVP-500' },
+      { jiraKey: 'WOSMVP-500', title: 'The epic title', status: 'In Progress', lastSyncedAt: expect.any(Date) },
+      { upsert: true, new: true },
+    )
+  })
+
+  it('fetches a shared epic only once when two synced tickets belong to the same epic', async () => {
+    bulkFetchIssues
+      .mockResolvedValueOnce({
+        issues: [
+          issue('WOSMVP-100', { parent: { key: 'WOSMVP-500', fields: { issuetype: { name: 'Epic' } } } }),
+          issue('WOSMVP-101', { parent: { key: 'WOSMVP-500', fields: { issuetype: { name: 'Epic' } } } }),
+        ],
+        issueErrors: [],
+      })
+      .mockResolvedValueOnce({ issues: [issue('WOSMVP-500', { summary: 'Shared epic' })], issueErrors: [] })
+    Ticket.findOne.mockResolvedValue(null)
+    Ticket.findOneAndUpdate.mockResolvedValue({ _id: 'id', jiraKey: 'x', assigneeAccountId: null })
+
+    await fullSyncTickets(['WOSMVP-100', 'WOSMVP-101'])
+
+    expect(bulkFetchIssues).toHaveBeenNthCalledWith(2, ['WOSMVP-500'])
+    expect(Epic.findOneAndUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('never touches Epic and makes no epic fetch when no synced ticket has an epicKey', async () => {
+    bulkFetchIssues.mockResolvedValueOnce({ issues: [issue('WOSMVP-1', { parent: undefined })], issueErrors: [] })
+    Ticket.findOne.mockResolvedValue(null)
+    Ticket.findOneAndUpdate.mockResolvedValue({ _id: 'id-1', jiraKey: 'WOSMVP-1', assigneeAccountId: null })
+
+    await fullSyncTickets(['WOSMVP-1'])
+
+    expect(bulkFetchIssues).toHaveBeenCalledTimes(1)
+    expect(Epic.findOneAndUpdate).not.toHaveBeenCalled()
   })
 })
 

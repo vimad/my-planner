@@ -1,5 +1,6 @@
 import type { HydratedDocument } from 'mongoose'
 import { bulkFetchIssues, searchJql, type JiraIssue } from './jiraClient.ts'
+import { Epic, type EpicDoc } from '../models/Epic.ts'
 import { Ticket, type TicketDoc } from '../models/Ticket.ts'
 
 // "Stream" custom field id — resolved once via `field/search?query=Stream`
@@ -105,12 +106,34 @@ export interface SyncedTicket {
   isNew: boolean
 }
 
+// Maps a raw bulkfetch JiraIssue (the epic issue itself, not one of its
+// children) onto our cached Epic shape - mirrors mapIssueToTicketFields'
+// title/status extraction exactly. Child-ticket rollup is never part of
+// this (see models/Epic.ts).
+function mapIssueToEpicFields(issue: JiraIssue, syncedAt: Date): EpicDoc {
+  const fields = issue.fields
+  const status = fields.status as JiraStatusRef | undefined
+  const title = typeof fields.summary === 'string' ? fields.summary : ''
+  return {
+    jiraKey: issue.key,
+    title,
+    status: status?.name ?? '',
+    lastSyncedAt: syncedAt,
+  }
+}
+
 // Full sync (spec's "Sync semantics & staleness"): bulk-fetches the given
 // tickets, follows each one's `subtasks` refs, and bulk-fetches those too —
 // two Jira round-trips within this one sync action (bulkFetchIssues itself
 // chunks each round-trip at 100 keys/call). Upserts a Ticket doc per issue
 // and reports each one's previous assignee, so callers can detect
 // reassignment (see routes/sprintPlanEntries.ts).
+//
+// Also follows each synced issue's epic (spec's "single-ticket entry:
+// fetches and caches that one ticket (+ its sub-tasks, epic if any)") and
+// upserts an Epic doc for it - the epics pill strip's GET /api/epics
+// (ticket 13/20) reads Epic docs written only here, nowhere else populates
+// that collection.
 export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[]> {
   if (jiraKeys.length === 0) return []
 
@@ -128,9 +151,11 @@ export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[
 
   const allIssues = [...primaryResult.issues, ...subtaskResult.issues]
   const synced: SyncedTicket[] = []
+  const epicKeys = new Set<string>()
   for (const issue of allIssues) {
     const existing = await Ticket.findOne({ jiraKey: issue.key })
     const fieldsToSet = mapIssueToTicketFields(issue, syncedAt)
+    if (fieldsToSet.epicKey) epicKeys.add(fieldsToSet.epicKey)
     const ticket = await Ticket.findOneAndUpdate({ jiraKey: issue.key }, fieldsToSet, {
       upsert: true,
       new: true,
@@ -141,6 +166,17 @@ export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[
       isNew: !existing,
     })
   }
+
+  if (epicKeys.size > 0) {
+    const epicResult = await bulkFetchIssues([...epicKeys])
+    for (const issue of epicResult.issues) {
+      await Epic.findOneAndUpdate({ jiraKey: issue.key }, mapIssueToEpicFields(issue, syncedAt), {
+        upsert: true,
+        new: true,
+      })
+    }
+  }
+
   return synced
 }
 
