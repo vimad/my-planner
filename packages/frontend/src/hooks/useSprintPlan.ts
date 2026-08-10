@@ -79,7 +79,21 @@ export interface UseSprintPlanResult {
 
   addingTicket: boolean
   addTicketError: string | null
-  addTicket: (rawInput: string) => Promise<void>
+  // Returns the created entry (sans `devQa` - the POST response isn't
+  // decorated with it, only GET is, see routes/sprintPlanEntries.ts) so a
+  // caller can identify which ticket was just added; `null` when the input
+  // was blank/no-op. PlanningView uses the returned ticket id to watch for
+  // the entry reappearing (now `devQa`-decorated) in `entries` after the
+  // post-add refreshPlan(), to decide whether to auto-open the Dev/QA
+  // assignment popup.
+  addTicket: (rawInput: string) => Promise<SprintPlanEntry | null>
+
+  savingDevQaOverride: boolean
+  devQaOverrideError: string | null
+  // PUT /api/tickets/:ticketId/dev-qa-override (ticket 23) - ticket 24's
+  // DevQaAssignmentPopup save action. Refreshes the plan on success so the
+  // badge moves into the newly-picked person's row.
+  saveDevQaOverride: (ticketId: string, body: { devPersonId?: string | null; qaPersonId?: string | null }) => Promise<void>
 }
 
 // Backs ticket 18's Planning view: the sprint selector, capacity strip, and
@@ -108,6 +122,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [savingWorkingDays, setSavingWorkingDays] = useState(false)
   const [addingTicket, setAddingTicket] = useState(false)
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
+  const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
+  const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
 
   // Sprint list - resolves the team's Jira board and re-selects an active
   // sprint (falling back to the first) whenever the previously-selected id
@@ -237,10 +253,10 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   )
 
   const addTicket = useCallback(
-    async (rawInput: string) => {
-      if (!teamId || !selectedSprintId) return
+    async (rawInput: string): Promise<SprintPlanEntry | null> => {
+      if (!teamId || !selectedSprintId) return null
       const jiraKey = normalizeJiraKey(rawInput)
-      if (!jiraKey) return
+      if (!jiraKey) return null
 
       setAddingTicket(true)
       setAddTicketError(null)
@@ -251,7 +267,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify({ teamId, sprintId: selectedSprintId, jiraKey }),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
+        const created: SprintPlanEntry = await res.json()
         refreshPlan()
+        return created
       } catch (err) {
         setAddTicketError((err as Error).message)
         throw err
@@ -260,6 +278,28 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       }
     },
     [teamId, selectedSprintId, refreshPlan],
+  )
+
+  const saveDevQaOverride = useCallback(
+    async (ticketId: string, body: { devPersonId?: string | null; qaPersonId?: string | null }) => {
+      setSavingDevQaOverride(true)
+      setDevQaOverrideError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/tickets/${ticketId}/dev-qa-override`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setDevQaOverrideError((err as Error).message)
+        throw err
+      } finally {
+        setSavingDevQaOverride(false)
+      }
+    },
+    [refreshPlan],
   )
 
   return {
@@ -280,5 +320,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     addingTicket,
     addTicketError,
     addTicket,
+    savingDevQaOverride,
+    devQaOverrideError,
+    saveDevQaOverride,
   }
 }

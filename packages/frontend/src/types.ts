@@ -192,11 +192,32 @@ export interface Ticket {
   lastSyncedAt: string
 }
 
+// One role's (dev or qa) resolved owner on a Split ticket (CONTEXT.md "Role
+// assignment") - mirrors the backend's devQaResolution.ts::DevQaRoleResolution
+// exactly (kept as a separate declaration rather than a cross-package import,
+// same convention as every other type in this file). `source` on `resolved`
+// is what lets the UI tell a Jira-sourced Sub-task match (read-only in the
+// popup) apart from a Dev/QA Override (editable) - see ADR 0004.
+export type DevQaRoleResolution =
+  | { status: 'resolved'; source: 'override' | 'subtask'; personId: string }
+  | {
+      status: 'unmapped'
+      assigneeAccountId: string
+      assigneeDisplayName: string | null
+      assigneeEmail: string | null
+    }
+  | { status: 'needs-assignment' }
+
 // Join: Team x Sprint x Ticket - a ticket manually added to a team's plan
 // for a sprint. `ticketId` comes back populated from
 // GET /api/sprint-plan-entries, per ticket 13's API contract (mirrors
 // TeamMembership.personId's populated-on-GET convention). `order` is
-// per-assignee (ticket 10's resolution), not global.
+// per-assignee (ticket 10's resolution), not global. `devOrder`/`qaOrder`
+// are their Split-ticket (Story/Bug) equivalent (ticket 23) - `null` for a
+// role that isn't `resolved` yet, unused entirely by a non-split ticket.
+// `devQa` is present only on a Split entry (Story/Bug parent ticket) -
+// omitted (not null) on a non-split entry, so a caller that never branches
+// on it keeps working unchanged.
 export interface SprintPlanEntry {
   _id?: string
   id?: string
@@ -205,6 +226,9 @@ export interface SprintPlanEntry {
   ticketId: Ticket
   addedAt?: string
   order: number
+  devOrder: number | null
+  qaOrder: number | null
+  devQa?: { dev: DevQaRoleResolution; qa: DevQaRoleResolution }
 }
 
 // The Team x Sprint header - manually entered, holiday-adjusted working

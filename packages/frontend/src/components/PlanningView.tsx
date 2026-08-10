@@ -1,7 +1,18 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSprintPlan } from '../hooks/useSprintPlan'
+import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { getId } from '../utils/getId'
 import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
+
+// A ticket's placement within one "Tickets by person" row. `role` is set
+// only for a Split ticket's dev or qa sub-placement (CONTEXT.md "Split
+// ticket") - the same SprintPlanEntry can appear as two placements, one per
+// resolved role. A non-split entry has exactly one placement, `role`
+// omitted.
+interface PlacedEntry {
+  entry: SprintPlanEntry
+  role?: 'dev' | 'qa'
+}
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -151,50 +162,118 @@ function AddToPlanForm({
   )
 }
 
-// A read-only ticket-number pill (drag-reorder is ticket 19). The full
-// title/status/staleness lives in the title tooltip rather than on the face
-// of the badge, per the ticket's "enough to identify the ticket".
-function TicketBadge({ entry, unmapped }: { entry: SprintPlanEntry; unmapped?: boolean }) {
+// A read-only ticket-number pill (drag-reorder is ticket 19), except in its
+// `needsAssignment` variant (ticket 24) which is itself the click target
+// that opens DevQaAssignmentPopup for that ticket. The full title/status/
+// staleness lives in the title tooltip rather than on the face of the
+// badge, per the ticket's "enough to identify the ticket". `role` renders a
+// small "DEV"/"QA" sub-label alongside the existing type sub-label,
+// distinguishing a Split ticket's two placements (ticket 24) - omitted
+// entirely for a non-split entry's single placement.
+function TicketBadge({
+  entry,
+  role,
+  unmapped,
+  needsAssignment,
+  onFlagClick,
+}: {
+  entry: SprintPlanEntry
+  role?: 'dev' | 'qa'
+  unmapped?: boolean
+  needsAssignment?: boolean
+  onFlagClick?: () => void
+}) {
   const ticket = entry.ticketId
   const tooltip = `${ticket.title} — ${ticket.status}, synced ${relativeTime(ticket.lastSyncedAt)}`
-  return (
-    <span
-      title={tooltip}
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold shadow-sm ${
-        unmapped
-          ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300'
-          : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300'
-      }`}
-    >
+  // needsAssignment gets its own sky treatment (docs/ui-conventions.md
+  // "needs attention, click to resolve" flag) - deliberately distinct from
+  // the amber Unmapped treatment, which stays pixel-for-pixel unchanged for
+  // a real-but-off-roster Jira assignee.
+  const colorClasses = needsAssignment
+    ? 'border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/20 dark:text-sky-300'
+    : unmapped
+      ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300'
+      : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300'
+  const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold shadow-sm ${colorClasses}`
+
+  const content = (
+    <>
       {ticket.jiraKey.replace(/^WOSMVP-/, '')}
+      {role && (
+        <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role.toUpperCase()}</span>
+      )}
       {ticket.type && (
         <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{ticket.type}</span>
       )}
+    </>
+  )
+
+  if (needsAssignment) {
+    return (
+      <button
+        type="button"
+        title={tooltip}
+        onClick={onFlagClick}
+        aria-label={`Assign dev/qa for ${ticket.jiraKey}`}
+        className={`${baseClasses} cursor-pointer hover:opacity-80`}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <span title={tooltip} className={baseClasses}>
+      {content}
     </span>
   )
 }
 
-function PersonRow({ name, entries, unmapped = false }: { name: string; entries: SprintPlanEntry[]; unmapped?: boolean }) {
+function PersonRow({
+  name,
+  placements,
+  variant = 'normal',
+  onOpenPopup,
+}: {
+  name: string
+  placements: PlacedEntry[]
+  variant?: 'normal' | 'unmapped' | 'needsAssignment'
+  onOpenPopup?: (ticketId: string) => void
+}) {
+  const unmapped = variant === 'unmapped'
+  const needsAssignment = variant === 'needsAssignment'
+  const flagged = unmapped || needsAssignment
+
+  const nameClass = unmapped
+    ? 'text-amber-700 dark:text-amber-300'
+    : needsAssignment
+      ? 'text-sky-700 dark:text-sky-300'
+      : 'text-slate-800 dark:text-slate-100'
+  const emptyClass = unmapped
+    ? 'text-amber-600/70 dark:text-amber-300/60'
+    : needsAssignment
+      ? 'text-sky-600/70 dark:text-sky-300/60'
+      : 'text-slate-400'
+
   return (
     <div
       aria-label={`Tickets for ${name}`}
       className="grid grid-cols-[10rem_1fr] items-start gap-3 border-b border-slate-100 py-2.5 last:border-0 dark:border-white/5"
     >
-      <span
-        className={`pt-0.5 text-sm font-medium ${
-          unmapped ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-100'
-        }`}
-      >
-        {unmapped ? `⚠ ${name}` : name}
-      </span>
-      {entries.length === 0 ? (
-        <span className={`pt-0.5 text-xs ${unmapped ? 'text-amber-600/70 dark:text-amber-300/60' : 'text-slate-400'}`}>
-          No tickets planned
-        </span>
+      <span className={`pt-0.5 text-sm font-medium ${nameClass}`}>{flagged ? `${unmapped ? '⚠' : '❓'} ${name}` : name}</span>
+      {placements.length === 0 ? (
+        <span className={`pt-0.5 text-xs ${emptyClass}`}>No tickets planned</span>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {entries.map((entry) => (
-            <TicketBadge key={getId(entry) ?? entry.ticketId.jiraKey} entry={entry} unmapped={unmapped} />
+          {placements.map(({ entry, role }) => (
+            <TicketBadge
+              key={`${getId(entry) ?? entry.ticketId.jiraKey}-${role ?? 'main'}`}
+              entry={entry}
+              role={role}
+              unmapped={unmapped}
+              needsAssignment={needsAssignment}
+              onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
+            />
           ))}
         </div>
       )}
@@ -226,43 +305,123 @@ export function PlanningView({ team }: { team: Team }) {
     addingTicket,
     addTicketError,
     addTicket,
+    savingDevQaOverride,
+    devQaOverrideError,
+    saveDevQaOverride,
   } = useSprintPlan(teamId)
 
   const [entryValue, setEntryValue] = useState('')
+  // Ticket id of a just-added Split ticket, watched for below until it
+  // reappears in `entries` (devQa-decorated, since only GET inlines devQa -
+  // see routes/sprintPlanEntries.ts) so we can decide whether to auto-open
+  // the popup. `popupTicketId` is the actually-open popup's ticket id -
+  // separate state, since the popup can also be opened directly by clicking
+  // a flagged badge with no add-to-plan involved.
+  const [pendingAutoOpenTicketId, setPendingAutoOpenTicketId] = useState<string | null>(null)
+  const [popupTicketId, setPopupTicketId] = useState<string | null>(null)
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault()
     try {
-      await addTicket(entryValue)
+      const created = await addTicket(entryValue)
       setEntryValue('')
+      if (created) setPendingAutoOpenTicketId(getId(created.ticketId) ?? null)
     } catch {
       // addTicketError already surfaces the failure - keep the typed value
       // so the user can correct/retry without retyping it.
     }
   }
 
-  // One bucket of SprintPlanEntry per current TeamMembership, keyed by that
-  // membership's Person.jiraAccountId (the current-assignee match, ADR
-  // 0001) - plus whatever's left over as "unmapped". Recomputed whenever
-  // either input changes, not per-render.
-  const { ticketsByMembershipId, unmappedEntries } = useMemo(() => {
-    const byMembership = new Map<string, SprintPlanEntry[]>()
-    const mappedAccountIds = new Set<string>()
+  // Auto-open trigger (ticket 24): once the just-added ticket reappears in
+  // `entries` post-refresh (devQa-decorated), open the popup only if either
+  // role is needs-assignment - not for a fully-resolved role, not for an
+  // unmapped-but-fine role (per the ticket's grilled decision: unmapped
+  // does NOT auto-interrupt, only needs-assignment does), and never at all
+  // for a non-split ticket (`devQa` absent). Runs once per add - the
+  // pending id is cleared as soon as a match is found either way, so it
+  // never re-triggers on a later unrelated refresh.
+  useEffect(() => {
+    if (!pendingAutoOpenTicketId) return
+    const match = entries.find((e) => getId(e.ticketId) === pendingAutoOpenTicketId)
+    if (!match) return
 
+    setPendingAutoOpenTicketId(null)
+    if (match.devQa && (match.devQa.dev.status === 'needs-assignment' || match.devQa.qa.status === 'needs-assignment')) {
+      setPopupTicketId(pendingAutoOpenTicketId)
+    }
+  }, [entries, pendingAutoOpenTicketId])
+
+  const popupEntry = useMemo(
+    () => (popupTicketId ? (entries.find((e) => getId(e.ticketId) === popupTicketId) ?? null) : null),
+    [entries, popupTicketId],
+  )
+
+  // One bucket of PlacedEntry per current TeamMembership, keyed by that
+  // membership's Person.jiraAccountId for a non-split entry's single
+  // placement (ADR 0001) or by resolved Person._id for a Split entry's per-
+  // role placement (ticket 23's devQa) - plus two catch-all buckets:
+  // "unmapped" (a real, off-roster Jira assignee - CONTEXT.md "Unmapped
+  // assignee") and "needs dev/qa" (no resolvable assignee at all yet,
+  // Split-ticket roles only). A Split entry (ticket.devQa present) can land
+  // up to two placements across any combination of these buckets,
+  // independently per role; a non-split entry always has exactly one.
+  // Recomputed whenever either input changes, not per-render.
+  const { ticketsByMembershipId, unmappedPlacements, needsAssignmentPlacements } = useMemo(() => {
+    const byMembership = new Map<string, PlacedEntry[]>()
     for (const membership of memberships) {
-      const accountId = membership.personId.jiraAccountId
-      mappedAccountIds.add(accountId)
-      const rows = entries
-        .filter((entry) => entry.ticketId.assigneeAccountId === accountId)
-        .sort((a, b) => a.order - b.order)
-      byMembership.set(getId(membership) ?? '', rows)
+      byMembership.set(getId(membership) ?? '', [])
+    }
+    const membershipIdByAccountId = new Map(memberships.map((m) => [m.personId.jiraAccountId, getId(m) ?? '']))
+    const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+
+    const unmapped: PlacedEntry[] = []
+    const needsAssignment: PlacedEntry[] = []
+
+    function placeResolved(membershipId: string | undefined, placed: PlacedEntry) {
+      // A resolved role whose personId no longer matches any current
+      // TeamMembership (e.g. an Override picked someone since removed from
+      // the team) has nowhere mapped to go - falls back to Unmapped rather
+      // than silently vanishing from the table.
+      if (membershipId && byMembership.has(membershipId)) byMembership.get(membershipId)!.push(placed)
+      else unmapped.push(placed)
     }
 
-    const unmapped = entries
-      .filter((entry) => !entry.ticketId.assigneeAccountId || !mappedAccountIds.has(entry.ticketId.assigneeAccountId))
-      .sort((a, b) => a.order - b.order)
+    for (const entry of entries) {
+      if (entry.devQa) {
+        for (const role of ['dev', 'qa'] as const) {
+          const resolution = entry.devQa[role]
+          const placed: PlacedEntry = { entry, role }
+          if (resolution.status === 'resolved') {
+            placeResolved(membershipIdByPersonId.get(resolution.personId), placed)
+          } else if (resolution.status === 'unmapped') {
+            unmapped.push(placed)
+          } else {
+            needsAssignment.push(placed)
+          }
+        }
+      } else {
+        const accountId = entry.ticketId.assigneeAccountId
+        const membershipId = accountId ? membershipIdByAccountId.get(accountId) : undefined
+        const placed: PlacedEntry = { entry }
+        if (membershipId) byMembership.get(membershipId)!.push(placed)
+        else unmapped.push(placed)
+      }
+    }
 
-    return { ticketsByMembershipId: byMembership, unmappedEntries: unmapped }
+    // A non-split placement sorts by the entry's plain `order`; a Split
+    // role placement sorts by that role's own devOrder/qaOrder (ticket 23) -
+    // meaningless to compare across different roles/tickets, only used to
+    // keep each row's own placements stable.
+    function placementOrder(p: PlacedEntry): number {
+      if (p.role === 'dev') return p.entry.devOrder ?? 0
+      if (p.role === 'qa') return p.entry.qaOrder ?? 0
+      return p.entry.order
+    }
+    for (const placements of byMembership.values()) placements.sort((a, b) => placementOrder(a) - placementOrder(b))
+    unmapped.sort((a, b) => placementOrder(a) - placementOrder(b))
+    needsAssignment.sort((a, b) => placementOrder(a) - placementOrder(b))
+
+    return { ticketsByMembershipId: byMembership, unmappedPlacements: unmapped, needsAssignmentPlacements: needsAssignment }
   }, [memberships, entries])
 
   return (
@@ -335,14 +494,32 @@ export function PlanningView({ team }: { team: Team }) {
                   <PersonRow
                     key={getId(membership)}
                     name={membership.personId.name}
-                    entries={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
+                    placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
+                    onOpenPopup={setPopupTicketId}
                   />
                 ))}
-                <PersonRow name="Unmapped" entries={unmappedEntries} unmapped />
+                <PersonRow name="Unmapped" placements={unmappedPlacements} variant="unmapped" onOpenPopup={setPopupTicketId} />
+                <PersonRow
+                  name="Needs dev/qa"
+                  placements={needsAssignmentPlacements}
+                  variant="needsAssignment"
+                  onOpenPopup={setPopupTicketId}
+                />
               </div>
             )}
           </div>
         </>
+      )}
+
+      {popupEntry && popupEntry.devQa && (
+        <DevQaAssignmentPopup
+          entry={popupEntry as SprintPlanEntry & { devQa: NonNullable<SprintPlanEntry['devQa']> }}
+          memberships={memberships}
+          saving={savingDevQaOverride}
+          error={devQaOverrideError}
+          onSave={(body) => saveDevQaOverride(getId(popupEntry.ticketId) ?? '', body)}
+          onClose={() => setPopupTicketId(null)}
+        />
       )}
     </div>
   )
