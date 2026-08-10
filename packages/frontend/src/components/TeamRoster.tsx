@@ -386,7 +386,13 @@ function AddPersonForm({
               className={textInputClass}
             />
             {jiraSearching && (
-              <p className="px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Searching Jira...</p>
+              <p className="flex items-center gap-1.5 px-0.5 py-1 text-xs text-slate-500 dark:text-slate-400">
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-fuchsia-500 dark:border-white/20 dark:border-t-fuchsia-400"
+                />
+                Searching Jira...
+              </p>
             )}
             {jiraResults.length > 0 && (
               <div className={resultsBoxClass}>
@@ -479,6 +485,15 @@ export function TeamRoster({ team }: TeamRosterProps) {
 
   return (
     <div aria-label={`Roster for ${team.name}`} className="flex flex-col gap-1.5 border-t border-slate-200 px-2 py-2 dark:border-white/10">
+      <AddPersonForm
+        team={team}
+        people={people}
+        existingPersonIds={existingPersonIds}
+        onAddExisting={addExistingPerson}
+        onAddNew={addNewPerson}
+        searchJiraUsers={searchJiraUsers}
+      />
+
       {loading && <p className="px-2 text-xs text-slate-400 dark:text-slate-500">Loading roster...</p>}
       {error && <p className="px-2 text-xs text-red-500 dark:text-red-400">Error: {error}</p>}
 
@@ -494,15 +509,6 @@ export function TeamRoster({ team }: TeamRosterProps) {
           onRemoveRequest={setPendingRemove}
         />
       ))}
-
-      <AddPersonForm
-        team={team}
-        people={people}
-        existingPersonIds={existingPersonIds}
-        onAddExisting={addExistingPerson}
-        onAddNew={addNewPerson}
-        searchJiraUsers={searchJiraUsers}
-      />
 
       {pendingRemove && (
         <ConfirmDialog
