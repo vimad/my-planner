@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { createApp } from './app.ts'
 import { connectDB } from './config/db.ts'
-import { migrateToWorkProfile } from './seed.ts'
+import { migrateToWorkProfile, seedCapacityLookup } from './seed.ts'
 
 const PORT = process.env.PORT ?? 4100
 const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27018/my-planner'
@@ -12,6 +12,7 @@ async function main() {
   console.log(`Connected to MongoDB at ${MONGODB_URI}`)
 
   await migrateToWorkProfile()
+  await seedCapacityLookup()
 
   const app = createApp({ corsOrigin: CORS_ORIGIN })
 

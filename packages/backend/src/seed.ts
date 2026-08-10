@@ -1,10 +1,19 @@
 import { Category } from './models/Category.ts'
+import { CapacityLookup } from './models/CapacityLookup.ts'
 import { Profile } from './models/Profile.ts'
 import { ScratchNote } from './models/ScratchNote.ts'
 import type { Types } from 'mongoose'
 
 const UNCATEGORIZED_NAME = 'Uncategorized'
 const WORK_PROFILE_NAME = 'Work'
+
+// Reference-spreadsheet cells (percentage x days -> hours) weren't
+// available at implementation time, so these are a rounded placeholder
+// (days * 8 * percentage / 100) rather than the real spreadsheet values —
+// the settings view (ticket 17+) lets an admin correct them later without a
+// code change.
+const CAPACITY_LOOKUP_PERCENTAGES = [50, 70, 80]
+const CAPACITY_LOOKUP_DAYS = [7, 8, 9, 10]
 
 // Idempotent: ensure the given profile has its own system-provided
 // "Uncategorized" category. Extends the pre-Profile global version of this
@@ -46,4 +55,19 @@ export async function migrateToWorkProfile() {
   await seedUncategorizedCategory(work._id)
 
   return work
+}
+
+// Idempotent: seeds the 12 (percentage, days) cells with a rounded
+// placeholder hours value, skipping any pair that already has a row so a
+// later admin edit (via the settings view) is never overwritten by a
+// subsequent boot.
+export async function seedCapacityLookup() {
+  for (const percentage of CAPACITY_LOOKUP_PERCENTAGES) {
+    for (const days of CAPACITY_LOOKUP_DAYS) {
+      const existing = await CapacityLookup.findOne({ percentage, days })
+      if (existing) continue
+
+      await CapacityLookup.create({ percentage, days, hours: Math.round(days * 8 * (percentage / 100)) })
+    }
+  }
 }

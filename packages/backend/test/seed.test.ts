@@ -19,6 +19,11 @@ interface MockedScratchNoteModel {
   updateMany: Mock
 }
 
+interface MockedCapacityLookupModel {
+  findOne: Mock
+  create: Mock
+}
+
 vi.mock('../src/models/Profile.ts', () => {
   return {
     Profile: {
@@ -46,6 +51,15 @@ vi.mock('../src/models/ScratchNote.ts', () => {
   }
 })
 
+vi.mock('../src/models/CapacityLookup.ts', () => {
+  return {
+    CapacityLookup: {
+      findOne: vi.fn(),
+      create: vi.fn(),
+    },
+  }
+})
+
 const { Profile } = (await import('../src/models/Profile.ts')) as unknown as {
   Profile: MockedProfileModel
 }
@@ -55,7 +69,10 @@ const { Category } = (await import('../src/models/Category.ts')) as unknown as {
 const { ScratchNote } = (await import('../src/models/ScratchNote.ts')) as unknown as {
   ScratchNote: MockedScratchNoteModel
 }
-const { seedUncategorizedCategory, migrateToWorkProfile } = await import('../src/seed.ts')
+const { CapacityLookup } = (await import('../src/models/CapacityLookup.ts')) as unknown as {
+  CapacityLookup: MockedCapacityLookupModel
+}
+const { seedUncategorizedCategory, migrateToWorkProfile, seedCapacityLookup } = await import('../src/seed.ts')
 
 describe('seedUncategorizedCategory', () => {
   beforeEach(() => {
@@ -150,5 +167,30 @@ describe('migrateToWorkProfile', () => {
     await migrateToWorkProfile()
 
     expect(Category.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('seedCapacityLookup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('seeds all 12 (percentage, days) cells with rounded placeholder hours when none exist yet', async () => {
+    CapacityLookup.findOne.mockResolvedValue(null)
+    CapacityLookup.create.mockResolvedValue(undefined)
+
+    await seedCapacityLookup()
+
+    expect(CapacityLookup.create).toHaveBeenCalledTimes(12)
+    expect(CapacityLookup.create).toHaveBeenCalledWith({ percentage: 50, days: 7, hours: 28 })
+    expect(CapacityLookup.create).toHaveBeenCalledWith({ percentage: 80, days: 10, hours: 64 })
+  })
+
+  it('never overwrites a cell that already exists, so a later admin edit survives a subsequent boot', async () => {
+    CapacityLookup.findOne.mockResolvedValue({ percentage: 50, days: 7, hours: 999 })
+
+    await seedCapacityLookup()
+
+    expect(CapacityLookup.create).not.toHaveBeenCalled()
   })
 })
