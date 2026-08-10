@@ -1,0 +1,5 @@
+# Record sprint planning membership as its own entity, not a field on Ticket
+
+`Ticket` stores `currentSprintKey` as a simple snapshot of whatever Jira currently reports as the ticket's sprint — it always reflects Jira's live answer and nothing else. Which sprint(s) a ticket was ever *planned* under is tracked separately, via `SprintPlanEntry { teamId, sprintId, ticketId, addedAt }`, created the moment a ticket number is typed into a specific team+sprint's Planning table.
+
+We considered just using `Ticket.currentSprintKey` as the sole link between tickets and sprints, which would be simpler. We rejected it because Jira's sprint field only ever holds the *current* sprint: a ticket that isn't finished in one sprint and rolls into the next would silently disappear from the earlier sprint's plan, destroying the planning history the Planning view is meant to preserve. Reversing this later — recovering which tickets were actually planned in a past sprint — would require data that's already gone by the time anyone noticed the gap.

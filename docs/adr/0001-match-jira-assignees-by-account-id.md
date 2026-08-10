@@ -1,0 +1,3 @@
+# Match Jira assignees by accountId, not name or email
+
+`Person` records store a Jira `accountId` as their required, unique match key against Jira ticket assignees, with `name`/`email` kept only for display when setting up a team. We considered matching by email (simpler to eyeball), but Jira Cloud instances commonly withhold user email from the API for privacy/GDPR reasons — meaning email-based matching could silently fail to resolve assignees depending on the instance's privacy settings — while `accountId` is Atlassian's stable per-user identifier, always present, and unaffected by a user renaming themselves or changing their email. Reversing this later would mean re-deriving every cached ticket's assignee link from scratch.

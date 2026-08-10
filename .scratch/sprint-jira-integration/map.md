@@ -1,0 +1,37 @@
+# Sprint (Jira Integration) — Phase 1 Planning Map
+
+## Destination
+
+A written, implementation-ready phase-1 spec for a new **Sprint** section in my-planner: a read-only convenience layer over Jira, independent of the existing Profile system. It introduces a first-class **Team** entity (multi-team capable, each team a named subset of people scoped via a Jira label filter over a shared backlog/board), with two views per team — **Planning** (per-sprint, per-person capacity table against Jira tickets/sub-tasks/epics, ticket data cached locally and manually synced) and **Status** (a Jira-board-style per-person view, cached locally, manually synced, deep-linking out to Jira for full detail). The spec covers data model, Jira API integration points and auth, sync semantics, capacity math, and the Sprint tab's UI/navigation behavior (including its profile-hiding, profile-remembering interaction) — but explicitly excludes write-back to Jira and the future comprehensive scheduler, while noting where the design must leave room for them.
+
+## Notes
+
+- Jira instance: `wealthos.atlassian.net`, project `WOSMVP` (ticket URLs `https://wealthos.atlassian.net/browse/WOSMVP-{number}`). A working personal API token already exists — no access-provisioning task needed.
+- Jira token lives in `.env` (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`), matching this repo's existing infra-config pattern (`packages/backend/.env.example`). No DB-backed secrets precedent exists and none is being introduced.
+- `Team` is a first-class entity, modeled independently of `Profile` (see `useActiveProfile`, `packages/frontend/src/hooks/useActiveProfile.ts`, and the `/:profileSlug/:tab` routing in `AppShell`/`App.tsx`). The header's switcher slot swaps content depending on active tab: profile-switcher for profile-bound tabs (Todos/Notes/Boards), team-switcher for the Sprint tab — same slot, same visual treatment as `ProfileSwitcher.tsx`.
+- Jira backlog/board is **shared** across teams. A ticket's team membership is determined by a label match (e.g. "Odyssey"); a ticket may carry multiple team labels and thus belong to multiple teams. If a labeled ticket's Jira assignee doesn't map to any of that team's mapped people, it still appears, bucketed separately as "unmapped assignee" rather than being dropped.
+- Planning = manual per-ticket-number entry (type the numeric suffix, title/details auto-load from Jira). Status view = auto-discovery per selected person via JQL/bulk query. **Both views are scoped to a selected sprint** (Status view is not sprint-agnostic).
+- Exactly **one** unified `Ticket` concept is shared across Planning, Status, and Epic views — no per-view data duplication of the same Jira ticket.
+- Ticket types: Bug, Story, Task, Sub-task. Story/Bug normally carry two sub-tasks titled `[Dev] ...` and `[Test] ...`, each with its own estimate; total effort capture must sum sub-task estimates where present.
+- Capacity math direction: base hours = working days × 8 (a 10-day/2-week sprint = 80h baseline), reduced by leave/holidays, then scaled by a capacity percentage. Percentage defaults per role (e.g. Tech Lead vs SE) but is overridable per individual team membership. Exact formula/order of operations is not yet nailed down precisely — see ticket 04.
+- Local status set, "Stream" custom field, and Jira labels are all captured locally per ticket, but Jira is always the source of truth — local copies are refreshed only via explicit sync, and every cached ticket displays a last-synced timestamp so staleness is visible.
+- "Stream" is a custom Jira field (select-style, e.g. value "Tech & Ops Roadmap") — its field id/name needs discovery via Jira's field-metadata API (see ticket 01).
+- Epic view: a simple list of active epics for the selected sprint (key, title, status, child-ticket rollup) with click-through to a detail page — already resolved, no dedicated ticket needed beyond capturing the right fields in the data model (ticket 03).
+- Consult `/grilling` and `/domain-modeling` for grilling-type tickets, `/research` for the research ticket, `/prototype` for the prototype tickets. Check `docs/ui-conventions.md` before designing any new UI surface (dropdown/table/board/card conventions already exist and should be copied, not reinvented).
+
+## Decisions so far
+
+- [Team, Person & Team-Membership data model](issues/02-team-person-membership-data-model.md) — `Team` (name + `jiraLabels[]`), `Person` (name/email + required unique `jiraAccountId` as the match key), `Role` as a fixed enum with per-role default capacity %, `TeamMembership` join with a nullable per-member `capacityPercentOverride`. Unmapped assignee is a pure display-time computation, not stored. See also [ADR 0001](../../docs/adr/0001-match-jira-assignees-by-account-id.md) and [CONTEXT.md](../../CONTEXT.md).
+- [Sprint, Ticket, Sub-task & Epic data model](issues/03-sprint-ticket-epic-data-model.md) — one unified `Ticket` model (full `jiraKey`, computed Effort from sub-task rollup, `subtaskKind` parsed from title prefix, `currentSprintKey` for live matching), separate `Epic`/`Status`/`Sprint` cache models with rollups always computed rather than stored, and a `SprintPlanEntry` join recording planning history independent of Jira's live sprint field. See also [ADR 0002](../../docs/adr/0002-separate-sprint-plan-entry-from-ticket.md) and [CONTEXT.md](../../CONTEXT.md).
+- [Jira Cloud REST API integration surface](issues/01-jira-api-integration-surface.md) — Basic auth (email+token) confirmed for read access; board/sprint via the Agile API; epic/parent linkage via the unified `parent` field (legacy Epic Link is fully retired); `Person` matching keys on `accountId` since email can be null; "Stream" field id discovered once via `field/search` and cached; legacy `/search` is sunset — use `/search/jql` (discovery) and `issue/bulkfetch` (≤100 keys, refresh). Full findings: [research/jira-api-integration-surface.md](research/jira-api-integration-surface.md).
+- [Capacity formula](issues/04-capacity-formula.md) — `Total = (TeamSprintPlan.workingDays − CapacityEntry.leaveDays) × 8`; `Available` from an admin-editable `CapacityLookup` table (percentage × effective days → hours) falling back to `Total × percentage`; `Planned` = summed Effort of the sprint plan's tickets per assignee; `Remaining = Available − Planned`. 8h/day hardcoded. See [CONTEXT.md](../../CONTEXT.md).
+- [Sync semantics & staleness](issues/05-sync-semantics-staleness.md) — Planning entry/sync always does a Full sync (bulkfetch, ≤100 keys) of tickets + their sub-tasks already in the plan; Status-view per-person sync is a Lightweight sync (`/search/jql`, `assignee+sprint+label`, `fields=summary,status`) that leaves other fields `null` until a Full sync happens; Status set refreshes as a side effect of any sync; staleness shown as relative time per ticket, no threshold warning. See [CONTEXT.md](../../CONTEXT.md).
+
+## Not yet specified
+
+- Cross-team capacity rollup: if/when a person belongs to multiple teams, whether a consolidated view of their total commitment across teams is needed. Not requested yet; revisit if/when that overlap actually occurs.
+
+## Out of scope
+
+- Writing updates back to Jira (phase 2+).
+- A comprehensive cross-team/cross-sprint scheduler (future phase). The data model and views should stay easy to extend toward it, but no implementation detail for it is being decided now.
