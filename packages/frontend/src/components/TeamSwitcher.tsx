@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { getId } from '../utils/getId'
 import type { Team } from '../types'
+import { TeamRoster } from './TeamRoster'
 
 interface TeamSwitcherProps {
   teams: Team[]
@@ -46,6 +47,7 @@ export function TeamSwitcher({
   const [newLabel, setNewLabel] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [rosterTeamId, setRosterTeamId] = useState<string | null>(null)
   const panelRef = useOutsideClick(() => setManaging(false))
 
   function handleCreateSubmit(e: FormEvent<HTMLFormElement>) {
@@ -126,7 +128,9 @@ export function TeamSwitcher({
         <div
           ref={panelRef}
           aria-label="Manage teams panel"
-          className="absolute right-0 top-11 z-10 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#1a1626]"
+          className={`absolute right-0 top-11 z-10 max-h-[80vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#1a1626] ${
+            rosterTeamId ? 'w-96' : 'w-72'
+          }`}
         >
           <p className="mb-1 px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Manage teams
@@ -194,39 +198,52 @@ export function TeamSwitcher({
               )
             }
 
+            const rosterOpen = rosterTeamId === id
+
             return (
-              <div
-                key={id}
-                className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
-              >
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-sm text-slate-700 dark:text-slate-200">{team.name}</span>
-                  <input
-                    type="text"
-                    defaultValue={team.jiraLabels[0] ?? ''}
-                    onBlur={(e) => handleLabelBlur(team, e.target.value)}
-                    aria-label={`Jira label for ${team.name}`}
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-600 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-                  />
+              <div key={id}>
+                <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm text-slate-700 dark:text-slate-200">{team.name}</span>
+                    <input
+                      type="text"
+                      defaultValue={team.jiraLabels[0] ?? ''}
+                      onBlur={(e) => handleLabelBlur(team, e.target.value)}
+                      aria-label={`Jira label for ${team.name}`}
+                      className="w-full rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-600 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setRosterTeamId(rosterOpen ? null : id)}
+                      aria-label={`${rosterOpen ? 'Hide' : 'Manage'} roster for ${team.name}`}
+                      aria-expanded={rosterOpen}
+                      className={`rounded-lg px-1.5 py-1 text-xs hover:bg-slate-100 dark:hover:bg-white/10 ${
+                        rosterOpen ? 'text-fuchsia-600 dark:text-fuchsia-300' : 'text-slate-400 dark:text-slate-400'
+                      }`}
+                    >
+                      👥
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(team)}
+                      aria-label={`Rename ${team.name}`}
+                      className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteRequest(team)}
+                      aria-label={`Delete ${team.name}`}
+                      className="rounded-lg px-1.5 py-1 text-xs text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
+                    >
+                      🗑
+                    </button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(team)}
-                    aria-label={`Rename ${team.name}`}
-                    className="rounded-lg px-1.5 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
-                  >
-                    ✎
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteRequest(team)}
-                    aria-label={`Delete ${team.name}`}
-                    className="rounded-lg px-1.5 py-1 text-xs text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
-                  >
-                    🗑
-                  </button>
-                </div>
+                {rosterOpen && <TeamRoster team={team} />}
               </div>
             )
           })}

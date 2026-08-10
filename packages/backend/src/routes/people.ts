@@ -1,5 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Person, type PersonDoc } from '../models/Person.ts'
+import { searchUsers } from '../services/jiraClient.ts'
 import { isDuplicateKeyError } from '../utils/mongoErrors.ts'
 
 export const peopleRouter = Router()
@@ -35,6 +36,27 @@ peopleRouter.post(
     }
   },
 )
+
+// GET /api/people/jira-search?query=... -> passthrough to jiraClient.searchUsers,
+// backing the manual-entry form's optional autocomplete (spec: "if ticket
+// 11's live verification confirmed the 'Browse users and groups' permission
+// is available..."). searchUsers itself returns null on a 403 rather than
+// throwing, which this route surfaces as-is so the frontend can degrade to
+// plain manual fields without treating it as an error.
+peopleRouter.get('/jira-search', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { query } = req.query
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'query is required' })
+    }
+
+    const users = await searchUsers(query)
+    res.json(users)
+  } catch (err) {
+    next(err)
+  }
+})
 
 // GET /api/people -> list all people, creation order.
 peopleRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {

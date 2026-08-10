@@ -113,6 +113,48 @@ export interface Team {
   updatedAt?: string
 }
 
+// A person a Team can roster, independent of Profile/Team - a Person may
+// hold TeamMembership in more than one Team. `email` is display/contact
+// only; `jiraAccountId` is the actual match key against a synced Ticket's
+// assignee (ADR 0001).
+export interface Person {
+  _id?: string
+  id?: string
+  name: string
+  email: string
+  jiraAccountId: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+// Fixed job-title/seniority union, not a DB collection - see
+// constants/roles.ts for the matching ROLE_DEFAULT_CAPACITY_PERCENT lookup
+// (mirrors the backend's Role.ts exactly).
+export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'Intern'
+
+// The join between a Team and a Person - one roster row. `personId` comes
+// back populated (a full Person object) from GET /api/team-memberships, per
+// ticket 12's API contract, rather than staying a bare id string.
+export interface TeamMembership {
+  _id?: string
+  id?: string
+  teamId: string
+  personId: Person
+  role: Role
+  capacityPercentOverride: number | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+// A Jira user-search hit, as returned by GET /api/people/jira-search (a
+// passthrough to jiraClient.searchUsers) - backs the manual-entry form's
+// optional autocomplete. Mirrors the backend's JiraUser shape.
+export interface JiraUserSuggestion {
+  accountId: string
+  displayName?: string
+  emailAddress?: string | null
+}
+
 // Notes — a third, durable/organized concept alongside Todos and Scratchpad
 // (see .scratch/notes-section/spec.md). Deliberately minimal: no priority,
 // tags, due dates, or completion. `parentId`/`folderId` are `null` (never

@@ -19,7 +19,14 @@ vi.mock('../src/models/Person.ts', () => {
   }
 })
 
+vi.mock('../src/services/jiraClient.ts', () => {
+  return {
+    searchUsers: vi.fn(),
+  }
+})
+
 const { Person } = (await import('../src/models/Person.ts')) as unknown as { Person: MockedPersonModel }
+const { searchUsers } = (await import('../src/services/jiraClient.ts')) as unknown as { searchUsers: Mock }
 const { createApp } = await import('../src/app.ts')
 
 describe('Person routes', () => {
@@ -72,6 +79,38 @@ describe('Person routes', () => {
         .send({ name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' })
 
       expect(res.status).toBe(409)
+    })
+  })
+
+  describe('GET /api/people/jira-search', () => {
+    it('passes the query through to jiraClient.searchUsers and returns its results', async () => {
+      const users = [{ accountId: 'acc-1', displayName: 'Ada Lovelace', emailAddress: 'ada@example.com' }]
+      searchUsers.mockResolvedValue(users)
+
+      const app = createApp()
+      const res = await request(app).get('/api/people/jira-search').query({ query: 'Ada' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual(users)
+      expect(searchUsers).toHaveBeenCalledWith('Ada')
+    })
+
+    it('surfaces a null result (degraded/unavailable permission) as-is, not an error', async () => {
+      searchUsers.mockResolvedValue(null)
+
+      const app = createApp()
+      const res = await request(app).get('/api/people/jira-search').query({ query: 'Ada' })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toBeNull()
+    })
+
+    it('rejects a missing query', async () => {
+      const app = createApp()
+      const res = await request(app).get('/api/people/jira-search')
+
+      expect(res.status).toBe(400)
+      expect(searchUsers).not.toHaveBeenCalled()
     })
   })
 
