@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { TeamRoster } from './TeamRoster'
-import type { Person, Team, TeamMembership } from '../types'
+import type { JiraUserSuggestion, Person, Team, TeamMembership } from '../types'
 
 interface FakeResponse {
   ok: boolean
@@ -41,17 +41,20 @@ const membershipAda: TeamMembership = {
 let membershipsData: TeamMembership[]
 let peopleData: Person[]
 let fetchMock: FetchMock
+// null by default (simulates the "unavailable" degrade path); individual
+// tests override this to exercise the live-search flow.
+let jiraSearchResult: JiraUserSuggestion[] | null
 
 // Handles every endpoint useTeamRoster touches - team-memberships CRUD,
-// people list/create, and the optional jira-search passthrough (stubbed
-// unavailable/null by default, matching the "degrade silently" contract).
+// people list/create, and the jira-search passthrough (controlled per-test
+// via `jiraSearchResult`).
 function stubFetch(): FetchMock {
   const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
     const method = init?.method ?? 'GET'
 
     if (href.includes('/api/people/jira-search')) {
-      return jsonResponse(null)
+      return jsonResponse(jiraSearchResult)
     }
     if (href.startsWith('http://localhost:4100/api/people') && method === 'POST') {
       const body = JSON.parse(init?.body ?? '{}')
@@ -106,6 +109,7 @@ describe('TeamRoster', () => {
   beforeEach(() => {
     membershipsData = [membershipAda]
     peopleData = [ada, grace]
+    jiraSearchResult = null
     fetchMock = stubFetch()
   })
 
@@ -144,7 +148,7 @@ describe('TeamRoster', () => {
     render(<TeamRoster team={team} />)
     await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'New person' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Manual entry' }))
     fireEvent.change(screen.getByLabelText('New person name'), { target: { value: 'Alan Turing' } })
     fireEvent.change(screen.getByLabelText('New person email'), { target: { value: 'alan@example.com' } })
     fireEvent.change(screen.getByLabelText('New person Jira account id'), { target: { value: 'acc-3' } })
@@ -159,6 +163,50 @@ describe('TeamRoster', () => {
         body: JSON.stringify({ name: 'Alan Turing', email: 'alan@example.com', jiraAccountId: 'acc-3' }),
       }),
     )
+  })
+
+  it('searches Jira live as the team lead types, then adds the selected user with the locked jiraAccountId', async () => {
+    jiraSearchResult = [{ accountId: 'acc-jira-1', displayName: 'Alan Turing', emailAddress: 'alan@example.com' }]
+
+    render(<TeamRoster team={team} />)
+    await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search Jira' }))
+    fireEvent.change(screen.getByLabelText('Search Jira users'), { target: { value: 'Alan' } })
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:4100/api/people/jira-search?query=Alan'),
+    )
+    await waitFor(() => expect(screen.getByText(/Alan Turing/)).toBeInTheDocument())
+    fireEvent.click(screen.getByText(/Alan Turing/))
+
+    // Selecting pre-fills editable name/email fields from the Jira result.
+    expect(screen.getByLabelText('Jira-sourced person name')).toHaveValue('Alan Turing')
+    expect(screen.getByLabelText('Jira-sourced person email')).toHaveValue('alan@example.com')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+    await waitFor(() => expect(screen.getAllByText('Alan Turing').length).toBeGreaterThan(0))
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:4100/api/people',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ name: 'Alan Turing', email: 'alan@example.com', jiraAccountId: 'acc-jira-1' }),
+      }),
+    )
+  })
+
+  it('falls back to manual entry, hiding "Search Jira", once a search comes back unavailable', async () => {
+    jiraSearchResult = null
+
+    render(<TeamRoster team={team} />)
+    await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search Jira' }))
+    fireEvent.change(screen.getByLabelText('Search Jira users'), { target: { value: 'Alan' } })
+
+    await waitFor(() => expect(screen.getByLabelText('New person name')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Search Jira' })).not.toBeInTheDocument()
   })
 
   it('edits role inline', async () => {

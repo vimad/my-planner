@@ -9,8 +9,8 @@ interface TeamRosterProps {
   team: Team
 }
 
-// Debounce delay for the manual-entry form's optional Jira user-search
-// autocomplete - short enough to feel live, long enough not to hammer
+// Debounce delay for the "Search Jira" add-person mode's live user search -
+// short enough to feel live, long enough not to hammer
 // /api/people/jira-search on every keystroke.
 const JIRA_SEARCH_DEBOUNCE_MS = 300
 
@@ -88,10 +88,33 @@ function RosterRow({
   )
 }
 
-// The "Add person" mini-flow: pick an existing Person (autocomplete, not
-// team-scoped) or fill a manual-entry form that creates one - then a
-// role/capacity pair and a single submit does both the Person and
-// TeamMembership POSTs in one step (existing-person path skips the first).
+// A small pill toggle shared by the three add-person modes below.
+function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        active
+          ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+          : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+// The "Add person" mini-flow, three ways to land on a person + role/capacity
+// pair to POST /api/team-memberships (creating the Person first via
+// POST /api/people where needed, in the same step):
+//  - existing: autocomplete over all People, not team-scoped
+//  - jira: live search-as-you-type over Jira users (GET /api/people/jira-search)
+//    - the primary way to add someone new, since it needs zero manual typing
+//    beyond a query and guarantees a correct jiraAccountId straight from Jira
+//  - manual: plain name/email/jiraAccountId fields - the fallback when Jira
+//    search is unavailable (missing "Browse users and groups" permission) or
+//    the person isn't findable there yet
 function AddPersonForm({
   team,
   people,
@@ -111,58 +134,81 @@ function AddPersonForm({
   ) => Promise<void>
   searchJiraUsers: (query: string) => Promise<JiraUserSuggestion[] | null>
 }) {
-  const [mode, setMode] = useState<'existing' | 'new'>('existing')
+  const [mode, setMode] = useState<'existing' | 'jira' | 'manual'>('existing')
   const [query, setQuery] = useState('')
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
+
+  const [jiraQuery, setJiraQuery] = useState('')
+  const [jiraResults, setJiraResults] = useState<JiraUserSuggestion[]>([])
+  const [jiraSearching, setJiraSearching] = useState(false)
+  const [selectedJiraUser, setSelectedJiraUser] = useState<JiraUserSuggestion | null>(null)
+  // Once a search comes back null (403/unavailable), stop trying and drop
+  // back to manual entry for the rest of this form's lifetime - degrade
+  // silently rather than repeatedly firing requests that will never
+  // succeed (spec: "must degrade silently, not block the form").
+  const [jiraSearchAvailable, setJiraSearchAvailable] = useState(true)
+
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newJiraAccountId, setNewJiraAccountId] = useState('')
+
   const [role, setRole] = useState<Role>(ROLES[0])
   const [capacityInput, setCapacityInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const [jiraSuggestions, setJiraSuggestions] = useState<JiraUserSuggestion[]>([])
-  // Once a search comes back null (403/unavailable), stop trying for the
-  // rest of this form's lifetime - degrade silently rather than repeatedly
-  // firing requests that will never succeed (spec: "must degrade silently,
-  // not block the form").
-  const [jiraSearchAvailable, setJiraSearchAvailable] = useState(true)
-
+  // Live Jira user search as the team lead types - runs only while in
+  // "jira" mode and nothing's selected yet.
   useEffect(() => {
-    if (mode !== 'new' || !jiraSearchAvailable || newName.trim().length < 2) {
-      setJiraSuggestions([])
+    if (mode !== 'jira' || selectedJiraUser || !jiraSearchAvailable || jiraQuery.trim().length < 2) {
+      setJiraResults([])
+      setJiraSearching(false)
       return
     }
     let ignore = false
+    setJiraSearching(true)
     const timer = setTimeout(async () => {
-      const results = await searchJiraUsers(newName.trim())
+      const results = await searchJiraUsers(jiraQuery.trim())
       if (ignore) return
+      setJiraSearching(false)
       if (results === null) {
         setJiraSearchAvailable(false)
-        setJiraSuggestions([])
+        setJiraResults([])
+        setMode('manual')
       } else {
-        setJiraSuggestions(results)
+        setJiraResults(results)
       }
     }, JIRA_SEARCH_DEBOUNCE_MS)
     return () => {
       ignore = true
       clearTimeout(timer)
     }
-  }, [mode, newName, jiraSearchAvailable, searchJiraUsers])
+  }, [mode, jiraQuery, selectedJiraUser, jiraSearchAvailable, searchJiraUsers])
 
-  function applyJiraSuggestion(user: JiraUserSuggestion) {
-    setNewName(user.displayName ?? newName)
+  // Picking a Jira result pre-fills name/email (still editable, since
+  // `emailAddress`/`displayName` may be null per the org's Jira privacy
+  // settings - see ADR 0001) but locks jiraAccountId to the real match key.
+  function selectJiraUser(user: JiraUserSuggestion) {
+    setSelectedJiraUser(user)
+    setNewName(user.displayName ?? '')
     setNewEmail(user.emailAddress ?? '')
-    setNewJiraAccountId(user.accountId)
-    setJiraSuggestions([])
+    setJiraQuery('')
+    setJiraResults([])
   }
 
-  function resetForm() {
-    setQuery('')
+  function switchMode(next: 'existing' | 'jira' | 'manual') {
+    setMode(next)
     setSelectedPerson(null)
+    setQuery('')
+    setSelectedJiraUser(null)
+    setJiraQuery('')
+    setJiraResults([])
     setNewName('')
     setNewEmail('')
     setNewJiraAccountId('')
+  }
+
+  function resetForm() {
+    switchMode('existing')
     setRole(ROLES[0])
     setCapacityInput('')
   }
@@ -178,6 +224,12 @@ function AddPersonForm({
       if (mode === 'existing') {
         if (!selectedPerson) return
         await onAddExisting(personId(selectedPerson), role, capacityPercentOverride)
+      } else if (mode === 'jira') {
+        if (!selectedJiraUser) return
+        const name = newName.trim()
+        const email = newEmail.trim()
+        if (!name || !email) return
+        await onAddNew({ name, email, jiraAccountId: selectedJiraUser.accountId }, role, capacityPercentOverride)
       } else {
         const name = newName.trim()
         const email = newEmail.trim()
@@ -202,7 +254,16 @@ function AddPersonForm({
   const canSubmit =
     mode === 'existing'
       ? selectedPerson !== null
-      : newName.trim() !== '' && newEmail.trim() !== '' && newJiraAccountId.trim() !== ''
+      : mode === 'jira'
+        ? selectedJiraUser !== null && newName.trim() !== '' && newEmail.trim() !== ''
+        : newName.trim() !== '' && newEmail.trim() !== '' && newJiraAccountId.trim() !== ''
+
+  const textInputClass =
+    'w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500'
+  const resultsBoxClass =
+    'flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-[#1c1330]'
+  const resultRowClass =
+    'flex items-center justify-between rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10'
 
   return (
     <form
@@ -211,41 +272,21 @@ function AddPersonForm({
       className="flex flex-col gap-1.5 rounded-xl border border-dashed border-slate-200 p-2 dark:border-white/10"
     >
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => {
-            setMode('existing')
-            setNewName('')
-            setNewEmail('')
-            setNewJiraAccountId('')
-          }}
-          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-            mode === 'existing'
-              ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-              : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-          }`}
-        >
+        <ModeButton active={mode === 'existing'} onClick={() => switchMode('existing')}>
           Existing person
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMode('new')
-            setSelectedPerson(null)
-            setQuery('')
-          }}
-          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-            mode === 'new'
-              ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-              : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-          }`}
-        >
-          New person
-        </button>
+        </ModeButton>
+        {jiraSearchAvailable && (
+          <ModeButton active={mode === 'jira'} onClick={() => switchMode('jira')}>
+            Search Jira
+          </ModeButton>
+        )}
+        <ModeButton active={mode === 'manual'} onClick={() => switchMode('manual')}>
+          Manual entry
+        </ModeButton>
       </div>
 
-      {mode === 'existing' ? (
-        selectedPerson ? (
+      {mode === 'existing' &&
+        (selectedPerson ? (
           <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-700 dark:bg-white/5 dark:text-slate-200">
             <span className="truncate">
               {selectedPerson.name} · {selectedPerson.email}
@@ -267,10 +308,10 @@ function AddPersonForm({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search people..."
               aria-label="Search people"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+              className={textInputClass}
             />
             {searchResults.length > 0 && (
-              <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-[#1c1330]">
+              <div className={resultsBoxClass}>
                 {searchResults.map((p) => (
                   <button
                     key={personId(p)}
@@ -279,7 +320,7 @@ function AddPersonForm({
                       setSelectedPerson(p)
                       setQuery('')
                     }}
-                    className="flex items-center justify-between rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
+                    className={resultRowClass}
                   >
                     <span className="truncate">
                       {p.name} · {p.email}
@@ -289,8 +330,79 @@ function AddPersonForm({
               </div>
             )}
           </div>
-        )
-      ) : (
+        ))}
+
+      {mode === 'jira' &&
+        (selectedJiraUser ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-700 dark:bg-white/5 dark:text-slate-200">
+              <span className="truncate">
+                {selectedJiraUser.displayName ?? selectedJiraUser.accountId}
+                <span className="ml-1.5 text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
+                  From Jira
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedJiraUser(null)
+                  setNewName('')
+                  setNewEmail('')
+                }}
+                aria-label="Clear selected Jira user"
+                className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Name"
+              aria-label="Jira-sourced person name"
+              className={textInputClass}
+            />
+            <input
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="Email"
+              aria-label="Jira-sourced person email"
+              className={textInputClass}
+            />
+            <span className="px-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+              Jira account: {selectedJiraUser.accountId}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <input
+              type="search"
+              value={jiraQuery}
+              onChange={(e) => setJiraQuery(e.target.value)}
+              placeholder="Search Jira by name or email..."
+              aria-label="Search Jira users"
+              className={textInputClass}
+            />
+            {jiraSearching && (
+              <p className="px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Searching Jira...</p>
+            )}
+            {jiraResults.length > 0 && (
+              <div className={resultsBoxClass}>
+                {jiraResults.map((u) => (
+                  <button key={u.accountId} type="button" onClick={() => selectJiraUser(u)} className={resultRowClass}>
+                    <span className="truncate">
+                      {u.displayName ?? u.accountId} {u.emailAddress ? `· ${u.emailAddress}` : '· no email on Jira'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+      {mode === 'manual' && (
         <div className="flex flex-col gap-1">
           <input
             type="text"
@@ -298,34 +410,15 @@ function AddPersonForm({
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Name"
             aria-label="New person name"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className={textInputClass}
           />
-          {jiraSuggestions.length > 0 && (
-            <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-[#1c1330]">
-              {jiraSuggestions.map((u) => (
-                <button
-                  key={u.accountId}
-                  type="button"
-                  onClick={() => applyJiraSuggestion(u)}
-                  className="flex items-center justify-between rounded-md px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
-                >
-                  <span className="truncate">
-                    {u.displayName ?? u.accountId} {u.emailAddress ? `· ${u.emailAddress}` : ''}
-                  </span>
-                  <span className="shrink-0 text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
-                    From Jira
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
           <input
             type="email"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="Email"
             aria-label="New person email"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className={textInputClass}
           />
           <input
             type="text"
@@ -333,7 +426,7 @@ function AddPersonForm({
             onChange={(e) => setNewJiraAccountId(e.target.value)}
             placeholder="Jira account id"
             aria-label="New person Jira account id"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className={textInputClass}
           />
         </div>
       )}
