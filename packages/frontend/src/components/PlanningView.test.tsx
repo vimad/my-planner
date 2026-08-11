@@ -398,26 +398,15 @@ describe('PlanningView', () => {
   })
 
   describe('Dev/QA split (ticket 24)', () => {
-    it("renders a Split ticket's badge under both its resolved dev and qa rows with DEV/QA sub-labels", async () => {
+    it("renders a Split ticket's badge under both its resolved dev and qa rows, keyed by person rather than a role sub-label on the badge", async () => {
       entriesData = [...entriesData, entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0 })]
       render(<PlanningView team={team} />)
 
       const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
       await waitFor(() => expect(within(adaRow).getByText('300')).toBeInTheDocument())
-      expect(within(adaRow).getByText('DEV')).toBeInTheDocument()
 
       const graceRow = screen.getByLabelText('Tickets for Grace Hopper')
       await waitFor(() => expect(within(graceRow).getByText('300')).toBeInTheDocument())
-      expect(within(graceRow).getByText('QA')).toBeInTheDocument()
-    })
-
-    it('renders a non-split ticket in a single row, unchanged, with no role sub-label', async () => {
-      render(<PlanningView team={team} />)
-
-      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
-      await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
-      expect(within(adaRow).queryByText('DEV')).not.toBeInTheDocument()
-      expect(within(adaRow).queryByText('QA')).not.toBeInTheDocument()
     })
 
     it('renders a needs-assignment role as a distinct flagged badge, separate from Unmapped, that opens the popup on click', async () => {

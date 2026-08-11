@@ -274,19 +274,17 @@ function AddToPlanForm({
 // `needsAssignment` variant (ticket 24) it's itself the click target
 // that opens DevQaAssignmentPopup for that ticket. The full title/status/
 // staleness lives in the title tooltip rather than on the face of the
-// badge, per the ticket's "enough to identify the ticket". `role` renders a
-// small "DEV"/"QA" sub-label alongside the estimate sub-label,
-// distinguishing a Split ticket's two placements (ticket 24) - omitted
-// entirely for a non-split entry's single placement.
+// badge, per the ticket's "enough to identify the ticket". A Split ticket's
+// two placements (ticket 24) land in separate rows already keyed to their
+// resolved dev/qa person, so no DEV/QA sub-label is needed on the badge
+// itself to tell them apart.
 function TicketBadge({
   entry,
-  role,
   unmapped,
   needsAssignment,
   onFlagClick,
 }: {
   entry: SprintPlanEntry
-  role?: 'dev' | 'qa'
   unmapped?: boolean
   needsAssignment?: boolean
   onFlagClick?: () => void
@@ -307,9 +305,6 @@ function TicketBadge({
   const content = (
     <>
       {ticket.jiraKey.replace(/^WOSMVP-/, '')}
-      {role && (
-        <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role.toUpperCase()}</span>
-      )}
       {ticket.estimateHours != null && (
         <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">
           {formatEstimate(ticket.estimateHours)}
@@ -363,7 +358,7 @@ function SortableTicketBadge({ placement }: { placement: PlacedEntry }) {
       >
         ⠿
       </button>
-      <TicketBadge entry={placement.entry} role={placement.role} />
+      <TicketBadge entry={placement.entry} />
     </span>
   )
 }
@@ -443,7 +438,6 @@ function PersonRow({
             <TicketBadge
               key={placementKey({ entry, role })}
               entry={entry}
-              role={role}
               unmapped={unmapped}
               needsAssignment={needsAssignment}
               onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
