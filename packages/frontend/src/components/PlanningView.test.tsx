@@ -577,6 +577,63 @@ describe('PlanningView', () => {
     })
   })
 
+  describe('Option/Alt+click pop (find-the-pair)', () => {
+    it('alt+click enlarges a ticket badge; a plain click does not', async () => {
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByText('100')
+
+      fireEvent.click(badge)
+      expect(badge).not.toHaveClass('scale-125')
+
+      fireEvent.click(badge, { altKey: true })
+      expect(badge).toHaveClass('scale-125')
+    })
+
+    it('alt+clicking an already-popped badge toggles it back off', async () => {
+      render(<PlanningView team={team} />)
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByText('100')
+
+      fireEvent.click(badge, { altKey: true })
+      expect(badge).toHaveClass('scale-125')
+
+      fireEvent.click(badge, { altKey: true })
+      expect(badge).not.toHaveClass('scale-125')
+    })
+
+    it("propagates the pop to the same ticket's placement in a different person's row (a Split ticket's dev/qa pair)", async () => {
+      entriesData = [...entriesData, entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0 })]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const devBadge = await within(adaRow).findByText('300')
+      const graceRow = await screen.findByLabelText('Tickets for Grace Hopper')
+      const qaBadge = await within(graceRow).findByText('300')
+
+      fireEvent.click(devBadge, { altKey: true })
+
+      expect(devBadge).toHaveClass('scale-125')
+      expect(qaBadge).toHaveClass('scale-125')
+    })
+
+    it('only pops one ticket (pair) at a time - alt+clicking a different ticket un-pops the previous one', async () => {
+      entriesData = [...entriesData, entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0 })]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const firstBadge = await within(adaRow).findByText('100')
+      const secondBadge = await within(adaRow).findByText('300')
+
+      fireEvent.click(firstBadge, { altKey: true })
+      expect(firstBadge).toHaveClass('scale-125')
+
+      fireEvent.click(secondBadge, { altKey: true })
+      expect(firstBadge).not.toHaveClass('scale-125')
+      expect(secondBadge).toHaveClass('scale-125')
+    })
+  })
+
   describe('Drag-reorder (ticket 19)', () => {
     it("reorders two tickets within a person's row via a save-on-drop PATCH, and the new order survives a reload", async () => {
       entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0), entry('e3', newTicket, 1)]

@@ -2,7 +2,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { AddSprintPopover } from './AddSprintPopover'
@@ -315,6 +315,8 @@ function TicketBadge({
   onFlagClick,
   onRemove,
   removing,
+  isPopped,
+  onPopClick,
 }: {
   entry: SprintPlanEntry
   role?: 'dev' | 'qa'
@@ -326,6 +328,14 @@ function TicketBadge({
   // from either placement clears both - there's nothing to remove per-role.
   onRemove?: () => void
   removing?: boolean
+  // Option/Alt+click "pop" (find-the-pair): highlighted/enlarged when this
+  // placement's entry is the one currently popped in PlanningView state.
+  // Keyed by entry id (not placementKey), so a Split ticket's dev and qa
+  // placements - which share one SprintPlanEntry but land in two different
+  // people's rows - pop together, which is the whole point (quickly spot
+  // both sub-task owners without scanning every row).
+  isPopped?: boolean
+  onPopClick?: () => void
 }) {
   const ticket = entry.ticketId
   const tooltip = `${ticket.title} — ${ticket.status}, synced ${relativeTime(ticket.lastSyncedAt)}`
@@ -338,7 +348,14 @@ function TicketBadge({
     : unmapped
       ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300'
       : typeColorClasses(ticket.type)
-  const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold shadow-sm ${colorClasses}`
+  // Option/Alt+click "pop": a bit larger + ring-highlighted, with a short
+  // transform transition so it visibly pops rather than snapping. `shadow-sm`
+  // and `shadow-lg` never appear in the same className string (Tailwind
+  // utilities of equal specificity don't reliably cascade by DOM order), so
+  // the popped/unpopped shadow lives in this one branch, not layered on top
+  // of a base shadow class.
+  const popClasses = isPopped ? 'relative z-20 scale-125 shadow-lg ring-2 ring-fuchsia-400/60' : 'scale-100 shadow-sm'
+  const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold transition-transform duration-150 ease-out ${popClasses} ${colorClasses}`
 
   const estimateHours = roleEstimateHours(entry, role)
 
@@ -363,17 +380,32 @@ function TicketBadge({
   // "Hover-reveal affordances", NotesView.tsx's RowMenu) keeps it reachable
   // for a keyboard user tabbing to the needsAssignment button - the native
   // `title` it replaced showed on focus too.
+  // Option/Alt+click (e.altKey - Option on Mac, Alt on Windows) toggles pop
+  // instead of the badge's normal click behavior (opening the assign-dev/qa
+  // popup, for a needsAssignment badge) - checked first so the two never
+  // fire together on the same click.
+  function handleClick(e: MouseEvent) {
+    if (e.altKey) {
+      e.preventDefault()
+      onPopClick?.()
+      return
+    }
+    onFlagClick?.()
+  }
+
   const badgeEl = needsAssignment ? (
     <button
       type="button"
-      onClick={onFlagClick}
+      onClick={handleClick}
       aria-label={`Assign dev/qa for ${ticket.jiraKey}`}
       className={`${baseClasses} cursor-pointer hover:opacity-80`}
     >
       {content}
     </button>
   ) : (
-    <span className={`${baseClasses} cursor-pointer`}>{content}</span>
+    <span onClick={onPopClick ? handleClick : undefined} className={`${baseClasses} cursor-pointer`}>
+      {content}
+    </span>
   )
 
   return (
@@ -408,10 +440,14 @@ function SortableTicketBadge({
   placement,
   onRemove,
   removing,
+  isPopped,
+  onPopClick,
 }: {
   placement: PlacedEntry
   onRemove?: () => void
   removing?: boolean
+  isPopped?: boolean
+  onPopClick?: () => void
 }) {
   const key = placementKey(placement)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: key })
@@ -429,7 +465,14 @@ function SortableTicketBadge({
       >
         ⠿
       </button>
-      <TicketBadge entry={placement.entry} role={placement.role} onRemove={onRemove} removing={removing} />
+      <TicketBadge
+        entry={placement.entry}
+        role={placement.role}
+        onRemove={onRemove}
+        removing={removing}
+        isPopped={isPopped}
+        onPopClick={onPopClick}
+      />
     </span>
   )
 }
@@ -442,6 +485,8 @@ function PersonRow({
   onReorder,
   onRemove,
   removingEntryId,
+  poppedEntryId,
+  onTogglePop,
 }: {
   name: string
   placements: PlacedEntry[]
@@ -455,6 +500,12 @@ function PersonRow({
   // Unmapped/Needs dev/qa, unlike drag-reorder above.
   onRemove?: (entryId: string) => void
   removingEntryId?: string | null
+  // Option/Alt+click "pop" (find-the-pair): entry id of the single currently-
+  // popped ticket across the whole table, plus the toggle callback - passed
+  // through to every row so a Split ticket's dev/qa placements pop together
+  // even when they land in two different people's rows.
+  poppedEntryId?: string | null
+  onTogglePop?: (entryId: string) => void
 }) {
   const unmapped = variant === 'unmapped'
   const needsAssignment = variant === 'needsAssignment'
@@ -511,6 +562,8 @@ function PersonRow({
                     placement={p}
                     onRemove={onRemove ? () => onRemove(entryId) : undefined}
                     removing={removingEntryId === entryId}
+                    isPopped={!!entryId && entryId === poppedEntryId}
+                    onPopClick={onTogglePop ? () => onTogglePop(entryId) : undefined}
                   />
                 )
               })}
@@ -531,6 +584,8 @@ function PersonRow({
                 onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
                 onRemove={onRemove ? () => onRemove(entryId) : undefined}
                 removing={removingEntryId === entryId}
+                isPopped={!!entryId && entryId === poppedEntryId}
+                onPopClick={onTogglePop ? () => onTogglePop(entryId) : undefined}
               />
             )
           })}
@@ -587,6 +642,18 @@ export function PlanningView({ team }: { team: Team }) {
   // a flagged badge with no add-to-plan involved.
   const [pendingAutoOpenTicketId, setPendingAutoOpenTicketId] = useState<string | null>(null)
   const [popupTicketId, setPopupTicketId] = useState<string | null>(null)
+  // Option/Alt+click "pop" (find-the-pair): the single SprintPlanEntry
+  // currently popped, keyed by entry id so a Split ticket's dev and qa
+  // placements - which land in two different people's rows - pop together.
+  // Only one entry (i.e. one Story/Bug's dev+qa pair) can be popped at a
+  // time, per the spec; alt-clicking a placement of the already-popped
+  // entry toggles it back off.
+  const [poppedEntryId, setPoppedEntryId] = useState<string | null>(null)
+
+  function handleTogglePop(entryId: string) {
+    if (!entryId) return
+    setPoppedEntryId((prev) => (prev === entryId ? null : entryId))
+  }
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault()
@@ -773,6 +840,8 @@ export function PlanningView({ team }: { team: Team }) {
                     onReorder={reorderEntries}
                     onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                     removingEntryId={removingEntryId}
+                    poppedEntryId={poppedEntryId}
+                    onTogglePop={handleTogglePop}
                   />
                 ))}
                 <PersonRow
@@ -782,6 +851,8 @@ export function PlanningView({ team }: { team: Team }) {
                   onOpenPopup={setPopupTicketId}
                   onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                   removingEntryId={removingEntryId}
+                  poppedEntryId={poppedEntryId}
+                  onTogglePop={handleTogglePop}
                 />
                 <PersonRow
                   name="Needs dev/qa"
@@ -790,6 +861,8 @@ export function PlanningView({ team }: { team: Team }) {
                   onOpenPopup={setPopupTicketId}
                   onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                   removingEntryId={removingEntryId}
+                  poppedEntryId={poppedEntryId}
+                  onTogglePop={handleTogglePop}
                 />
               </div>
             )}
