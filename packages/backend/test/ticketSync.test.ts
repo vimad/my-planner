@@ -152,7 +152,7 @@ describe('mapIssueToTicketFields', () => {
     expect(mapped.subtaskKind).toBe(expected)
   })
 
-  it('currentSprintKey takes the last (current) entry of the Sprint field, ignoring earlier closed sprints', () => {
+  it('currentSprintKey takes the active entry of the Sprint field, ignoring closed sprints', () => {
     const mapped = mapIssueToTicketFields(
       issue('WOSMVP-1', {
         customfield_10020: [
@@ -164,6 +164,33 @@ describe('mapIssueToTicketFields', () => {
       syncedAt,
     )
     expect(mapped.currentSprintKey).toBe('632')
+  })
+
+  it('currentSprintKey takes the active entry even when it is not the last one in the array', () => {
+    const mapped = mapIssueToTicketFields(
+      issue('WOSMVP-1', {
+        customfield_10020: [
+          { id: 630, state: 'closed' },
+          { id: 632, state: 'active' },
+          { id: 631, state: 'closed' },
+        ],
+      }),
+      syncedAt,
+    )
+    expect(mapped.currentSprintKey).toBe('632')
+  })
+
+  it('currentSprintKey falls back to the last entry when no entry is active', () => {
+    const mapped = mapIssueToTicketFields(
+      issue('WOSMVP-1', {
+        customfield_10020: [
+          { id: 630, state: 'closed' },
+          { id: 631, state: 'closed' },
+        ],
+      }),
+      syncedAt,
+    )
+    expect(mapped.currentSprintKey).toBe('631')
   })
 
   it('currentSprintKey is null when the Sprint field is empty or absent', () => {

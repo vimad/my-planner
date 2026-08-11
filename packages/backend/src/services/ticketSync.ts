@@ -74,11 +74,15 @@ export function mapIssueToTicketFields(issue: JiraIssue, syncedAt: Date): Ticket
   const title = typeof fields.summary === 'string' ? fields.summary : ''
   const isEpicParent = parent?.fields?.issuetype?.name === 'Epic'
   const sprintEntries = (fields[SPRINT_FIELD_ID] as JiraSprintFieldEntry[] | null | undefined) ?? []
-  // Jira appends the currently-assigned sprint to the end of this array,
-  // ahead of it sit past (closed) sprints the ticket carried over from —
-  // confirmed live (a ticket with 2 closed sprints listed before its
-  // current one).
-  const currentSprint = sprintEntries.length > 0 ? sprintEntries[sprintEntries.length - 1] : null
+  // Array position isn't a reliable way to find the current sprint — a
+  // ticket split across multiple sprints can have its active entry anywhere
+  // in the array, not just last (confirmed live: a ticket whose active
+  // sprint was NOT the final entry, causing it to go missing from Status —
+  // see ADR 0002 follow-up). `state === 'active'` is Jira's own signal for
+  // "this is the sprint it's in right now"; fall back to the last entry only
+  // when nothing is active (e.g. a ticket that only ever carries closed
+  // sprints).
+  const currentSprint = sprintEntries.find((entry) => entry.state === 'active') ?? sprintEntries[sprintEntries.length - 1] ?? null
   const streamField = fields[STREAM_FIELD_ID] as JiraOptionField | null | undefined
 
   return {
