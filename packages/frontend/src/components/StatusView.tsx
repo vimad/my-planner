@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useStatusView } from '../hooks/useStatusView'
 import { SprintSelect } from './SprintSelect'
 import { getId } from '../utils/getId'
+import { ticketTypeAccent } from '../utils/ticketType'
 import type { Team, Ticket } from '../types'
 
 const JIRA_BASE_URL = import.meta.env.VITE_JIRA_BASE_URL ?? 'https://wealthos.atlassian.net'
@@ -36,33 +37,48 @@ function exactTime(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : 'never synced'
 }
 
-// `type` is `null` only for a ticket discovered exclusively via Lightweight
-// sync (search/jql's fields=summary,status doesn't include issuetype) - see
-// models/Ticket.ts. Renders a muted "?" until some Full sync (Planning)
-// fills it in. Anything else is rendered as-is, no fixed color-per-type
-// mapping (Ticket.type is a free-form Jira issue type name, not a closed
-// union).
-function TypeBadge({ type }: { type: string | null }) {
-  if (!type) {
-    return (
-      <span
-        title="Type unknown — only Lightweight-synced so far"
-        className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:bg-white/10 dark:text-slate-500"
-      >
-        ?
-      </span>
-    )
-  }
+// Card background color-codes by Jira issue type, using the same red/green/
+// blue families as PlanningView's ticket-badge coloring (ticketTypeAccent)
+// so a ticket's color means the same thing on both surfaces - dark-mode fill
+// is a lighter /10 opacity than the badge's /20 since this tints a whole
+// card rather than a small pill. A "Sub-task" buckets as `task` (its type
+// name contains "task"), which reads fine as the same light-blue family.
+// Anything else (type unknown, epic, etc.) keeps the plain white/translucent
+// card per docs/ui-conventions.md's card archetype.
+function cardAccentClasses(type: string | null): string {
+  const accent = ticketTypeAccent(type)
+  if (accent === 'bug') return 'border-red-300 bg-red-100 dark:border-red-500/30 dark:bg-red-500/10'
+  if (accent === 'story') return 'border-green-300 bg-green-100 dark:border-green-500/30 dark:bg-green-500/10'
+  if (accent === 'task') return 'border-blue-300 bg-blue-100 dark:border-blue-500/30 dark:bg-blue-500/10'
+  return 'border-slate-200 bg-white dark:border-white/10 dark:bg-white/5'
+}
+
+// A sub-task's own title says little on its own (e.g. "Fix the thing") -
+// showing which Story/Bug it belongs to, above a divider, gives it context
+// at a glance. `parent` comes from the same sprint's already-fetched
+// `tickets` list (Ticket.parentKey is a bare key, see types.ts) - when the
+// parent wasn't independently synced and so has no local Ticket doc, this
+// still links out to Jira using the bare key rather than showing nothing.
+function ParentStrip({ parentKey, parent }: { parentKey: string; parent: Ticket | undefined }) {
   return (
-    <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 dark:bg-white/10 dark:text-slate-300">
-      {type}
-    </span>
+    <a
+      href={`${JIRA_BASE_URL}/browse/${parentKey}`}
+      target="_blank"
+      rel="noreferrer"
+      title={parent ? `Parent: ${parent.title}` : `Open parent ${parentKey} in Jira`}
+      className="mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1.5 text-[11px] text-slate-500 hover:text-fuchsia-600 dark:border-white/10 dark:text-slate-400 dark:hover:text-fuchsia-300"
+    >
+      <span className="shrink-0">↳</span>
+      <span className="truncate">{parent ? parent.title : parentKey}</span>
+      <span className="shrink-0">↗</span>
+    </a>
   )
 }
 
-function TicketCard({ ticket }: { ticket: Ticket }) {
+function TicketCard({ ticket, parentTicket }: { ticket: Ticket; parentTicket: Ticket | undefined }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
+    <div className={`rounded-xl border p-3 shadow-sm dark:shadow-none dark:backdrop-blur-md ${cardAccentClasses(ticket.type)}`}>
+      {ticket.parentKey && <ParentStrip parentKey={ticket.parentKey} parent={parentTicket} />}
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
           {ticket.jiraKey}
@@ -79,15 +95,7 @@ function TicketCard({ ticket }: { ticket: Ticket }) {
         </a>
       </div>
       <p className="mt-1.5 text-sm text-slate-800 dark:text-slate-100">{ticket.title}</p>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <TypeBadge type={ticket.type} />
-          {ticket.stream && (
-            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
-              {ticket.stream}
-            </span>
-          )}
-        </div>
+      <div className="mt-2 flex items-center justify-end">
         <span className="shrink-0 text-[10px] text-slate-400" title={exactTime(ticket.lastSyncedAt)}>
           {relativeTime(ticket.lastSyncedAt)}
         </span>
@@ -139,6 +147,16 @@ export function StatusView({ team }: { team: Team }) {
       list.push(t)
       map.set(t.assigneeAccountId, list)
     }
+    return map
+  }, [tickets])
+
+  // Lookup for a sub-task's ParentStrip - the parent Story/Bug's own Ticket
+  // doc, if the sprint/team-scoped `tickets` fetch (route's query isn't
+  // assignee-filtered) happened to include it. Built from the same flat
+  // list as ticketsByAccountId above, just keyed differently.
+  const ticketsByKey = useMemo(() => {
+    const map = new Map<string, Ticket>()
+    for (const t of tickets) map.set(t.jiraKey, t)
     return map
   }, [tickets])
 
@@ -282,7 +300,11 @@ export function StatusView({ team }: { team: Team }) {
                     </div>
                     <div className="flex min-h-16 flex-col gap-2 rounded-b-lg border border-t-0 border-slate-200 bg-slate-50/50 p-2 dark:border-white/10 dark:bg-white/[0.02]">
                       {columnTickets.map((t) => (
-                        <TicketCard key={t.jiraKey} ticket={t} />
+                        <TicketCard
+                          key={t.jiraKey}
+                          ticket={t}
+                          parentTicket={t.parentKey ? ticketsByKey.get(t.parentKey) : undefined}
+                        />
                       ))}
                     </div>
                   </div>

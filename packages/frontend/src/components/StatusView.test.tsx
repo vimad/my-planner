@@ -199,16 +199,79 @@ describe('StatusView', () => {
     expect(within(board).queryByText('Done', { exact: false })).not.toBeInTheDocument()
   })
 
-  it('shows a muted "?" type badge for a Lightweight-synced ticket whose type is unknown', async () => {
-    ticketsData = [ticket({ jiraKey: 'WOSMVP-200', assigneeAccountId: 'acc-1', status: 'To Do', type: null, title: 'Mystery' })]
+  it('does not render a type or stream badge on the ticket card', async () => {
+    ticketsData = [
+      ticket({ jiraKey: 'WOSMVP-200', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Bug', stream: 'Platform', title: 'No badges here' }),
+    ]
     fetchMock = stubFetch()
 
     render(<StatusView team={team} />)
 
     const board = await screen.findByLabelText("Ada Lovelace's board")
-    const card = within(board).getByText('Mystery').closest('div')
-    expect(card).not.toBeNull()
-    expect(within(card as HTMLElement).getByText('?')).toBeInTheDocument()
+    expect(within(board).getByText('No badges here')).toBeInTheDocument()
+    expect(within(board).queryByText('Bug')).not.toBeInTheDocument()
+    expect(within(board).queryByText('Platform')).not.toBeInTheDocument()
+    expect(within(board).queryByText('?')).not.toBeInTheDocument()
+  })
+
+  it("colors the ticket card background by issue type, matching Planning view's badge colors", async () => {
+    ticketsData = [
+      ticket({ jiraKey: 'WOSMVP-201', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Bug', title: 'A bug' }),
+      ticket({ jiraKey: 'WOSMVP-202', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Story', title: 'A story' }),
+      ticket({ jiraKey: 'WOSMVP-203', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Dev Task', title: 'A task' }),
+    ]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    expect(within(board).getByText('A bug').closest('div')).toHaveClass('bg-red-100')
+    expect(within(board).getByText('A story').closest('div')).toHaveClass('bg-green-100')
+    expect(within(board).getByText('A task').closest('div')).toHaveClass('bg-blue-100')
+  })
+
+  it("shows a sub-task's parent above its own title, linking out to Jira in a new tab", async () => {
+    ticketsData = [
+      ticket({ jiraKey: 'WOSMVP-300', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Story', title: 'Parent story' }),
+      ticket({
+        jiraKey: 'WOSMVP-301',
+        assigneeAccountId: 'acc-1',
+        status: 'To Do',
+        type: 'Sub-task',
+        title: 'Sub-task title',
+        parentKey: 'WOSMVP-300',
+      }),
+    ]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    const card = within(board).getByText('Sub-task title').closest('div') as HTMLElement
+    const parentLink = within(card).getByRole('link', { name: /Parent story/ })
+    expect(parentLink).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-300')
+    expect(parentLink).toHaveAttribute('target', '_blank')
+  })
+
+  it("falls back to the parent's bare key when the parent ticket wasn't independently synced", async () => {
+    ticketsData = [
+      ticket({
+        jiraKey: 'WOSMVP-401',
+        assigneeAccountId: 'acc-1',
+        status: 'To Do',
+        type: 'Sub-task',
+        title: 'Orphan sub-task',
+        parentKey: 'WOSMVP-400',
+      }),
+    ]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    const card = within(board).getByText('Orphan sub-task').closest('div') as HTMLElement
+    const parentLink = within(card).getByRole('link', { name: /WOSMVP-400/ })
+    expect(parentLink).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-400')
   })
 
   it('renders an "open in Jira" link pointing at the right URL', async () => {

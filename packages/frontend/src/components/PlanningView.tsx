@@ -10,6 +10,7 @@ import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { SprintSelect } from './SprintSelect'
 import { getId } from '../utils/getId'
+import { ticketTypeAccent } from '../utils/ticketType'
 import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
 
 // A ticket's placement within one "Tickets by person" row. `role` is set
@@ -116,18 +117,18 @@ function formatEstimate(hours: number): string {
   return parts.length > 0 ? parts.join(' ') : '0h'
 }
 
-// Ticket badge's background color-codes by Jira issue type - bug/story/task
-// buckets matched by substring since `type` is Jira's raw issuetype.name,
-// not a closed enum (e.g. "Dev Story" still buckets as a story).
+// Ticket badge's background color-codes by Jira issue type (ticketTypeAccent
+// - shared with StatusView's ticket-card coloring so a ticket's color means
+// the same thing on both surfaces).
 function typeColorClasses(type: string | null): string {
-  const t = type?.toLowerCase() ?? ''
-  if (t.includes('bug')) {
+  const accent = ticketTypeAccent(type)
+  if (accent === 'bug') {
     return 'border-red-300 bg-red-100 text-red-700 dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300'
   }
-  if (t.includes('story')) {
+  if (accent === 'story') {
     return 'border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/20 dark:text-green-300'
   }
-  if (t.includes('task')) {
+  if (accent === 'task') {
     return 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-300'
   }
   return 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300'

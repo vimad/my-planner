@@ -136,6 +136,17 @@ rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 
 
 Note dark mode here is translucent (`bg-white/5` + blur), not an opaque hex like B/C/A — that's what distinguishes an in-flow card from a floating surface. Reference: `CategoryForm.tsx`, `MiniCalendar.tsx`, `NotesView.tsx` tree/editor panes, `ScratchNoteCard.tsx`, `WeeklyProgressPanel.tsx` (collapsed state).
 
+**Variant: issue-type-tinted card** (`StatusView.tsx`'s `TicketCard`/`cardAccentClasses`) — swaps the plain border/bg for the same bug/story/task color family as the badge coloring below, at a card-appropriate lower dark-mode opacity:
+
+```
+bug:     border-red-300 bg-red-100 dark:border-red-500/30 dark:bg-red-500/10
+story:   border-green-300 bg-green-100 dark:border-green-500/30 dark:bg-green-500/10
+task:    border-blue-300 bg-blue-100 dark:border-blue-500/30 dark:bg-blue-500/10
+neutral: border-slate-200 bg-white dark:border-white/10 dark:bg-white/5 (unchanged Archetype D)
+```
+
+Classification (`ticketTypeAccent`, `utils/ticketType.ts`) is shared with the badge coloring below so the two surfaces never drift on what counts as a bug/story/task; each surface still hand-writes its own class string, per this doc's rule.
+
 ### E. Primary CTA button
 
 ```
