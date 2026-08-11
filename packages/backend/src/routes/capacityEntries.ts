@@ -1,5 +1,10 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
+import type { Types } from 'mongoose'
 import { CapacityEntry } from '../models/CapacityEntry.ts'
+import { TeamMembership } from '../models/TeamMembership.ts'
+import { TeamSprintPlan } from '../models/TeamSprintPlan.ts'
+import { computeWorkingDates } from '../services/sprintWorkingDays.ts'
+import type { LeaveEntry, LeavePortion } from '../services/leaveEntries.ts'
 import { isDuplicateKeyError } from '../utils/mongoErrors.ts'
 
 export const capacityEntriesRouter = Router()
@@ -10,7 +15,46 @@ export const capacityEntriesRouter = Router()
 interface CapacityEntryBody {
   teamMembershipId?: string
   sprintId?: string
-  leaveDays?: number
+  leaveEntries?: LeaveEntry[]
+}
+
+function isValidPortion(portion: unknown): portion is LeavePortion {
+  return portion === 'full' || portion === 'half'
+}
+
+// Every entry has a plain 'YYYY-MM-DD' `date` string and a 'full'/'half'
+// `portion` - shape validation only, doesn't check the date is actually one
+// of the sprint's working dates (that's validateAgainstWorkingDates below).
+function isWellFormedLeaveEntries(value: unknown): value is LeaveEntry[] {
+  if (!Array.isArray(value)) return false
+  return value.every(
+    (e) => e && typeof e === 'object' && typeof (e as LeaveEntry).date === 'string' && isValidPortion((e as LeaveEntry).portion),
+  )
+}
+
+// PATCH's date-in-range check: looks up the CapacityEntry's teamMembershipId
+// -> TeamMembership.teamId, then that team's TeamSprintPlan for the entry's
+// own sprintId, to get the current startDate/endDate/holidays and run
+// computeWorkingDates. Returns an error message, or null when every entry's
+// date falls within the sprint's current working dates.
+async function validateAgainstWorkingDates(
+  teamMembershipId: Types.ObjectId,
+  sprintId: Types.ObjectId,
+  entries: LeaveEntry[],
+): Promise<string | null> {
+  const membership = await TeamMembership.findById(teamMembershipId)
+  if (!membership) return 'Capacity entry has no matching team membership'
+
+  const plan = await TeamSprintPlan.findOne({ teamId: membership.teamId, sprintId })
+  const workingDates =
+    plan?.startDate && plan?.endDate ? computeWorkingDates(plan.startDate, plan.endDate, plan.holidays) : []
+  const workingSet = new Set(workingDates)
+
+  const outOfRange = entries.find((e) => !workingSet.has(e.date))
+  if (outOfRange) {
+    return `${outOfRange.date} is not one of this sprint's current working dates`
+  }
+  return null
 }
 
 // POST /api/capacity-entries -> record a membership's leave for a sprint.
@@ -20,13 +64,16 @@ capacityEntriesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CapacityEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { teamMembershipId, sprintId, leaveDays } = req.body
+      const { teamMembershipId, sprintId, leaveEntries } = req.body
 
       if (!teamMembershipId || !sprintId) {
         return res.status(400).json({ error: 'teamMembershipId and sprintId are required' })
       }
+      if (leaveEntries !== undefined && !isWellFormedLeaveEntries(leaveEntries)) {
+        return res.status(400).json({ error: 'leaveEntries must be an array of { date, portion } with portion "full" or "half"' })
+      }
 
-      const entry = await CapacityEntry.create({ teamMembershipId, sprintId, leaveDays: leaveDays ?? 0 })
+      const entry = await CapacityEntry.create({ teamMembershipId, sprintId, leaveEntries: leaveEntries ?? [] })
       res.status(201).json(entry)
     } catch (err) {
       if (isDuplicateKeyError(err)) {
@@ -58,18 +105,32 @@ capacityEntriesRouter.get('/', async (req: Request, res: Response, next: NextFun
   }
 })
 
-// PATCH /api/capacity-entries/:id -> edit leaveDays.
+// PATCH /api/capacity-entries/:id -> full-array replacement of leaveEntries
+// (the grid always holds and sends a person's complete leave set for the
+// sprint, not a single-cell diff). Validates every entry's date falls
+// within the sprint's *current* working dates and every portion is
+// 'full'/'half'.
 capacityEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, CapacityEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { leaveDays } = req.body
+      const { leaveEntries } = req.body
 
-      if (typeof leaveDays !== 'number') {
-        return res.status(400).json({ error: 'leaveDays must be a number' })
+      if (!isWellFormedLeaveEntries(leaveEntries)) {
+        return res.status(400).json({ error: 'leaveEntries must be an array of { date, portion } with portion "full" or "half"' })
       }
 
-      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, { leaveDays }, { returnDocument: 'after' })
+      const existing = await CapacityEntry.findById(req.params.id)
+      if (!existing) {
+        return res.status(404).json({ error: 'Capacity entry not found' })
+      }
+
+      const rangeError = await validateAgainstWorkingDates(existing.teamMembershipId, existing.sprintId, leaveEntries)
+      if (rangeError) {
+        return res.status(400).json({ error: rangeError })
+      }
+
+      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, { leaveEntries }, { returnDocument: 'after' })
 
       if (!entry) {
         return res.status(404).json({ error: 'Capacity entry not found' })

@@ -1,21 +1,42 @@
 import mongoose, { Schema, type Types } from 'mongoose'
+import type { LeavePortion } from '../services/leaveEntries.ts'
 
-// A TeamMembership's leave for one Sprint — manual input, 0.5-day
-// granularity, defaulting to 0 (no leave) when absent. See spec's "Domain
-// model — Capacity".
+// A TeamMembership's leave for one Sprint - a set of per-date entries picked
+// directly against the sprint's working-day calendar (see
+// .scratch/sprint-leave-picker/spec.md), rather than a single manually-typed
+// number. `date` is a plain 'YYYY-MM-DD' calendar-day string, never
+// `Date`/toISOString() - same timezone rule as TeamSprintPlan.startDate/
+// holidays (see sprint-period-picker/spec.md's timezone decision). Stored
+// entries are reconciled against the sprint's *current* working dates at
+// read time (routes/capacity.ts), never swept/mutated here when a
+// TeamSprintPlan's period changes - a stale entry just stops counting until
+// its date is working again.
+export interface LeaveEntrySubdoc {
+  date: string
+  portion: LeavePortion
+}
+
 export interface CapacityEntryDoc {
   teamMembershipId: Types.ObjectId
   sprintId: Types.ObjectId
-  leaveDays: number
+  leaveEntries: LeaveEntrySubdoc[]
   createdAt: Date
   updatedAt: Date
 }
+
+const leaveEntrySchema = new Schema<LeaveEntrySubdoc>(
+  {
+    date: { type: String, required: true },
+    portion: { type: String, enum: ['full', 'half'], required: true },
+  },
+  { _id: false },
+)
 
 const capacityEntrySchema = new Schema<CapacityEntryDoc>(
   {
     teamMembershipId: { type: Schema.Types.ObjectId, ref: 'TeamMembership', required: true },
     sprintId: { type: Schema.Types.ObjectId, ref: 'Sprint', required: true },
-    leaveDays: { type: Number, default: 0 },
+    leaveEntries: { type: [leaveEntrySchema], default: [] },
   },
   { timestamps: true },
 )

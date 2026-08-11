@@ -11,6 +11,8 @@ import { ROLE_DEFAULT_CAPACITY_PERCENT } from '../models/Role.ts'
 import { computeEffortHours } from '../services/ticketSync.ts'
 import { computeCapacity } from '../services/capacityFormula.ts'
 import { isSplitTicket, resolveDevQa, roleSubtaskEstimateHours, type MembershipForResolution } from '../services/devQaResolution.ts'
+import { computeWorkingDates } from '../services/sprintWorkingDays.ts'
+import { reconcileWithWorkingDates, totalLeaveDays } from '../services/leaveEntries.ts'
 
 export const capacityRouter = Router()
 
@@ -32,6 +34,19 @@ capacityRouter.get(
       if (!teamSprintPlan) {
         return res.status(404).json({ error: 'No team sprint plan (working days) configured for this sprint' })
       }
+
+      // Read-time reconciliation (spec ".scratch/sprint-leave-picker/
+      // spec.md"): a membership's stored leaveEntries are always filtered
+      // against the sprint's *current* working dates before being totaled,
+      // rather than swept/mutated when the TeamSprintPlan's period changes.
+      // A legacy plan with no stored startDate/endDate (pre-period-picker)
+      // has no working-date calendar to reconcile against - treated as no
+      // working dates, so any stored leave simply doesn't count until a
+      // period is set.
+      const workingDates =
+        teamSprintPlan.startDate && teamSprintPlan.endDate
+          ? computeWorkingDates(teamSprintPlan.startDate, teamSprintPlan.endDate, teamSprintPlan.holidays)
+          : []
 
       const memberships = await TeamMembership.find({ teamId }).populate<{ personId: PopulatedPerson }>('personId')
       const lookupRows = await CapacityLookup.find()
@@ -72,7 +87,8 @@ capacityRouter.get(
       const capacities = await Promise.all(
         memberships.map(async (membership) => {
           const capacityEntry = await CapacityEntry.findOne({ teamMembershipId: membership._id, sprintId })
-          const leaveDays = capacityEntry?.leaveDays ?? 0
+          const reconciledLeaveEntries = reconcileWithWorkingDates(capacityEntry?.leaveEntries ?? [], workingDates)
+          const leaveDays = totalLeaveDays(reconciledLeaveEntries)
           const effectivePercentage =
             membership.capacityPercentOverride ?? ROLE_DEFAULT_CAPACITY_PERCENT[membership.role]
 
@@ -103,6 +119,8 @@ capacityRouter.get(
             capacityPercentOverride: membership.capacityPercentOverride,
             effectivePercentage,
             leaveDays,
+            capacityEntryId: capacityEntry?._id ?? null,
+            leaveEntries: reconciledLeaveEntries,
             total,
             available,
             planned,

@@ -16,25 +16,40 @@ import { parseLocalDate, toLocalDateString } from '../utils/localDate.ts'
 // Inclusive of both startDate and endDate. Excludes Saturday/Sunday.
 // Excludes any date present in `holidays`, whether or not it's also a
 // weekend or outside the range (a no-op in either case, not an error).
-// Returns 0 for an invalid/inverted range (endDate < startDate) - the route
+// Returns [] for an invalid/inverted range (endDate < startDate) - the route
 // layer is responsible for rejecting an invalid range before it ever reaches
-// this function, so 0 here is a defensive default, not a user-facing signal.
-export function computeWorkingDays(startDate: string, endDate: string, holidays: string[]): number {
-  if (endDate < startDate) return 0
+// this function, so [] here is a defensive default, not a user-facing
+// signal. Also backs capacity.ts's read-time leaveEntries reconciliation
+// (spec ".scratch/sprint-leave-picker/spec.md") and the frontend grid's own
+// column list (packages/frontend/src/utils/sprintWorkingDates.ts, a
+// same-rules port since the two can't share source across the package
+// boundary) - all three must never disagree, see sprintWorkingDays.test.ts's
+// cross-check.
+export function computeWorkingDates(startDate: string, endDate: string, holidays: string[]): string[] {
+  if (endDate < startDate) return []
 
   const holidaySet = new Set(holidays)
-  let count = 0
+  const dates: string[] = []
   const cursor = parseLocalDate(startDate)
   const end = parseLocalDate(endDate)
 
   while (cursor.getTime() <= end.getTime()) {
     const dayOfWeek = cursor.getDay() // 0 = Sunday, 6 = Saturday
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-    if (!isWeekend && !holidaySet.has(toLocalDateString(cursor))) {
-      count += 1
+    const iso = toLocalDateString(cursor)
+    if (!isWeekend && !holidaySet.has(iso)) {
+      dates.push(iso)
     }
     cursor.setDate(cursor.getDate() + 1)
   }
 
-  return count
+  return dates
+}
+
+// Thin wrapper over computeWorkingDates - kept as its own function (rather
+// than inlined at every call site) since most callers (routes/
+// teamSprintPlans.ts, the capacity formula) only ever need the count, not
+// the actual dates.
+export function computeWorkingDays(startDate: string, endDate: string, holidays: string[]): number {
+  return computeWorkingDates(startDate, endDate, holidays).length
 }

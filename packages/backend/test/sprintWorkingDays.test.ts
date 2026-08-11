@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeWorkingDays } from '../src/services/sprintWorkingDays.ts'
+import { computeWorkingDates, computeWorkingDays } from '../src/services/sprintWorkingDays.ts'
 
 describe('computeWorkingDays', () => {
   it('counts a plain Mon-Fri range with no holidays as 5', () => {
@@ -33,5 +33,55 @@ describe('computeWorkingDays', () => {
 
   it('returns 0, not negative, when every weekday in the range is also marked a holiday', () => {
     expect(computeWorkingDays('2026-08-03', '2026-08-07', ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07'])).toBe(0)
+  })
+})
+
+describe('computeWorkingDates', () => {
+  it('returns the actual date list for a plain Mon-Fri range with no holidays', () => {
+    expect(computeWorkingDates('2026-08-03', '2026-08-07', [])).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+    ])
+  })
+
+  it('excludes Saturday and Sunday from a range spanning a full weekend', () => {
+    expect(computeWorkingDates('2026-08-03', '2026-08-09', [])).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+    ])
+  })
+
+  it('excludes a holiday that falls on a weekday inside the range', () => {
+    expect(computeWorkingDates('2026-08-03', '2026-08-07', ['2026-08-05'])).toEqual([
+      '2026-08-03',
+      '2026-08-04',
+      '2026-08-06',
+      '2026-08-07',
+    ])
+  })
+
+  it('returns [] for an inverted/invalid range (endDate < startDate)', () => {
+    expect(computeWorkingDates('2026-08-07', '2026-08-03', [])).toEqual([])
+  })
+
+  it('agrees with computeWorkingDays across a handful of inputs', () => {
+    const cases: [string, string, string[]][] = [
+      ['2026-08-03', '2026-08-07', []],
+      ['2026-08-03', '2026-08-09', []],
+      ['2026-08-03', '2026-08-07', ['2026-08-05']],
+      ['2026-08-03', '2026-08-09', ['2026-08-08', '2026-08-20']],
+      ['2026-08-03', '2026-08-03', []],
+      ['2026-08-07', '2026-08-03', []],
+      ['2026-08-03', '2026-08-07', ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07']],
+    ]
+    for (const [startDate, endDate, holidays] of cases) {
+      expect(computeWorkingDates(startDate, endDate, holidays).length).toBe(computeWorkingDays(startDate, endDate, holidays))
+    }
   })
 })
