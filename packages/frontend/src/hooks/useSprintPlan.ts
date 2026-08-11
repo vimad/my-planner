@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
-import type { Sprint, SprintCapacity, SprintPlanEntry, TeamMembership, TeamSprintPlan } from '../types'
+import type { LeaveEntry, Sprint, SprintCapacity, SprintPlanEntry, TeamMembership, TeamSprintPlan } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -143,6 +143,19 @@ export interface UseSprintPlanResult {
   // every capacity card.
   setSprintPeriod: (period: SprintPeriodInput) => Promise<void>
 
+  savingLeaveEntries: boolean
+  leaveEntriesError: string | null
+  // SprintLeaveGrid's cell-click save (ticket ".scratch/sprint-leave-picker/
+  // spec.md"): a person's full, updated leaveEntries array for the sprint
+  // (not a single-cell diff - the grid always sends the whole set).
+  // Branches POST-vs-PATCH internally on whether that membership already
+  // has a capacityEntryId in the current `capacity` array, mirroring
+  // setSprintPeriod's own branch-inside-the-hook convention above. Refreshes
+  // refreshPlan() on success so every capacity card's numbers and the grid
+  // itself (leaveDays/leaveEntries are both server-derived/reconciled)
+  // reflect the save immediately.
+  setLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
+
   addingTicket: boolean
   addTicketError: string | null
   // Returns the created entry (sans `devQa` - the POST response isn't
@@ -227,6 +240,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [sprintPlanRefreshTick, setSprintPlanRefreshTick] = useState(0)
 
   const [savingSprintPeriod, setSavingSprintPeriod] = useState(false)
+  const [savingLeaveEntries, setSavingLeaveEntries] = useState(false)
+  const [leaveEntriesError, setLeaveEntriesError] = useState<string | null>(null)
   const [addingTicket, setAddingTicket] = useState(false)
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
@@ -422,6 +437,36 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [teamId, selectedSprintId, sprintPlanDoc, refreshPlan],
   )
 
+  const setLeaveEntries = useCallback(
+    async (teamMembershipId: string, entries: LeaveEntry[]) => {
+      if (!teamId || !selectedSprintId) return
+      setSavingLeaveEntries(true)
+      setLeaveEntriesError(null)
+      try {
+        const existingId = capacity.find((c) => c.teamMembershipId === teamMembershipId)?.capacityEntryId ?? null
+        const res = existingId
+          ? await fetch(`${API_URL}/api/capacity-entries/${existingId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ leaveEntries: entries }),
+            })
+          : await fetch(`${API_URL}/api/capacity-entries`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ teamMembershipId, sprintId: selectedSprintId, leaveEntries: entries }),
+            })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setLeaveEntriesError((err as Error).message)
+        throw err
+      } finally {
+        setSavingLeaveEntries(false)
+      }
+    },
+    [teamId, selectedSprintId, capacity, refreshPlan],
+  )
+
   const addTicket = useCallback(
     async (rawInput: string): Promise<SprintPlanEntry | null> => {
       if (!teamId || !selectedSprintId) return null
@@ -559,6 +604,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     loadingSprintPeriod,
     savingSprintPeriod,
     setSprintPeriod,
+    savingLeaveEntries,
+    leaveEntriesError,
+    setLeaveEntries,
     addingTicket,
     addTicketError,
     addTicket,

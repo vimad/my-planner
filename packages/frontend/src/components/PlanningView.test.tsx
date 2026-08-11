@@ -3,9 +3,11 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { useRef, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { PlanningView } from './PlanningView'
+import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import type {
   DevQaRoleResolution,
   Epic,
+  LeaveEntry,
   Person,
   Sprint,
   SprintCapacity,
@@ -178,6 +180,8 @@ const capacityRow: SprintCapacity = {
   capacityPercentOverride: null,
   effectivePercentage: 80,
   leaveDays: 1,
+  capacityEntryId: 'ce1',
+  leaveEntries: [{ date: '2026-08-03', portion: 'full' }],
   total: 72,
   available: 57.6,
   planned: 32,
@@ -185,7 +189,24 @@ const capacityRow: SprintCapacity = {
 }
 
 let entriesData: SprintPlanEntry[]
+let capacityData: SprintCapacity[]
 let fetchMock: FetchMock
+
+// Sprint leave grid (`.scratch/sprint-leave-picker/spec.md`) test state:
+// recomputes a capacity row's leaveDays/total/available/remaining from a
+// posted/patched leaveEntries array the same way capacityFormula.ts's
+// fallback branch (no CapacityLookup row) does, so the "Available/Remaining
+// figure updates after a save" test has real numbers to assert on.
+// `workingDays` is fixed per describe block via the closed-over
+// teamSprintPlanDoc rather than recomputed here, since the stub doesn't
+// re-derive it from startDate/endDate/holidays - callers keep the two in
+// sync by construction (see `sprintLeavePlan` below).
+function recomputeCapacityRow(row: SprintCapacity, leaveEntries: LeaveEntry[], workingDays: number): SprintCapacity {
+  const leaveDays = leaveEntries.reduce((sum, e) => sum + (e.portion === 'full' ? 1 : 0.5), 0)
+  const total = (workingDays - leaveDays) * 8
+  const available = total * (row.effectivePercentage / 100)
+  return { ...row, leaveEntries, leaveDays, total, available, remaining: available - row.planned }
+}
 
 function entry(
   id: string,
@@ -326,7 +347,41 @@ function stubFetch(): FetchMock {
     }
     if (href.includes('/api/sprint-plan-entries')) return jsonResponse(entriesData)
 
-    if (href.includes('/capacity')) return jsonResponse([capacityRow])
+    // Sprint leave grid (`.scratch/sprint-leave-picker/spec.md`) - checked
+    // before the generic '/capacity' branch below, since
+    // '/api/capacity-entries' itself contains that substring.
+    if (href.includes('/api/capacity-entries')) {
+      const workingDays = teamSprintPlanDoc?.startDate && teamSprintPlanDoc?.endDate
+        ? computeWorkingDates(teamSprintPlanDoc.startDate, teamSprintPlanDoc.endDate, teamSprintPlanDoc.holidays).length
+        : 0
+
+      const entryPatchMatch = href.match(/\/api\/capacity-entries\/([^/?]+)$/)
+      if (entryPatchMatch && method === 'PATCH') {
+        const id = entryPatchMatch[1]
+        const body: { leaveEntries: LeaveEntry[] } = JSON.parse(init?.body ?? '{}')
+        capacityData = capacityData.map((c) =>
+          c.capacityEntryId === id ? recomputeCapacityRow(c, body.leaveEntries, workingDays) : c,
+        )
+        const updated = capacityData.find((c) => c.capacityEntryId === id)
+        return jsonResponse({ _id: id, leaveEntries: updated?.leaveEntries ?? [] })
+      }
+      if (method === 'POST') {
+        const body: { teamMembershipId: string; sprintId: string; leaveEntries?: LeaveEntry[] } = JSON.parse(init?.body ?? '{}')
+        const newId = `ce-${body.teamMembershipId}`
+        capacityData = capacityData.map((c) =>
+          c.teamMembershipId === body.teamMembershipId
+            ? recomputeCapacityRow({ ...c, capacityEntryId: newId }, body.leaveEntries ?? [], workingDays)
+            : c,
+        )
+        return jsonResponse(
+          { _id: newId, teamMembershipId: body.teamMembershipId, sprintId: body.sprintId, leaveEntries: body.leaveEntries ?? [] },
+          201,
+        )
+      }
+      return jsonResponse({ error: 'not found' }, 404)
+    }
+
+    if (href.includes('/capacity')) return jsonResponse(capacityData)
 
     return jsonResponse([])
   })
@@ -337,6 +392,7 @@ function stubFetch(): FetchMock {
 describe('PlanningView', () => {
   beforeEach(() => {
     entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0)]
+    capacityData = [capacityRow]
     teamSprintPlanDoc = null
     fetchMock = stubFetch()
     syncReassign = null
@@ -1249,6 +1305,156 @@ describe('PlanningView', () => {
 
         expect(await screen.findByRole('button', { name: 'Edit period' })).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Sprint leave grid (.scratch/sprint-leave-picker/spec.md)', () => {
+    // 2026-08-03 (Mon) .. 2026-08-07 (Fri): 5 working days, no holidays -
+    // matches the timezone-bug regression precedent elsewhere in this file
+    // (Aug 1 is a Saturday, so a naive calendar-day slice would misplace the
+    // boundary). Set directly as the *saved* plan (not the Sprint's own
+    // Jira dates) so sprintPeriod resolves without needing the period form
+    // opened first.
+    function fiveDayPlan(overrides: Partial<NonNullable<typeof teamSprintPlanDoc>> = {}) {
+      return {
+        _id: 'plan-1',
+        teamId: 'team-a',
+        sprintId: 'sprint-1',
+        startDate: '2026-08-03',
+        endDate: '2026-08-07',
+        holidays: [],
+        workingDays: 5,
+        ...overrides,
+      }
+    }
+
+    function gridCapacityRow(overrides: Partial<SprintCapacity> = {}): SprintCapacity {
+      return {
+        teamMembershipId: 'm1',
+        personId: 'p1',
+        personName: 'Ada Lovelace',
+        role: 'SE',
+        capacityPercentOverride: null,
+        effectivePercentage: 80,
+        leaveDays: 0,
+        capacityEntryId: null,
+        leaveEntries: [],
+        total: 40, // (5 working days - 0 leave) * 8
+        available: 32, // 40 * 0.8
+        planned: 0,
+        remaining: 32,
+        ...overrides,
+      }
+    }
+
+    beforeEach(() => {
+      teamSprintPlanDoc = fiveDayPlan()
+      capacityData = [
+        gridCapacityRow(),
+        gridCapacityRow({ teamMembershipId: 'm2', personId: 'p2', personName: 'Grace Hopper', role: 'QA' }),
+      ]
+    })
+
+    it('renders one column per working date and one row per membership', async () => {
+      render(<PlanningView team={team} />)
+
+      const adaCells = await screen.findAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })
+      expect(adaCells).toHaveLength(5)
+      const graceCells = screen.getAllByRole('button', { name: /Toggle leave for Grace Hopper on/ })
+      expect(graceCells).toHaveLength(5)
+
+      for (const date of ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07']) {
+        expect(screen.getByLabelText(`Toggle leave for Ada Lovelace on ${date}`)).toBeInTheDocument()
+      }
+    })
+
+    it('grid columns match sprintPeriod\'s working dates exactly (not the raw calendar range) - excludes weekends and holidays', async () => {
+      teamSprintPlanDoc = fiveDayPlan({ holidays: ['2026-08-05'] })
+
+      render(<PlanningView team={team} />)
+
+      await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
+      // 2026-08-05 is now a holiday - not a working date, so no column for
+      // it; 2026-08-01/02 (the weekend before the range) and 2026-08-08/09
+      // (the weekend after) never had columns either.
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-05')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-01')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-08')).not.toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })).toHaveLength(4)
+    })
+
+    it('cycles a cell none -> half -> full -> none, calling POST then PATCH with the full updated entries array each time', async () => {
+      render(<PlanningView team={team} />)
+      const cell = await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
+
+      fireEvent.click(cell)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/capacity-entries',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ teamMembershipId: 'm1', sprintId: 'sprint-1', leaveEntries: [{ date: '2026-08-03', portion: 'half' }] }),
+          }),
+        ),
+      )
+      // Waits for the post-save refreshPlan() round trip to actually commit
+      // (not just for the save's own fetch call to have fired) before the
+      // next click - otherwise the cell's onClick closure still captures the
+      // pre-save (empty) entries array and would cycle from "none" again
+      // instead of "half", producing a second POST instead of a PATCH.
+      await screen.findByText('0.5d leave')
+
+      fireEvent.click(cell)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/capacity-entries/ce-m1',
+          expect.objectContaining({
+            method: 'PATCH',
+            body: JSON.stringify({ leaveEntries: [{ date: '2026-08-03', portion: 'full' }] }),
+          }),
+        ),
+      )
+      await screen.findByText('1d leave')
+
+      fireEvent.click(cell)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/capacity-entries/ce-m1',
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ leaveEntries: [] }) }),
+        ),
+      )
+      await waitFor(() => expect(screen.queryByText('1d leave')).not.toBeInTheDocument())
+    })
+
+    it("updates the capacity card's Available/Remaining figure after a save", async () => {
+      // Grace kept at a different effectivePercentage so her card's
+      // "Xh avail" text is never ambiguous with Ada's, before or after the
+      // save below.
+      capacityData = [
+        gridCapacityRow(),
+        gridCapacityRow({
+          teamMembershipId: 'm2',
+          personId: 'p2',
+          personName: 'Grace Hopper',
+          role: 'QA',
+          effectivePercentage: 100,
+          total: 40,
+          available: 40,
+          remaining: 40,
+        }),
+      ]
+      render(<PlanningView team={team} />)
+      // CapacityCard's root has a distinguishing `w-44` class - scope
+      // lookups to it (rather than plain getByText('Ada Lovelace')) since
+      // the grid's own sticky Person column also renders the name as plain
+      // text.
+      const adaCard = (await screen.findByText('32h avail')).closest('.w-44') as HTMLElement
+
+      const cell = screen.getByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
+      fireEvent.click(cell) // none -> half: 0.5 leave day, total = (5 - 0.5) * 8 = 36, available = 36 * 0.8 = 28.8
+
+      await waitFor(() => expect(within(adaCard).getByText('28.8h avail')).toBeInTheDocument())
+      expect(within(adaCard).getByText('28.8h remaining')).toBeInTheDocument()
     })
   })
 })

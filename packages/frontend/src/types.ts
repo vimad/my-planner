@@ -294,9 +294,26 @@ export interface TeamSprintPlan {
   workingDays: number
 }
 
+// One person's leave for one sprint day - see backend models/
+// CapacityEntry.ts and .scratch/sprint-leave-picker/spec.md. `date` is a
+// plain 'YYYY-MM-DD' calendar-day string, never a `Date` - same convention
+// as Todo.dueDate/TeamSprintPlan's startDate/endDate/holidays.
+export type LeavePortion = 'full' | 'half'
+
+export interface LeaveEntry {
+  date: string
+  portion: LeavePortion
+}
+
 // One row of GET /api/teams/:teamId/sprints/:sprintId/capacity's response -
 // the Total/Available/Planned/Remaining formula computed server-side (see
 // backend routes/capacity.ts), one per current TeamMembership on the team.
+// `leaveEntries` is always the *reconciled* set (filtered against the
+// sprint's current working dates server-side) - the frontend never has to
+// re-filter or handle a stale date itself. `capacityEntryId` is `null` when
+// no CapacityEntry doc exists yet for this membership+sprint, telling
+// useSprintPlan.ts's setLeaveEntries whether its next save is a POST or a
+// PATCH (mirrors TeamSprintPlan's existing POST-vs-PATCH branching).
 export interface SprintCapacity {
   teamMembershipId: string
   personId: string
@@ -305,6 +322,8 @@ export interface SprintCapacity {
   capacityPercentOverride: number | null
   effectivePercentage: number
   leaveDays: number
+  capacityEntryId: string | null
+  leaveEntries: LeaveEntry[]
   total: number
   available: number
   planned: number

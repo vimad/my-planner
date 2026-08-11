@@ -8,9 +8,11 @@ import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPl
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
+import { SprintLeaveGrid } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
 import { parseLocalDate } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
+import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import { ticketTypeAccent } from '../utils/ticketType'
 import type { Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
 
@@ -262,7 +264,14 @@ function SprintPeriodForm({
   const days = useMemo(() => enumerateRangeDays(startDate, endDate), [startDate, endDate])
   const rangeValid = days.length > 0
   const totalWeekdays = days.filter((d) => !d.isWeekend).length
-  const workingDaysCount = days.filter((d) => !d.isWeekend && !holidays.has(d.date)).length
+  // Shared with SprintLeaveGrid's own column derivation (utils/
+  // sprintWorkingDates.ts) - previously an inline weekend/holiday filter
+  // over `days` duplicated that logic (spec ".scratch/sprint-leave-picker/
+  // spec.md").
+  const workingDaysCount = useMemo(
+    () => computeWorkingDates(startDate, endDate, [...holidays]).length,
+    [startDate, endDate, holidays],
+  )
 
   // Holiday selection intersected with range changes (spec): narrowing the
   // range silently drops any checked holiday that now falls outside it,
@@ -798,6 +807,9 @@ export function PlanningView({ team }: { team: Team }) {
     loadingSprintPeriod,
     savingSprintPeriod,
     setSprintPeriod,
+    savingLeaveEntries,
+    leaveEntriesError,
+    setLeaveEntries,
     addingTicket,
     addTicketError,
     addTicket,
@@ -1006,13 +1018,22 @@ export function PlanningView({ team }: { team: Team }) {
             </p>
           ) : (
             planConfigured && (
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {capacity.length === 0 ? (
-                  <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
-                ) : (
-                  capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
-                )}
-              </div>
+              <>
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {capacity.length === 0 ? (
+                    <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
+                  ) : (
+                    capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
+                  )}
+                </div>
+                <SprintLeaveGrid
+                  capacity={capacity}
+                  sprintPeriod={sprintPeriod}
+                  saving={savingLeaveEntries}
+                  error={leaveEntriesError}
+                  onSetLeaveEntries={setLeaveEntries}
+                />
+              </>
             )
           )}
 
