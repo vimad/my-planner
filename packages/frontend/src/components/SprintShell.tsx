@@ -12,24 +12,12 @@ import { StatusView } from './StatusView'
 import { TeamSwitcher } from './TeamSwitcher'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
-type SprintTab = 'planning' | 'status' | 'epics'
+type SprintTab = 'planning' | 'status'
 
 const SPRINT_TABS: readonly { key: SprintTab; label: string }[] = [
   { key: 'planning', label: 'Planning' },
   { key: 'status', label: 'Status' },
-  { key: 'epics', label: 'Epics' },
 ]
-
-// Read-only-for-now placeholder for the Epics sub-view, built out in
-// ticket 20 (its full implementation lives inside PlanningView's
-// EpicPillStrip, per the spec - no dedicated route beyond this stub).
-function SprintStubView({ label }: { label: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-      <p className="text-sm text-slate-500 dark:text-slate-400">{label} view coming soon.</p>
-    </div>
-  )
-}
 
 // Landing at bare /sprint with no team in the URL yet - resolves the
 // last-active team (useActiveTeam's own localStorage/fallback logic) and
@@ -50,10 +38,12 @@ function SprintIndex({ teams, loading, activeTeamId }: { teams: Team[]; loading:
   return <Navigate to={`/sprint/${encodeURIComponent(teamSlug(activeTeam.name))}/planning`} replace />
 }
 
-// Everything under /sprint/:teamSlug/* - the sub-nav pill row plus whichever
-// stub view the route segment selects. Owns adopting the URL's team as the
-// active one (mirrors AppShell's URL -> state sync for profiles) so the
-// header's TeamSwitcher stays in sync with a bookmarked/back-navigated URL.
+// Everything under /sprint/:teamSlug/* - just whichever view the route
+// segment selects (the sub-nav pill row itself now lives in the header's
+// right-hand cluster, next to TeamSwitcher - see SprintShell below). Owns
+// adopting the URL's team as the active one (mirrors AppShell's URL -> state
+// sync for profiles) so the header's TeamSwitcher stays in sync with a
+// bookmarked/back-navigated URL.
 function TeamShell({
   teams,
   activeTeamId,
@@ -66,8 +56,6 @@ function TeamShell({
   loading: boolean
 }) {
   const { teamSlug: routeTeamSlug } = useParams<{ teamSlug: string }>()
-  const navigate = useNavigate()
-  const location = useLocation()
   const team = teams.find((t) => teamSlug(t.name) === routeTeamSlug) ?? null
 
   useEffect(() => {
@@ -86,44 +74,12 @@ function TeamShell({
     return loading ? null : <Navigate to="/sprint" replace />
   }
 
-  const activeTab: SprintTab = location.pathname.endsWith('/status')
-    ? 'status'
-    : location.pathname.endsWith('/epics')
-      ? 'epics'
-      : 'planning'
-
   return (
-    <>
-      <div
-        role="tablist"
-        aria-label="Sprint view"
-        className="mb-6 flex w-fit items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
-      >
-        {SPRINT_TABS.map((sprintTab) => (
-          <button
-            key={sprintTab.key}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === sprintTab.key}
-            onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug ?? '')}/${sprintTab.key}`)}
-            className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-              activeTab === sprintTab.key
-                ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-                : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-            }`}
-          >
-            {sprintTab.label}
-          </button>
-        ))}
-      </div>
-
-      <Routes>
-        <Route index element={<Navigate to="planning" replace />} />
-        <Route path="planning" element={<PlanningView team={team} />} />
-        <Route path="status" element={<StatusView team={team} />} />
-        <Route path="epics" element={<SprintStubView label="Epics" />} />
-      </Routes>
-    </>
+    <Routes>
+      <Route index element={<Navigate to="planning" replace />} />
+      <Route path="planning" element={<PlanningView team={team} />} />
+      <Route path="status" element={<StatusView team={team} />} />
+    </Routes>
   )
 }
 
@@ -134,6 +90,7 @@ function TeamShell({
 // rather than sharing AppShell's.
 export function SprintShell() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [theme, setTheme] = useState(getInitialTheme)
   const [pendingDelete, setPendingDelete] = useState<Team | null>(null)
 
@@ -150,6 +107,16 @@ export function SprintShell() {
     if (team) navigate(`/sprint/${encodeURIComponent(teamSlug(team.name))}/planning`)
   }
 
+  // Derived from the URL rather than useParams - SprintShell itself is
+  // mounted at /sprint/* (App.tsx), one level above the :teamSlug route
+  // param TeamShell binds, so this is the only place up here to read it.
+  // Only shown once the URL's slug resolves to a real team - not on the
+  // bare /sprint index (no team to navigate the tabs within yet).
+  const pathSegments = location.pathname.split('/').filter(Boolean)
+  const routeTeamSlug = pathSegments[1]
+  const activeTeam = teams.find((t) => teamSlug(t.name) === routeTeamSlug)
+  const activeTab: SprintTab = pathSegments[2] === 'status' ? 'status' : 'planning'
+
   return (
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
       <Header
@@ -158,6 +125,30 @@ export function SprintShell() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
       >
+        {activeTeam && (
+          <div
+            role="tablist"
+            aria-label="Sprint view"
+            className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+          >
+            {SPRINT_TABS.map((sprintTab) => (
+              <button
+                key={sprintTab.key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === sprintTab.key}
+                onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug)}/${sprintTab.key}`)}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                  activeTab === sprintTab.key
+                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                }`}
+              >
+                {sprintTab.label}
+              </button>
+            ))}
+          </div>
+        )}
         {!loading && (
           <TeamSwitcher
             teams={teams}

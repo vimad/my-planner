@@ -13,9 +13,8 @@ interface HeaderProps {
   onToggleTheme: () => void
   // Rendered in the header's right-hand cluster, before the theme toggle -
   // AppShell passes its Todos/Notes/Boards tab row, ProfileSwitcher, and
-  // WorkspaceSwitcher; SprintShell passes TeamSwitcher and its own
-  // WorkspaceSwitcher (the Planning/Status/Epics sub-nav renders below the
-  // header instead, per the Sprint nav spec).
+  // WorkspaceSwitcher; SprintShell mirrors that with its own Planning/Status
+  // tab row, TeamSwitcher, and WorkspaceSwitcher.
   children?: ReactNode
 }
 

@@ -106,7 +106,7 @@ describe('SprintShell', () => {
     })
   })
 
-  it('navigates between Planning/Status/Epics via the sub-nav pills', async () => {
+  it('navigates between Planning/Status via the sub-nav pills', async () => {
     window.history.pushState({}, '', '/sprint/team-a/planning')
 
     render(<App />)
@@ -123,12 +123,6 @@ describe('SprintShell', () => {
     // its sprint selector, so this also confirms the real view mounted
     // (rather than erroring) with the same empty-sprints stub data.
     expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Epics' }))
-    await waitFor(() => {
-      expect(screen.getByText('Epics view coming soon.')).toBeInTheDocument()
-    })
-    expect(window.location.pathname).toBe('/sprint/team-a/epics')
   })
 
   it('does not render the Todos/Notes/Boards chrome on a /sprint route, and the workspace switcher navigates back to "/"', async () => {
