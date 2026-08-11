@@ -65,13 +65,44 @@ describe('jiraClient', () => {
   })
 
   it('listSprints passes the state filter through as a comma-separated query param', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ values: [{ id: 5, name: 'sprint 5', state: 'active' }] }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ values: [{ id: 5, name: 'sprint 5', state: 'active' }], isLast: true }))
     vi.stubGlobal('fetch', fetchMock)
 
     const sprints = await listSprints(42, ['active', 'future'])
 
-    expect(fetchMock.mock.calls[0][0]).toBe('https://wealthos.atlassian.net/rest/agile/1.0/board/42/sprint?state=active,future')
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://wealthos.atlassian.net/rest/agile/1.0/board/42/sprint?startAt=0&state=active%2Cfuture',
+    )
     expect(sprints).toEqual([{ id: 5, name: 'sprint 5', state: 'active' }])
+  })
+
+  it('listSprints follows startAt across pages until isLast', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ values: [{ id: 1, name: 'Sprint 1', state: 'closed' }], isLast: false }))
+      .mockResolvedValueOnce(jsonResponse({ values: [{ id: 2, name: 'Sprint 2', state: 'active' }], isLast: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const sprints = await listSprints(42)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://wealthos.atlassian.net/rest/agile/1.0/board/42/sprint?startAt=0')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://wealthos.atlassian.net/rest/agile/1.0/board/42/sprint?startAt=1')
+    expect(sprints.map((s) => s.id)).toEqual([1, 2])
+  })
+
+  it('listSprints stops after one page when isLast is missing from the response (defensive default)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ values: [{ id: 5, name: 'sprint 5', state: 'active' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const sprints = await listSprints(42)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sprints).toHaveLength(1)
   })
 
   it('bulkFetchIssues chunks more than 100 keys into multiple calls', async () => {

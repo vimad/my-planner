@@ -143,10 +143,41 @@ export async function resolveBoard(projectKey: string, name?: string): Promise<J
   return data.values[0] ?? null
 }
 
+// This board has 100+ sprints (README.md) - more than a single page of
+// Jira's default page size, so a plain unpaginated call silently drops
+// everything past page 1. Since sprints come back oldest-first, that
+// dropped exactly the active/future ones (highest ids) callers actually
+// care about - the bug behind a just-created future sprint being invisible
+// to both the cache sync and the live search (services/sprintSync.ts).
+// Capped at MAX_SPRINT_PAGES purely as a runaway-loop guard against a
+// malformed/always-false `isLast`, not an expected ceiling.
+const MAX_SPRINT_PAGES = 20
+
 export async function listSprints(boardId: number, states?: JiraSprintState[]): Promise<JiraSprint[]> {
-  const query = states && states.length > 0 ? `?state=${states.join(',')}` : ''
-  const data = await jiraJson<{ values: JiraSprint[] }>(`${AGILE_PREFIX}/board/${boardId}/sprint${query}`)
-  return data.values
+  const sprints: JiraSprint[] = []
+  let startAt = 0
+
+  for (let page = 0; page < MAX_SPRINT_PAGES; page++) {
+    const params = new URLSearchParams({ startAt: String(startAt) })
+    if (states && states.length > 0) params.set('state', states.join(','))
+
+    const data = await jiraJson<{ values: JiraSprint[]; isLast?: boolean }>(
+      `${AGILE_PREFIX}/board/${boardId}/sprint?${params.toString()}`,
+    )
+    sprints.push(...data.values)
+
+    if (data.isLast !== false || data.values.length === 0) break
+    startAt += data.values.length
+  }
+
+  return sprints
+}
+
+// One sprint by its numeric Jira id, live (no board/list round trip) —
+// backs the "import a not-yet-cached sprint by id" flow in sprintSync.ts's
+// importSprint. Throws (via jiraJson) if Jira has no such sprint.
+export async function getSprint(sprintId: number): Promise<JiraSprint> {
+  return jiraJson<JiraSprint>(`${AGILE_PREFIX}/sprint/${sprintId}`)
 }
 
 // Backs the Status set's "refresh wholesale from the board's workflow

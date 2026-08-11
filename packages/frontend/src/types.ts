@@ -169,6 +169,18 @@ export interface Sprint {
   lastSyncedAt?: string
 }
 
+// One raw result from GET /api/sprints/search (live Jira, never the cache) -
+// shaped like Jira's own agile API sprint object (backend jiraClient.ts's
+// JiraSprint), not our cached Sprint doc - id is numeric and there's no
+// jiraSprintId/lastSyncedAt.
+export interface JiraSprintSearchResult {
+  id: number
+  name: string
+  state: SprintState
+  startDate?: string
+  endDate?: string
+}
+
 // One value from the Jira board's real workflow column configuration,
 // mirrored locally - mirrors backend models/Status.ts exactly. Refreshed
 // wholesale from Jira as a side effect of every sync action, never

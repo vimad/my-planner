@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
 import type { Sprint, SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
 
@@ -75,6 +75,13 @@ export interface UseSprintPlanResult {
   sprintsError: string | null
   selectedSprintId: string | null
   setSelectedSprintId: (id: string) => void
+  // Re-fetches GET /api/sprints (still cache-first server-side) - the
+  // AddSprintPopover's post-import refresh so a just-imported sprint shows
+  // up in `sprints`/SprintSelect without waiting on the 10-minute TTL.
+  // `selectSprintId`, when given, is auto-selected once it appears in the
+  // refetched list (falls back to the normal active/first-sprint pick if it
+  // never shows up, e.g. the import itself failed).
+  refreshSprints: (selectSprintId?: string) => void
 
   memberships: TeamMembership[]
   loadingMemberships: boolean
@@ -134,6 +141,12 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [loadingSprints, setLoadingSprints] = useState(true)
   const [sprintsError, setSprintsError] = useState<string | null>(null)
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null)
+  const [sprintsRefreshTick, setSprintsRefreshTick] = useState(0)
+  const pendingSprintSelectionRef = useRef<string | null>(null)
+  const refreshSprints = useCallback((selectSprintId?: string) => {
+    pendingSprintSelectionRef.current = selectSprintId ?? null
+    setSprintsRefreshTick((t) => t + 1)
+  }, [])
 
   const [memberships, setMemberships] = useState<TeamMembership[]>([])
   const [loadingMemberships, setLoadingMemberships] = useState(true)
@@ -178,7 +191,10 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       .then((data) => {
         if (ignore) return
         setSprints(data)
+        const pending = pendingSprintSelectionRef.current
+        pendingSprintSelectionRef.current = null
         setSelectedSprintId((prev) => {
+          if (pending && data.some((s) => getId(s) === pending)) return pending
           if (prev && data.some((s) => getId(s) === prev)) return prev
           const active = data.find((s) => s.state === 'active')
           return getId(active ?? data[0]) ?? null
@@ -194,7 +210,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     return () => {
       ignore = true
     }
-  }, [teamId])
+  }, [teamId, sprintsRefreshTick])
 
   // Team roster - independent of which sprint is selected.
   useEffect(() => {
@@ -385,6 +401,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     sprintsError,
     selectedSprintId,
     setSelectedSprintId,
+    refreshSprints,
     memberships,
     loadingMemberships,
     planConfigured,

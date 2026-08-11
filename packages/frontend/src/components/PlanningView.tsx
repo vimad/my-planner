@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
+import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { SprintSelect } from './SprintSelect'
@@ -432,6 +433,7 @@ export function PlanningView({ team }: { team: Team }) {
     sprintsError,
     selectedSprintId,
     setSelectedSprintId,
+    refreshSprints,
     memberships,
     loadingMemberships,
     planConfigured,
@@ -587,6 +589,9 @@ export function PlanningView({ team }: { team: Team }) {
             selectedSprintId={selectedSprintId}
             onSelect={setSelectedSprintId}
           />
+        )}
+        {teamId && (
+          <AddSprintPopover teamId={teamId} cachedSprints={sprints} onImported={refreshSprints} />
         )}
       </div>
 

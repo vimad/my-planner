@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 vi.mock('../src/services/jiraClient.ts', () => ({
   resolveBoard: vi.fn(),
   listSprints: vi.fn(),
+  getSprint: vi.fn(),
 }))
 
 const findOneSort = vi.fn()
@@ -16,14 +17,15 @@ vi.mock('../src/models/Sprint.ts', () => ({
   },
 }))
 
-const { resolveBoard, listSprints } = (await import('../src/services/jiraClient.ts')) as unknown as {
+const { resolveBoard, listSprints, getSprint } = (await import('../src/services/jiraClient.ts')) as unknown as {
   resolveBoard: Mock
   listSprints: Mock
+  getSprint: Mock
 }
 const { Sprint } = (await import('../src/models/Sprint.ts')) as unknown as {
   Sprint: { findOne: Mock; find: Mock; findOneAndUpdate: Mock }
 }
-const { getSprints } = await import('../src/services/sprintSync.ts')
+const { getSprints, searchJiraSprints, importSprint } = await import('../src/services/sprintSync.ts')
 
 describe('getSprints', () => {
   beforeEach(() => {
@@ -83,5 +85,92 @@ describe('getSprints', () => {
 
     expect(result).toEqual([{ jiraSprintId: '632' }])
     expect(listSprints).not.toHaveBeenCalled()
+  })
+})
+
+describe('searchJiraSprints', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('lists the Product Delivery Board live and filters by name, case-insensitively, without touching the cache', async () => {
+    resolveBoard.mockResolvedValue({ id: 29, name: 'Product Delivery Board', type: 'scrum' })
+    listSprints.mockResolvedValue([
+      { id: 132, name: 'WOSMVP Sprint 132', state: 'active' },
+      { id: 133, name: 'WOSMVP Sprint 133', state: 'future' },
+      { id: 130, name: 'WOSMVP Sprint 130', state: 'closed' },
+    ])
+
+    const result = await searchJiraSprints('sprint 133')
+
+    // Deliberately a different board than getSprints'/syncFromJira's Odyssey
+    // (id 235) - future sprints live on Product Delivery Board instead.
+    expect(resolveBoard).toHaveBeenCalledWith('WOSMVP', 'Product Delivery Board')
+    expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
+    expect(result).toEqual([{ id: 133, name: 'WOSMVP Sprint 133', state: 'future' }])
+    expect(Sprint.findOneAndUpdate).not.toHaveBeenCalled()
+    expect(Sprint.find).not.toHaveBeenCalled()
+  })
+
+  it('returns every board sprint for a blank query', async () => {
+    resolveBoard.mockResolvedValue({ id: 29, name: 'Product Delivery Board', type: 'scrum' })
+    const jiraSprints = [{ id: 132, name: 'WOSMVP Sprint 132', state: 'active' }]
+    listSprints.mockResolvedValue(jiraSprints)
+
+    const result = await searchJiraSprints('')
+
+    expect(result).toEqual(jiraSprints)
+  })
+
+  it('returns null when the board cannot be resolved', async () => {
+    resolveBoard.mockResolvedValue(null)
+
+    const result = await searchJiraSprints('anything')
+
+    expect(result).toBeNull()
+    expect(listSprints).not.toHaveBeenCalled()
+  })
+})
+
+describe('importSprint', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('fetches the sprint by id and upserts it via findOneAndUpdate with upsert:true', async () => {
+    getSprint.mockResolvedValue({ id: 134, name: 'WOSMVP Sprint 134', state: 'future' })
+    Sprint.findOneAndUpdate.mockResolvedValue({ jiraSprintId: '134', name: 'WOSMVP Sprint 134', state: 'future' })
+
+    const result = await importSprint(134)
+
+    expect(getSprint).toHaveBeenCalledWith(134)
+    expect(Sprint.findOneAndUpdate).toHaveBeenCalledTimes(1)
+    expect(Sprint.findOneAndUpdate).toHaveBeenCalledWith(
+      { jiraSprintId: '134' },
+      expect.objectContaining({ jiraSprintId: '134', name: 'WOSMVP Sprint 134', state: 'future' }),
+      expect.objectContaining({ upsert: true }),
+    )
+    expect(result).toEqual({ jiraSprintId: '134', name: 'WOSMVP Sprint 134', state: 'future' })
+  })
+
+  it('calling it twice for the same id only ever upserts, never creating a second doc', async () => {
+    getSprint.mockResolvedValue({ id: 134, name: 'WOSMVP Sprint 134', state: 'future' })
+    Sprint.findOneAndUpdate.mockResolvedValue({ jiraSprintId: '134', name: 'WOSMVP Sprint 134', state: 'future' })
+
+    await importSprint(134)
+    await importSprint(134)
+
+    expect(Sprint.findOneAndUpdate).toHaveBeenCalledTimes(2)
+    for (const call of Sprint.findOneAndUpdate.mock.calls) {
+      expect(call[0]).toEqual({ jiraSprintId: '134' })
+      expect(call[2]).toEqual(expect.objectContaining({ upsert: true }))
+    }
+  })
+
+  it('propagates a Jira error when the sprint id does not exist', async () => {
+    getSprint.mockRejectedValue(new Error('Jira request failed: 404 Not Found (/rest/agile/1.0/sprint/999999)'))
+
+    await expect(importSprint(999999)).rejects.toThrow('404')
+    expect(Sprint.findOneAndUpdate).not.toHaveBeenCalled()
   })
 })
