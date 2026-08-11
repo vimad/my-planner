@@ -4,11 +4,12 @@ import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordi
 import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
-import { useSprintPlan, type SprintPeriod, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
+import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { SprintSelect } from './SprintSelect'
+import { parseLocalDate } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
 import { ticketTypeAccent } from '../utils/ticketType'
 import type { Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
@@ -186,15 +187,6 @@ function toLocalDateString(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
-// Parses a "YYYY-MM-DD" string into a local midnight Date, entirely via
-// local constructor arguments (mirrors dateAgenda.ts's parseLocalDate,
-// duplicated locally so this file's date-range iteration stays self
-// contained - both read the same 'YYYY-MM-DD' convention).
-function parseLocalDate(dateStr: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
 interface RangeDay {
   date: string
   isWeekend: boolean
@@ -241,12 +233,14 @@ function sprintDateSeed(value: string | null | undefined): string {
 // the old WorkingDaysForm and its !planConfigured gating entirely - this
 // form is both the "set" and "edit" UI, pre-filled from the saved
 // `period` if one exists, else the selected Sprint's own Jira dates, else
-// blank. Keyed by PlanningView on `${sprintId}-${loading}` so a fresh
-// instance mounts exactly once the sprint's own plan fetch has settled,
-// which is what lets this component's local state be the single source of
-// truth from then on - it deliberately never re-syncs from `period` after
-// mount, so a failed save leaves in-progress selections exactly as the user
-// left them (spec story 16).
+// blank. PlanningView renders this behind a `loadingSprintPeriod ? <p>…</p>
+// : <SprintPeriodForm key={selectedSprintId} …>` conditional - since that
+// ternary swaps between two different element types on every loading-state
+// flip, a fresh instance mounts exactly once the sprint's own plan fetch has
+// settled, which is what lets this component's local state be the single
+// source of truth from then on - it deliberately never re-syncs from
+// `period` after mount, so a failed save leaves in-progress selections
+// exactly as the user left them (spec story 16).
 function SprintPeriodForm({
   period,
   sprint,
@@ -256,7 +250,7 @@ function SprintPeriodForm({
   period: SprintPeriod | null
   sprint: Sprint | null
   saving: boolean
-  onSave: (period: { startDate: string; endDate: string; holidays: string[] }) => Promise<void>
+  onSave: (period: SprintPeriodInput) => Promise<void>
 }) {
   const [startDate, setStartDate] = useState(period?.startDate ?? sprintDateSeed(sprint?.startDate))
   const [endDate, setEndDate] = useState(period?.endDate ?? sprintDateSeed(sprint?.endDate))
@@ -352,7 +346,7 @@ function SprintPeriodForm({
               return (
                 <span
                   key={d.date}
-                  className="rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-300 dark:border-white/5 dark:bg-white/5 dark:text-slate-600"
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-600"
                 >
                   {formatChipLabel(d.date)}
                 </span>

@@ -1,3 +1,5 @@
+import { parseLocalDate, toLocalDateString } from '../utils/localDate.ts'
+
 // Pure working-day math for a Team Sprint Plan's picked date range (spec
 // "Sprint Period & Holiday Picker") - kept free of Mongoose/route concerns so
 // its date-arithmetic edge cases are directly unit-testable, sibling in style
@@ -7,20 +9,9 @@
 // objects round-tripped through toISOString() - that conversion goes through
 // UTC and silently shifts the day in a UTC+ environment (the bug found and
 // fixed during this feature's /prototype session). A `Date` is only ever
-// constructed transiently inside the iteration loop below, from local
-// year/month/day parts, and immediately discarded back to a string.
-
-function parseLocalDate(dateStr: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
-function toLocalDateString(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+// constructed transiently inside the iteration loop below, via
+// utils/localDate.ts's parse/serialize helpers (local year/month/day parts
+// only), and immediately discarded back to a string.
 
 // Inclusive of both startDate and endDate. Excludes Saturday/Sunday.
 // Excludes any date present in `holidays`, whether or not it's also a

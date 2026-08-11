@@ -43,6 +43,13 @@ export interface SprintPeriod {
   workingDays: number
 }
 
+// The user-editable subset of SprintPeriod - what setSprintPeriod accepts
+// and PlanningView's SprintPeriodForm hands back on save. workingDays is
+// excluded since it's always server-derived (never client-supplied, per the
+// route contract) - named here once rather than repeating the same
+// { startDate, endDate, holidays } shape at every call site.
+export type SprintPeriodInput = Omit<SprintPeriod, 'workingDays'>
+
 function toSprintPeriod(plan: TeamSprintPlan | null): SprintPeriod | null {
   if (!plan || !plan.startDate || !plan.endDate) return null
   return { startDate: plan.startDate, endDate: plan.endDate, holidays: plan.holidays, workingDays: plan.workingDays }
@@ -134,7 +141,7 @@ export interface UseSprintPlanResult {
   // both the plan fetch (so sprintPeriod reflects what was just saved) and
   // refreshPlan() (capacity+entries), since a changed workingDays changes
   // every capacity card.
-  setSprintPeriod: (period: { startDate: string; endDate: string; holidays: string[] }) => Promise<void>
+  setSprintPeriod: (period: SprintPeriodInput) => Promise<void>
 
   addingTicket: boolean
   addTicketError: string | null
@@ -389,7 +396,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   }, [teamId, selectedSprintId, sprintPlanRefreshTick])
 
   const setSprintPeriod = useCallback(
-    async (period: { startDate: string; endDate: string; holidays: string[] }) => {
+    async (period: SprintPeriodInput) => {
       if (!teamId || !selectedSprintId) return
       setSavingSprintPeriod(true)
       try {

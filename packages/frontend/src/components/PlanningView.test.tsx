@@ -1033,6 +1033,40 @@ describe('PlanningView', () => {
       })
     })
 
+    it('saves an edited period via PATCH /api/team-sprint-plans/:id with the exact { startDate, endDate, holidays } body when a plan already exists', async () => {
+      teamSprintPlanDoc = {
+        _id: 'plan-existing',
+        teamId: 'team-a',
+        sprintId: 'sprint-2',
+        startDate: '2026-08-03',
+        endDate: '2026-08-06',
+        holidays: ['2026-08-05'],
+        workingDays: 3,
+      }
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+      const form = await screen.findByLabelText('Sprint period')
+      expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-03')
+
+      // Un-mark the pre-existing holiday, so the PATCH body proves the edit
+      // (not just a re-save of what was already there) round-trips.
+      fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save period' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/team-sprint-plans/plan-existing',
+          expect.objectContaining({
+            method: 'PATCH',
+            body: JSON.stringify({ startDate: '2026-08-03', endDate: '2026-08-06', holidays: [] }),
+          }),
+        ),
+      )
+      // Never POSTs once a plan already exists - the hook branches
+      // internally, PlanningView never has to know which.
+      expect(fetchMock).not.toHaveBeenCalledWith('http://localhost:4100/api/team-sprint-plans', expect.objectContaining({ method: 'POST' }))
+    })
+
     it("pre-fills the form from a saved plan's stored dates/holidays (not the Sprint's own Jira dates) and shows capacity cards", async () => {
       teamSprintPlanDoc = {
         _id: 'plan-existing',
