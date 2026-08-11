@@ -221,6 +221,18 @@ function formatChipLabel(dateStr: string): string {
   return parseLocalDate(dateStr).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+// Sprint.startDate/endDate are a raw Jira-synced `Date` (full ISO instant,
+// e.g. "2026-08-10T05:26:47.318Z" - see backend models/Sprint.ts), not the
+// 'YYYY-MM-DD' calendar-day string this form's inputs need. Converts via
+// local Date fields (never a slice(0, 10) of the ISO string, which would
+// read the UTC calendar day - the exact class of bug this feature's
+// timezone decision exists to avoid) so the default seed lands on the same
+// local day a person would read off the Sprint elsewhere in the app.
+function sprintDateSeed(value: string | null | undefined): string {
+  if (!value) return ''
+  return toLocalDateString(new Date(value))
+}
+
 // The Variant B period picker (see .scratch/sprint-period-picker/spec.md):
 // two native date inputs plus a flat wrap-list of day chips, one per
 // calendar day in the picked range - weekend chips are static/dimmed,
@@ -246,8 +258,8 @@ function SprintPeriodForm({
   saving: boolean
   onSave: (period: { startDate: string; endDate: string; holidays: string[] }) => Promise<void>
 }) {
-  const [startDate, setStartDate] = useState(period?.startDate ?? sprint?.startDate ?? '')
-  const [endDate, setEndDate] = useState(period?.endDate ?? sprint?.endDate ?? '')
+  const [startDate, setStartDate] = useState(period?.startDate ?? sprintDateSeed(sprint?.startDate))
+  const [endDate, setEndDate] = useState(period?.endDate ?? sprintDateSeed(sprint?.endDate))
   const [holidays, setHolidays] = useState<Set<string>>(new Set(period?.holidays ?? []))
   const [error, setError] = useState<string | null>(null)
 
