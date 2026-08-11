@@ -270,6 +270,10 @@ export interface SprintPlanEntry {
   devOrder: number | null
   qaOrder: number | null
   devQa?: { dev: DevQaRoleResolution; qa: DevQaRoleResolution }
+  // Each role's own [Dev]/[Test] Sub-task estimate (roleSubtaskEstimateHours
+  // on the backend) - present only alongside devQa, i.e. for a Split entry.
+  devEstimateHours?: number
+  qaEstimateHours?: number
 }
 
 // The Team x Sprint header - manually entered, holiday-adjusted working

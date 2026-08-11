@@ -59,6 +59,7 @@ vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
 vi.mock('../src/services/devQaResolution.ts', () => ({
   isSplitTicket: (type: unknown) => type === 'Story' || type === 'Bug',
   resolveDevQa: vi.fn(),
+  roleSubtaskEstimateHours: vi.fn(),
 }))
 
 vi.mock('../src/services/statusSync.ts', () => ({
@@ -76,7 +77,10 @@ const { TeamMembership } = (await import('../src/models/TeamMembership.ts')) as 
 const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
   TicketDevQaOverride: MockedTicketDevQaOverrideModel
 }
-const { resolveDevQa } = (await import('../src/services/devQaResolution.ts')) as unknown as { resolveDevQa: Mock }
+const { resolveDevQa, roleSubtaskEstimateHours } = (await import('../src/services/devQaResolution.ts')) as unknown as {
+  resolveDevQa: Mock
+  roleSubtaskEstimateHours: Mock
+}
 const { createApp } = await import('../src/app.ts')
 
 function withMembershipPopulate(result: unknown) {
@@ -332,6 +336,7 @@ describe('SprintPlanEntry routes', () => {
       TeamMembership.find.mockReturnValue(withMembershipPopulate([{ personId: { _id: 'p1', jiraAccountId: 'acct-a' } }]))
       const devQa = { dev: { status: 'resolved', source: 'subtask', personId: 'p1' }, qa: { status: 'needs-assignment' } }
       resolveDevQa.mockResolvedValue(devQa)
+      roleSubtaskEstimateHours.mockImplementation((_jiraKey: string, kind: string) => Promise.resolve(kind === 'Dev' ? 6 : 2))
 
       const app = createApp()
       const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
@@ -339,6 +344,8 @@ describe('SprintPlanEntry routes', () => {
       expect(res.status).toBe(200)
       expect(TeamMembership.find).toHaveBeenCalledWith({ teamId: 't1' })
       expect(resolveDevQa).toHaveBeenCalledWith(splitEntry.ticketId, [{ personId: 'p1', jiraAccountId: 'acct-a' }])
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Dev')
+      expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Test')
       expect(res.body).toEqual([
         nonSplitEntry,
         {
@@ -348,6 +355,8 @@ describe('SprintPlanEntry routes', () => {
           qaOrder: 2,
           ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
           devQa,
+          devEstimateHours: 6,
+          qaEstimateHours: 2,
         },
       ])
     })

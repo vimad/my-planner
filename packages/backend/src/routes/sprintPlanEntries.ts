@@ -10,6 +10,7 @@ import { fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
 import {
   isSplitTicket,
   resolveDevQa,
+  roleSubtaskEstimateHours,
   type DevQaResolution,
   type MembershipForResolution,
 } from '../services/devQaResolution.ts'
@@ -246,8 +247,12 @@ sprintPlanEntriesRouter.post(
 // Ticket populated. Grouping by assignee is left to the client. Each Split
 // entry (Story/Bug) additionally carries `devQa: { dev, qa }` — its
 // resolved dev/qa Role assignment (devQaResolution.ts), inlined so the
-// frontend (ticket 24) doesn't redo the Sub-task/Override lookups itself.
-// A non-split entry's shape is completely unchanged.
+// frontend (ticket 24) doesn't redo the Sub-task/Override lookups itself —
+// plus `devEstimateHours`/`qaEstimateHours`, each role's own [Dev]/[Test]
+// Sub-task estimate (roleSubtaskEstimateHours, same figure capacity.ts sums
+// into Planned) so the planning table's badge can show a role placement's
+// own estimate instead of the parent Story/Bug's. A non-split entry's shape
+// is completely unchanged.
 sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, sprintId } = req.query
@@ -268,8 +273,12 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
         const ticket = entry.ticketId
         if (!isSplitTicket(ticket.type)) return entry
 
-        const devQa: DevQaResolution = await resolveDevQa(ticket, memberships)
-        return { ...entry.toObject(), devQa }
+        const [devQa, devEstimateHours, qaEstimateHours]: [DevQaResolution, number, number] = await Promise.all([
+          resolveDevQa(ticket, memberships),
+          roleSubtaskEstimateHours(ticket.jiraKey, 'Dev'),
+          roleSubtaskEstimateHours(ticket.jiraKey, 'Test'),
+        ])
+        return { ...entry.toObject(), devQa, devEstimateHours, qaEstimateHours }
       }),
     )
 

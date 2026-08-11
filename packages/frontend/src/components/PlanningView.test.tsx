@@ -191,7 +191,13 @@ function entry(
   id: string,
   t: Ticket,
   order: number,
-  extra?: { devOrder?: number | null; qaOrder?: number | null; devQa?: { dev: DevQaRoleResolution; qa: DevQaRoleResolution } },
+  extra?: {
+    devOrder?: number | null
+    qaOrder?: number | null
+    devQa?: { dev: DevQaRoleResolution; qa: DevQaRoleResolution }
+    devEstimateHours?: number
+    qaEstimateHours?: number
+  },
 ): SprintPlanEntry {
   return {
     _id: id,
@@ -201,10 +207,12 @@ function entry(
     order,
     devOrder: extra?.devOrder ?? null,
     qaOrder: extra?.qaOrder ?? null,
-    // `devQa` is present only for a Split entry - omitted (not null) for a
-    // non-split one, matching the real GET contract exactly (ticket 23's
-    // comments).
+    // `devQa`/estimate fields are present only for a Split entry - omitted
+    // (not null) for a non-split one, matching the real GET contract
+    // exactly (ticket 23's comments).
     ...(extra?.devQa ? { devQa: extra.devQa } : {}),
+    ...(extra?.devEstimateHours != null ? { devEstimateHours: extra.devEstimateHours } : {}),
+    ...(extra?.qaEstimateHours != null ? { qaEstimateHours: extra.qaEstimateHours } : {}),
   }
 }
 
@@ -407,6 +415,22 @@ describe('PlanningView', () => {
 
       const graceRow = screen.getByLabelText('Tickets for Grace Hopper')
       await waitFor(() => expect(within(graceRow).getByText('300')).toBeInTheDocument())
+    })
+
+    it("shows each role placement's own Sub-task estimate, never the parent Story/Bug's own estimateHours", async () => {
+      entriesData = [
+        ...entriesData,
+        entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0, devEstimateHours: 6, qaEstimateHours: 2 }),
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('300')).toBeInTheDocument())
+      expect(within(adaRow).getByText('6h')).toBeInTheDocument()
+
+      const graceRow = screen.getByLabelText('Tickets for Grace Hopper')
+      await waitFor(() => expect(within(graceRow).getByText('300')).toBeInTheDocument())
+      expect(within(graceRow).getByText('2h')).toBeInTheDocument()
     })
 
     it('renders a needs-assignment role as a distinct flagged badge, separate from Unmapped, that opens the popup on click', async () => {

@@ -44,6 +44,16 @@ function placementFieldValue(p: PlacedEntry): number {
   return p.entry.order
 }
 
+// A role placement's own [Dev]/[Test] Sub-task estimate (devEstimateHours/
+// qaEstimateHours, backend's roleSubtaskEstimateHours) - never the parent
+// Story/Bug's own estimateHours, which a non-split placement (`role` unset)
+// uses instead.
+function roleEstimateHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
+  if (role === 'dev') return entry.devEstimateHours ?? null
+  if (role === 'qa') return entry.qaEstimateHours ?? null
+  return entry.ticketId.estimateHours
+}
+
 // Ticket 19's drag-reorder save-on-drop: reorders `placements` per the drag
 // result, then re-numbers each field-type group (order / devOrder / qaOrder)
 // within the row independently, 0-indexed by its new position among only
@@ -277,14 +287,18 @@ function AddToPlanForm({
 // badge, per the ticket's "enough to identify the ticket". A Split ticket's
 // two placements (ticket 24) land in separate rows already keyed to their
 // resolved dev/qa person, so no DEV/QA sub-label is needed on the badge
-// itself to tell them apart.
+// itself to tell them apart - but `role` still picks which estimate to
+// show, since a dev placement and a qa placement of the same Story/Bug have
+// their own independent [Dev]/[Test] Sub-task estimate, never the parent's.
 function TicketBadge({
   entry,
+  role,
   unmapped,
   needsAssignment,
   onFlagClick,
 }: {
   entry: SprintPlanEntry
+  role?: 'dev' | 'qa'
   unmapped?: boolean
   needsAssignment?: boolean
   onFlagClick?: () => void
@@ -302,13 +316,13 @@ function TicketBadge({
       : typeColorClasses(ticket.type)
   const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold shadow-sm ${colorClasses}`
 
+  const estimateHours = roleEstimateHours(entry, role)
+
   const content = (
     <>
       {ticket.jiraKey.replace(/^WOSMVP-/, '')}
-      {ticket.estimateHours != null && (
-        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">
-          {formatEstimate(ticket.estimateHours)}
-        </span>
+      {estimateHours != null && (
+        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatEstimate(estimateHours)}</span>
       )}
     </>
   )
@@ -358,7 +372,7 @@ function SortableTicketBadge({ placement }: { placement: PlacedEntry }) {
       >
         ⠿
       </button>
-      <TicketBadge entry={placement.entry} />
+      <TicketBadge entry={placement.entry} role={placement.role} />
     </span>
   )
 }
@@ -438,6 +452,7 @@ function PersonRow({
             <TicketBadge
               key={placementKey({ entry, role })}
               entry={entry}
+              role={role}
               unmapped={unmapped}
               needsAssignment={needsAssignment}
               onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
