@@ -28,21 +28,65 @@ describe('TeamSprintPlan routes', () => {
   })
 
   describe('POST /api/team-sprint-plans', () => {
-    it('creates a plan with workingDays', async () => {
-      TeamSprintPlan.create.mockResolvedValue({ _id: 'p1', teamId: 't1', sprintId: 's1', workingDays: 10 })
+    it('creates a plan with a server-computed workingDays, not a client-supplied one', async () => {
+      TeamSprintPlan.create.mockResolvedValue({
+        _id: 'p1',
+        teamId: 't1',
+        sprintId: 's1',
+        startDate: '2026-08-03',
+        endDate: '2026-08-07',
+        holidays: [],
+        workingDays: 5,
+      })
 
       const app = createApp()
       const res = await request(app)
         .post('/api/team-sprint-plans')
-        .send({ teamId: 't1', sprintId: 's1', workingDays: 10 })
+        // 2026-08-03 (Mon) - 2026-08-07 (Fri): 5 working days.
+        .send({ teamId: 't1', sprintId: 's1', startDate: '2026-08-03', endDate: '2026-08-07' })
 
       expect(res.status).toBe(201)
-      expect(TeamSprintPlan.create).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1', workingDays: 10 })
+      expect(TeamSprintPlan.create).toHaveBeenCalledWith({
+        teamId: 't1',
+        sprintId: 's1',
+        startDate: '2026-08-03',
+        endDate: '2026-08-07',
+        holidays: [],
+        workingDays: 5,
+      })
     })
 
-    it('rejects a missing/non-numeric workingDays', async () => {
+    it('defaults holidays to [] when omitted, and computes workingDays around any that are supplied', async () => {
+      TeamSprintPlan.create.mockResolvedValue({ _id: 'p1' })
+
+      const app = createApp()
+      await request(app)
+        .post('/api/team-sprint-plans')
+        .send({ teamId: 't1', sprintId: 's1', startDate: '2026-08-03', endDate: '2026-08-07', holidays: ['2026-08-05'] })
+
+      expect(TeamSprintPlan.create).toHaveBeenCalledWith({
+        teamId: 't1',
+        sprintId: 's1',
+        startDate: '2026-08-03',
+        endDate: '2026-08-07',
+        holidays: ['2026-08-05'],
+        workingDays: 4,
+      })
+    })
+
+    it('rejects a missing startDate/endDate', async () => {
       const app = createApp()
       const res = await request(app).post('/api/team-sprint-plans').send({ teamId: 't1', sprintId: 's1' })
+
+      expect(res.status).toBe(400)
+      expect(TeamSprintPlan.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects endDate < startDate', async () => {
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/team-sprint-plans')
+        .send({ teamId: 't1', sprintId: 's1', startDate: '2026-08-07', endDate: '2026-08-03' })
 
       expect(res.status).toBe(400)
       expect(TeamSprintPlan.create).not.toHaveBeenCalled()
@@ -54,7 +98,7 @@ describe('TeamSprintPlan routes', () => {
       const app = createApp()
       const res = await request(app)
         .post('/api/team-sprint-plans')
-        .send({ teamId: 't1', sprintId: 's1', workingDays: 10 })
+        .send({ teamId: 't1', sprintId: 's1', startDate: '2026-08-03', endDate: '2026-08-07' })
 
       expect(res.status).toBe(409)
     })
@@ -62,7 +106,7 @@ describe('TeamSprintPlan routes', () => {
 
   describe('GET /api/team-sprint-plans', () => {
     it('returns the plan for a (teamId, sprintId) pair', async () => {
-      const doc = { _id: 'p1', teamId: 't1', sprintId: 's1', workingDays: 10 }
+      const doc = { _id: 'p1', teamId: 't1', sprintId: 's1', startDate: '2026-08-03', endDate: '2026-08-07', holidays: [], workingDays: 5 }
       TeamSprintPlan.findOne.mockResolvedValue(doc)
 
       const app = createApp()
@@ -92,19 +136,48 @@ describe('TeamSprintPlan routes', () => {
   })
 
   describe('PATCH /api/team-sprint-plans/:id', () => {
-    it('edits workingDays', async () => {
-      TeamSprintPlan.findByIdAndUpdate.mockResolvedValue({ _id: 'p1', workingDays: 9 })
+    it('recomputes and persists workingDays from new startDate/endDate/holidays', async () => {
+      TeamSprintPlan.findByIdAndUpdate.mockResolvedValue({ _id: 'p1', workingDays: 4 })
 
       const app = createApp()
-      const res = await request(app).patch('/api/team-sprint-plans/p1').send({ workingDays: 9 })
+      const res = await request(app)
+        .patch('/api/team-sprint-plans/p1')
+        .send({ startDate: '2026-08-03', endDate: '2026-08-07', holidays: ['2026-08-05'] })
 
       expect(res.status).toBe(200)
-      expect(TeamSprintPlan.findByIdAndUpdate).toHaveBeenCalledWith('p1', { workingDays: 9 }, { returnDocument: 'after' })
+      expect(TeamSprintPlan.findByIdAndUpdate).toHaveBeenCalledWith(
+        'p1',
+        { startDate: '2026-08-03', endDate: '2026-08-07', holidays: ['2026-08-05'], workingDays: 4 },
+        { returnDocument: 'after' },
+      )
     })
 
-    it('rejects a non-numeric workingDays', async () => {
+    it('defaults holidays to [] when omitted', async () => {
+      TeamSprintPlan.findByIdAndUpdate.mockResolvedValue({ _id: 'p1', workingDays: 5 })
+
       const app = createApp()
-      const res = await request(app).patch('/api/team-sprint-plans/p1').send({ workingDays: 'ten' })
+      await request(app).patch('/api/team-sprint-plans/p1').send({ startDate: '2026-08-03', endDate: '2026-08-07' })
+
+      expect(TeamSprintPlan.findByIdAndUpdate).toHaveBeenCalledWith(
+        'p1',
+        { startDate: '2026-08-03', endDate: '2026-08-07', holidays: [], workingDays: 5 },
+        { returnDocument: 'after' },
+      )
+    })
+
+    it('rejects a missing startDate/endDate', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/team-sprint-plans/p1').send({})
+
+      expect(res.status).toBe(400)
+      expect(TeamSprintPlan.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an invalid range the same way POST does', async () => {
+      const app = createApp()
+      const res = await request(app)
+        .patch('/api/team-sprint-plans/p1')
+        .send({ startDate: '2026-08-07', endDate: '2026-08-03' })
 
       expect(res.status).toBe(400)
       expect(TeamSprintPlan.findByIdAndUpdate).not.toHaveBeenCalled()
@@ -114,7 +187,9 @@ describe('TeamSprintPlan routes', () => {
       TeamSprintPlan.findByIdAndUpdate.mockResolvedValue(null)
 
       const app = createApp()
-      const res = await request(app).patch('/api/team-sprint-plans/does-not-exist').send({ workingDays: 9 })
+      const res = await request(app)
+        .patch('/api/team-sprint-plans/does-not-exist')
+        .send({ startDate: '2026-08-03', endDate: '2026-08-07' })
 
       expect(res.status).toBe(404)
     })

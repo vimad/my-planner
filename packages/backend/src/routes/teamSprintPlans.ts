@@ -1,16 +1,34 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { TeamSprintPlan } from '../models/TeamSprintPlan.ts'
+import { computeWorkingDays } from '../services/sprintWorkingDays.ts'
 import { isDuplicateKeyError } from '../utils/mongoErrors.ts'
 
 export const teamSprintPlansRouter = Router()
 
 // Request body shape for create/update — client-supplied and unvalidated, so
 // fields are optional here even though the model requires them; the
-// handlers below enforce presence before writing.
+// handlers below enforce presence before writing. `workingDays` is
+// deliberately absent — it's server-derived from startDate/endDate/holidays
+// via computeWorkingDays, never accepted from the client (spec's route
+// contract decision).
 interface TeamSprintPlanBody {
   teamId?: string
   sprintId?: string
-  workingDays?: number
+  startDate?: string
+  endDate?: string
+  holidays?: string[]
+}
+
+// Shared POST/PATCH validation: startDate/endDate both required, endDate
+// must not precede startDate. Returns an error message, or null when valid.
+function validatePeriod(startDate: unknown, endDate: unknown): string | null {
+  if (typeof startDate !== 'string' || !startDate || typeof endDate !== 'string' || !endDate) {
+    return 'startDate and endDate are required'
+  }
+  if (endDate < startDate) {
+    return 'endDate must not be before startDate'
+  }
+  return null
 }
 
 // POST /api/team-sprint-plans -> create the Team x Sprint header. Rejects a
@@ -20,13 +38,26 @@ teamSprintPlansRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, TeamSprintPlanBody>, res: Response, next: NextFunction) => {
     try {
-      const { teamId, sprintId, workingDays } = req.body
+      const { teamId, sprintId, startDate, endDate, holidays } = req.body
 
-      if (!teamId || !sprintId || typeof workingDays !== 'number') {
-        return res.status(400).json({ error: 'teamId, sprintId and workingDays are required' })
+      if (!teamId || !sprintId) {
+        return res.status(400).json({ error: 'teamId, sprintId, startDate and endDate are required' })
+      }
+      const periodError = validatePeriod(startDate, endDate)
+      if (periodError) {
+        return res.status(400).json({ error: periodError })
       }
 
-      const plan = await TeamSprintPlan.create({ teamId, sprintId, workingDays })
+      const holidayList = holidays ?? []
+      const workingDays = computeWorkingDays(startDate as string, endDate as string, holidayList)
+      const plan = await TeamSprintPlan.create({
+        teamId,
+        sprintId,
+        startDate,
+        endDate,
+        holidays: holidayList,
+        workingDays,
+      })
       res.status(201).json(plan)
     } catch (err) {
       if (isDuplicateKeyError(err)) {
@@ -38,7 +69,7 @@ teamSprintPlansRouter.post(
 )
 
 // GET /api/team-sprint-plans?teamId=&sprintId= -> the single plan doc for
-// that pair, or 404 if working days haven't been entered yet.
+// that pair, or 404 if a period hasn't been set yet.
 teamSprintPlansRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, sprintId } = req.query
@@ -58,18 +89,26 @@ teamSprintPlansRouter.get('/', async (req: Request, res: Response, next: NextFun
   }
 })
 
-// PATCH /api/team-sprint-plans/:id -> edit workingDays.
+// PATCH /api/team-sprint-plans/:id -> edit the period (startDate/endDate/
+// holidays), recomputing and overwriting workingDays.
 teamSprintPlansRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, TeamSprintPlanBody>, res: Response, next: NextFunction) => {
     try {
-      const { workingDays } = req.body
+      const { startDate, endDate, holidays } = req.body
 
-      if (typeof workingDays !== 'number') {
-        return res.status(400).json({ error: 'workingDays must be a number' })
+      const periodError = validatePeriod(startDate, endDate)
+      if (periodError) {
+        return res.status(400).json({ error: periodError })
       }
 
-      const plan = await TeamSprintPlan.findByIdAndUpdate(req.params.id, { workingDays }, { returnDocument: 'after' })
+      const holidayList = holidays ?? []
+      const workingDays = computeWorkingDays(startDate as string, endDate as string, holidayList)
+      const plan = await TeamSprintPlan.findByIdAndUpdate(
+        req.params.id,
+        { startDate, endDate, holidays: holidayList, workingDays },
+        { returnDocument: 'after' },
+      )
 
       if (!plan) {
         return res.status(404).json({ error: 'Team sprint plan not found' })
