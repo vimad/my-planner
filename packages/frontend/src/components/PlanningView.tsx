@@ -7,6 +7,7 @@ import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
+import { SprintSelect } from './SprintSelect'
 import { getId } from '../utils/getId'
 import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
 
@@ -580,18 +581,12 @@ export function PlanningView({ team }: { team: Team }) {
         ) : sprints.length === 0 ? (
           <span className="text-sm text-slate-400 dark:text-slate-500">No sprints found for this team&apos;s board.</span>
         ) : (
-          <select
+          <SprintSelect
             id="planning-sprint-select"
-            value={selectedSprintId ?? ''}
-            onChange={(e) => setSelectedSprintId(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
-          >
-            {sprints.map((sprint) => (
-              <option key={getId(sprint)} value={getId(sprint)}>
-                {sprint.name} ({sprint.state})
-              </option>
-            ))}
-          </select>
+            sprints={sprints}
+            selectedSprintId={selectedSprintId}
+            onSelect={setSelectedSprintId}
+          />
         )}
       </div>
 

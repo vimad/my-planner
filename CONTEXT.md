@@ -56,6 +56,9 @@ A cached snapshot of a Jira epic (key, title, status). Its set of child Tickets 
 **Status** (Sprint context):
 One value from the Jira board's actual workflow column configuration (name, column order, and category), mirrored locally so the Status view's columns match the real board. Refreshed wholesale from Jira on every sync — never hand-edited.
 
+**Sprint** (Sprint context):
+A cached snapshot of a Jira board sprint (name, state, start/end dates). `GET /api/sprints` serves this cache directly and only refreshes it from Jira when empty or older than ~10 minutes (`services/sprintSync.ts`) — not on every request — so the Planning/Status views' sprint pickers stay fast even though the underlying board can carry years of closed sprints.
+
 **Sprint Plan Entry**:
 The record of a Ticket having been manually added to a specific Team's plan for a specific Sprint. Exists separately from the Ticket itself so a ticket that carries over across sprints keeps appearing in every sprint's plan it was ever added to, not only whatever sprint Jira currently reports for it.
 _Avoid_: conflating with a Ticket's own current-sprint field, which only ever reflects Jira's live answer.
