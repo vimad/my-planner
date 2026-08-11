@@ -350,6 +350,16 @@ describe('PlanningView', () => {
     await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
   })
 
+  it('shows a hand cursor on a ticket badge and a custom (not native title-attribute) hover tooltip with the ticket details', async () => {
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    const badge = await within(adaRow).findByText('100')
+    expect(badge).toHaveClass('cursor-pointer')
+    expect(badge).not.toHaveAttribute('title')
+    expect(within(adaRow).getByText(/Fix login — To Do, synced/)).toBeInTheDocument()
+  })
+
   it("shows an estimate sub-label (e.g. '1d 4h') instead of the raw type text, and colors the badge by issue type", async () => {
     const bugTicket = ticket({ jiraKey: 'WOSMVP-110', assigneeAccountId: 'acc-1', type: 'Bug', estimateHours: 12 })
     const taskTicket = ticket({ jiraKey: 'WOSMVP-120', assigneeAccountId: 'acc-1', type: 'Dev Task', estimateHours: 1.5 })
@@ -719,14 +729,13 @@ describe('PlanningView', () => {
 
       render(<PlanningView team={team} />)
       const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
-      const badgeBefore = await within(adaRow).findByText('900')
-      expect(badgeBefore).toHaveAttribute('title', expect.stringContaining('2h ago'))
+      await within(adaRow).findByText('900')
+      expect(within(adaRow).getByText(/2h ago/)).toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: 'Sync plan' }))
 
       await waitFor(() => {
-        const badgeAfter = within(adaRow).getByText('900')
-        expect(badgeAfter).toHaveAttribute('title', expect.stringContaining('just now'))
+        expect(within(adaRow).getByText(/just now/)).toBeInTheDocument()
       })
     })
 

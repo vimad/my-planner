@@ -327,23 +327,34 @@ function TicketBadge({
     </>
   )
 
-  if (needsAssignment) {
-    return (
-      <button
-        type="button"
-        title={tooltip}
-        onClick={onFlagClick}
-        aria-label={`Assign dev/qa for ${ticket.jiraKey}`}
-        className={`${baseClasses} cursor-pointer hover:opacity-80`}
-      >
-        {content}
-      </button>
-    )
-  }
+  // A custom hover tooltip, not the native `title` attribute - browsers gate
+  // `title` behind their own ~1s hover delay before it appears at all, which
+  // read as sluggish for a badge meant to be skimmed quickly. `group`/
+  // `group-hover` fades this in near-instantly instead, sibling to (not
+  // nested in) the badge's own font-mono/uppercase styling so it doesn't
+  // inherit either. `group-focus-within` (docs/ui-conventions.md's
+  // "Hover-reveal affordances", NotesView.tsx's RowMenu) keeps it reachable
+  // for a keyboard user tabbing to the needsAssignment button - the native
+  // `title` it replaced showed on focus too.
+  const badgeEl = needsAssignment ? (
+    <button
+      type="button"
+      onClick={onFlagClick}
+      aria-label={`Assign dev/qa for ${ticket.jiraKey}`}
+      className={`${baseClasses} cursor-pointer hover:opacity-80`}
+    >
+      {content}
+    </button>
+  ) : (
+    <span className={`${baseClasses} cursor-pointer`}>{content}</span>
+  )
 
   return (
-    <span title={tooltip} className={baseClasses}>
-      {content}
+    <span className="group relative inline-flex">
+      {badgeEl}
+      <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 font-sans text-[11px] font-normal normal-case text-slate-700 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-200">
+        {tooltip}
+      </span>
     </span>
   )
 }

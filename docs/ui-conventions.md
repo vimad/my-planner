@@ -153,3 +153,14 @@ rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-white/10 d
 ```
 
 Reference: `TodoDetail.tsx` linked-todo search, `BoardsView.tsx` search-and-add.
+
+### G. Hover tooltip (CSS-only, not the native `title` attribute)
+
+The native `title` attribute is fine for most one-off hints (still used in most of the app), but gate it out when the browser's own ~1s hover delay would read as sluggish for something meant to be skimmed quickly. Instead: wrap the trigger in a `group relative` span, and give the tooltip `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-100` so it fades in almost instantly on hover *and* stays reachable for a keyboard user tabbing to a focusable trigger (a `title` attribute shows on focus too, so this CSS-only replacement needs `group-focus-within` to not regress that).
+
+```
+wrapper:  group relative inline-flex
+tooltip:  pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-normal normal-case text-slate-700 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-200
+```
+
+Reference: `PlanningView.tsx`'s `TicketBadge`.
