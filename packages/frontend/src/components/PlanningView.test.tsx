@@ -941,11 +941,23 @@ describe('PlanningView', () => {
       return mock
     }
 
+    // The form is now collapsed behind an edit/set-period toggle (see the
+    // "collapsible edit panel" describe below) - every test in this outer
+    // describe block that needs to assert on the form's own contents opens
+    // it first via this helper rather than repeating the click. The toggle's
+    // accessible name flips between "Set period" and "Edit period" depending
+    // on planConfigured, so match either rather than hardcoding one.
+    async function openPeriodForm(): Promise<HTMLElement> {
+      const toggle = await screen.findByRole('button', { name: /^(set|edit) period$/i })
+      fireEvent.click(toggle)
+      return screen.findByLabelText('Sprint period')
+    }
+
     it("pre-fills the period form from the selected Sprint's own Jira dates when no plan is saved yet", async () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
 
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
       expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-01')
       expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-07')
     })
@@ -954,7 +966,7 @@ describe('PlanningView', () => {
       fetchMock = stubFetchWithSprint(sprintNoDates)
       render(<PlanningView team={team} />)
 
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
       expect(within(form).getByLabelText('Start date')).toHaveValue('')
       expect(within(form).getByLabelText('End date')).toHaveValue('')
       expect(screen.getByText('Pick a valid date range')).toBeInTheDocument()
@@ -964,7 +976,7 @@ describe('PlanningView', () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
 
-      await screen.findByLabelText('Sprint period')
+      await openPeriodForm()
 
       // 5 weekdays (Mon 08-03 .. Fri 08-07) are interactive toggle buttons.
       const weekdayChips = screen.getAllByRole('button', { name: /Toggle holiday for/ })
@@ -982,7 +994,7 @@ describe('PlanningView', () => {
     it('toggles a weekday chip to a struck-through holiday state and updates the live working-day count', async () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
-      await screen.findByLabelText('Sprint period')
+      await openPeriodForm()
 
       const chip = screen.getByLabelText('Toggle holiday for 2026-08-05')
       expect(chip).toHaveAttribute('aria-pressed', 'false')
@@ -1003,7 +1015,7 @@ describe('PlanningView', () => {
     it('saves the period via POST with the exact { startDate, endDate, holidays } body and re-fetches the capacity strip', async () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
-      await screen.findByLabelText('Sprint period')
+      await openPeriodForm()
 
       fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
 
@@ -1045,7 +1057,7 @@ describe('PlanningView', () => {
       }
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
       expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-03')
 
       // Un-mark the pre-existing holiday, so the PATCH body proves the edit
@@ -1080,7 +1092,7 @@ describe('PlanningView', () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
 
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
       expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-03')
       expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-06')
       expect(screen.getByLabelText('Toggle holiday for 2026-08-05')).toHaveAttribute('aria-pressed', 'true')
@@ -1094,7 +1106,7 @@ describe('PlanningView', () => {
     it('narrowing the date range drops a holiday that now falls outside it, without an error', async () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
-      await screen.findByLabelText('Sprint period')
+      await openPeriodForm()
 
       fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-07'))
       expect(screen.getByText('4/5 working days')).toBeInTheDocument()
@@ -1109,7 +1121,7 @@ describe('PlanningView', () => {
     it('blocks Save and hides the working-day count for an invalid (inverted) range', async () => {
       fetchMock = stubFetchWithSprint(sprintNoDates)
       render(<PlanningView team={team} />)
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
 
       fireEvent.change(within(form).getByLabelText('Start date'), { target: { value: '2026-08-07' } })
       fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '2026-08-03' } })
@@ -1133,7 +1145,7 @@ describe('PlanningView', () => {
       vi.stubGlobal('fetch', fetchMock)
 
       render(<PlanningView team={team} />)
-      await screen.findByLabelText('Sprint period')
+      await openPeriodForm()
 
       fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
       fireEvent.click(screen.getByRole('button', { name: 'Save period' }))
@@ -1155,9 +1167,88 @@ describe('PlanningView', () => {
       fetchMock = stubFetchWithSprint(sprintWithJiraDates)
       render(<PlanningView team={team} />)
 
-      const form = await screen.findByLabelText('Sprint period')
+      const form = await openPeriodForm()
       expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-01')
       expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-07')
+    })
+
+    describe('collapsible edit panel', () => {
+      it('does not render the form on initial sprint selection - closed by default', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        render(<PlanningView team={team} />)
+
+        // Wait for the toggle itself (proves the sprint has resolved and
+        // the row has settled) before asserting the form's absence.
+        await screen.findByRole('button', { name: /^(set|edit) period$/i })
+        expect(screen.queryByLabelText('Sprint period')).not.toBeInTheDocument()
+      })
+
+      it('reveals the form on click and swaps the toggle to the close affordance', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        render(<PlanningView team={team} />)
+
+        const toggle = await screen.findByRole('button', { name: /^(set|edit) period$/i })
+        fireEvent.click(toggle)
+
+        expect(await screen.findByLabelText('Sprint period')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Close period' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /^(set|edit) period$/i })).not.toBeInTheDocument()
+      })
+
+      it('hides the form again on close, restoring the edit/set-period toggle', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        render(<PlanningView team={team} />)
+        await openPeriodForm()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Close period' }))
+
+        expect(screen.queryByLabelText('Sprint period')).not.toBeInTheDocument()
+        expect(await screen.findByRole('button', { name: /^(set|edit) period$/i })).toBeInTheDocument()
+      })
+
+      it('renders the revealed form before EpicPillStrip in the DOM, not after it', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        render(<PlanningView team={team} />)
+        const form = await openPeriodForm()
+
+        const strip = screen.getByLabelText('Active epics')
+        // DOCUMENT_POSITION_FOLLOWING on the strip (from the form's
+        // perspective) means the strip comes after the form in the DOM.
+        expect(form.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      })
+
+      it('keeps rendering capacity cards while the panel is closed, whenever planConfigured is true - the two are independent', async () => {
+        render(<PlanningView team={team} />)
+
+        await waitFor(() => expect(screen.getByText('32h planned')).toBeInTheDocument())
+        expect(screen.queryByLabelText('Sprint period')).not.toBeInTheDocument()
+      })
+
+      it('labels the toggle "Set period" when the sprint has no plan configured yet', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        const base = fetchMock
+        // Force planConfigured=false the same way the real capacity route
+        // does - a 404 from GET .../capacity - independent of whether a
+        // period doc has been saved (the toggle's copy is driven by
+        // planConfigured, not sprintPeriod, per this feature's decision).
+        fetchMock = vi.fn((url, init) => {
+          const href = String(url)
+          if (href.includes('/capacity')) return jsonResponse({ error: 'not found' }, 404)
+          return base(url, init)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        render(<PlanningView team={team} />)
+
+        expect(await screen.findByRole('button', { name: 'Set period' })).toBeInTheDocument()
+      })
+
+      it('labels the toggle "Edit period" once a plan is already configured', async () => {
+        fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+        render(<PlanningView team={team} />)
+
+        expect(await screen.findByRole('button', { name: 'Edit period' })).toBeInTheDocument()
+      })
     })
   })
 })

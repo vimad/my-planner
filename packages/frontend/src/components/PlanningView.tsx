@@ -228,19 +228,21 @@ function sprintDateSeed(value: string | null | undefined): string {
 // The Variant B period picker (see .scratch/sprint-period-picker/spec.md):
 // two native date inputs plus a flat wrap-list of day chips, one per
 // calendar day in the picked range - weekend chips are static/dimmed,
-// weekday chips toggle a struck-through "holiday" state on click. Renders
-// unconditionally once a sprint is selected (PlanningView below), replacing
+// weekday chips toggle a struck-through "holiday" state on click. Replaces
 // the old WorkingDaysForm and its !planConfigured gating entirely - this
 // form is both the "set" and "edit" UI, pre-filled from the saved
 // `period` if one exists, else the selected Sprint's own Jira dates, else
-// blank. PlanningView renders this behind a `loadingSprintPeriod ? <p>…</p>
-// : <SprintPeriodForm key={selectedSprintId} …>` conditional - since that
-// ternary swaps between two different element types on every loading-state
-// flip, a fresh instance mounts exactly once the sprint's own plan fetch has
-// settled, which is what lets this component's local state be the single
-// source of truth from then on - it deliberately never re-syncs from
-// `period` after mount, so a failed save leaves in-progress selections
-// exactly as the user left them (spec story 16).
+// blank. Since this feature's follow-up (collapsed-by-default toggle,
+// PlanningView below), it's no longer *always* mounted - only while the
+// edit panel is open - but it's still gated behind a `loadingSprintPeriod ?
+// <p>…</p> : <SprintPeriodForm key={selectedSprintId} …>` conditional
+// underneath that: since that ternary swaps between two different element
+// types on every loading-state flip, a fresh instance mounts exactly once
+// the sprint's own plan fetch has settled, which is what lets this
+// component's local state be the single source of truth from then on - it
+// deliberately never re-syncs from `period` after mount, so a failed save
+// leaves in-progress selections exactly as the user left them (spec story
+// 16).
 function SprintPeriodForm({
   period,
   sprint,
@@ -373,6 +375,34 @@ function SprintPeriodForm({
         </div>
       )}
     </form>
+  )
+}
+
+// Icon-only open/close toggle for SprintPeriodForm, in the sprint-selector
+// row right after SprintSelect (follow-up to the sprint-period-picker spec:
+// the always-visible form took up too much vertical space, so it's now
+// collapsed by default and revealed on demand). A single affordance does
+// double duty as both open and close trigger, per the "only one close
+// affordance" decision - no second "x" inside the form's own header.
+// Styling is docs/ui-conventions.md's "Icon-only button hover" convention
+// verbatim (no border - that convention is unbordered everywhere it's used,
+// e.g. TodoDetail's "x" close, MiniCalendar's prev/next-month buttons,
+// NotesView's row-menu icons), not a new hybrid. The "Set period"/"Edit
+// period" copy split was already validated in the rejected `/prototype`
+// Variant C badge for this same feature (see
+// .scratch/sprint-period-picker/spec.md's Further Notes) - reused here for
+// continuity even though Variant C's own modal shape wasn't the one chosen.
+function SprintPeriodToggle({ open, planConfigured, onToggle }: { open: boolean; planConfigured: boolean; onToggle: () => void }) {
+  const label = open ? 'Close period' : planConfigured ? 'Edit period' : 'Set period'
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={label}
+      className="shrink-0 rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+    >
+      {open ? '×' : '✎'}
+    </button>
   )
 }
 
@@ -803,6 +833,11 @@ export function PlanningView({ team }: { team: Team }) {
   // time, per the spec; alt-clicking a placement of the already-popped
   // entry toggles it back off.
   const [poppedEntryId, setPoppedEntryId] = useState<string | null>(null)
+  // SprintPeriodForm's collapsed/revealed state (this feature's follow-up -
+  // see SprintPeriodToggle above). Closed by default; toggled by the one
+  // button in the sprint-selector row, independent of `planConfigured`,
+  // which only decides the toggle's own label copy.
+  const [periodPanelOpen, setPeriodPanelOpen] = useState(false)
 
   function handleTogglePop(entryId: string) {
     if (!entryId) return
@@ -934,6 +969,13 @@ export function PlanningView({ team }: { team: Team }) {
             onSelect={setSelectedSprintId}
           />
         )}
+        {selectedSprintId && (
+          <SprintPeriodToggle
+            open={periodPanelOpen}
+            planConfigured={planConfigured}
+            onToggle={() => setPeriodPanelOpen((open) => !open)}
+          />
+        )}
         {teamId && (
           <AddSprintPopover teamId={teamId} cachedSprints={sprints} onImported={refreshSprints} />
         )}
@@ -941,19 +983,20 @@ export function PlanningView({ team }: { team: Team }) {
 
       {selectedSprintId && (
         <>
-          <EpicPillStrip epics={epics} loading={loadingEpics} error={epicsError} />
+          {periodPanelOpen &&
+            (loadingSprintPeriod ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Loading period…</p>
+            ) : (
+              <SprintPeriodForm
+                key={selectedSprintId}
+                period={sprintPeriod}
+                sprint={selectedSprint}
+                saving={savingSprintPeriod}
+                onSave={setSprintPeriod}
+              />
+            ))}
 
-          {loadingSprintPeriod ? (
-            <p className="text-sm text-slate-400 dark:text-slate-500">Loading period…</p>
-          ) : (
-            <SprintPeriodForm
-              key={selectedSprintId}
-              period={sprintPeriod}
-              sprint={selectedSprint}
-              saving={savingSprintPeriod}
-              onSave={setSprintPeriod}
-            />
-          )}
+          <EpicPillStrip epics={epics} loading={loadingEpics} error={epicsError} />
 
           {loadingPlan ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">Loading capacity…</p>
