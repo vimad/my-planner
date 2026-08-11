@@ -587,7 +587,7 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ order: 4 })
 
       expect(res.status).toBe(200)
-      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { order: 4 }, { new: true })
+      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { order: 4 }, { returnDocument: 'after' })
       expect(populate).toHaveBeenCalledWith('ticketId')
     })
 
@@ -615,7 +615,7 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ devOrder: 2 })
 
       expect(res.status).toBe(200)
-      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { devOrder: 2 }, { new: true })
+      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { devOrder: 2 }, { returnDocument: 'after' })
     })
 
     it('updates qaOrder only, leaving order/devOrder untouched (Split ticket qa-row drag)', async () => {
@@ -626,7 +626,7 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ qaOrder: 3 })
 
       expect(res.status).toBe(200)
-      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { qaOrder: 3 }, { new: true })
+      expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { qaOrder: 3 }, { returnDocument: 'after' })
     })
 
     it('rejects a non-numeric devOrder/qaOrder', async () => {

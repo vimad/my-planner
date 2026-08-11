@@ -92,7 +92,7 @@ describe('Team routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.name).toBe('Renamed')
-      expect(Team.findByIdAndUpdate).toHaveBeenCalledWith('t1', { name: 'Renamed' }, { new: true })
+      expect(Team.findByIdAndUpdate).toHaveBeenCalledWith('t1', { name: 'Renamed' }, { returnDocument: 'after' })
     })
 
     it('edits jiraLabels', async () => {
@@ -102,7 +102,7 @@ describe('Team routes', () => {
       const res = await request(app).patch('/api/teams/t1').send({ jiraLabels: ['new-label'] })
 
       expect(res.status).toBe(200)
-      expect(Team.findByIdAndUpdate).toHaveBeenCalledWith('t1', { jiraLabels: ['new-label'] }, { new: true })
+      expect(Team.findByIdAndUpdate).toHaveBeenCalledWith('t1', { jiraLabels: ['new-label'] }, { returnDocument: 'after' })
     })
 
     it('returns 404 when the team does not exist', async () => {

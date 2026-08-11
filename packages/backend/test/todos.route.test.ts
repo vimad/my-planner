@@ -943,7 +943,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { priority: 'High', dueDate: '2026-08-01', tags: ['errand'] },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -957,7 +957,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { categoryId: 'personal-id' },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -1005,7 +1005,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { recurrence: { pattern: 'weekly' } },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -1020,7 +1020,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { officeLinked: true },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -1035,7 +1035,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { recurrence: null },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -1052,7 +1052,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { linkedTodoIds: ['t2', 't3'] },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
 
@@ -1067,7 +1067,7 @@ describe('Todo routes', () => {
       expect(Todo.findByIdAndUpdate).toHaveBeenCalledWith(
         't1',
         { linkedTodoIds: [] },
-        { new: true, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       )
     })
   })

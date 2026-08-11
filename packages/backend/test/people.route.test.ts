@@ -144,7 +144,7 @@ describe('Person routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.name).toBe('Ada Byron')
-      expect(Person.findByIdAndUpdate).toHaveBeenCalledWith('p1', { name: 'Ada Byron' }, { new: true })
+      expect(Person.findByIdAndUpdate).toHaveBeenCalledWith('p1', { name: 'Ada Byron' }, { returnDocument: 'after' })
     })
 
     it('returns 404 when the person does not exist', async () => {

@@ -150,7 +150,7 @@ describe('TeamMembership routes', () => {
       const res = await request(app).patch('/api/team-memberships/m1').send({ role: 'TL' })
 
       expect(res.status).toBe(200)
-      expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith('m1', { role: 'TL' }, { new: true })
+      expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith('m1', { role: 'TL' }, { returnDocument: 'after' })
     })
 
     it('sets an explicit capacityPercentOverride', async () => {
@@ -164,7 +164,7 @@ describe('TeamMembership routes', () => {
       expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith(
         'm1',
         { capacityPercentOverride: 65 },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -180,7 +180,7 @@ describe('TeamMembership routes', () => {
       expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith(
         'm1',
         { capacityPercentOverride: null },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -192,7 +192,7 @@ describe('TeamMembership routes', () => {
       const res = await request(app).patch('/api/team-memberships/m1').send({ role: 'TL' })
 
       expect(res.status).toBe(200)
-      expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith('m1', { role: 'TL' }, { new: true })
+      expect(TeamMembership.findByIdAndUpdate).toHaveBeenCalledWith('m1', { role: 'TL' }, { returnDocument: 'after' })
     })
 
     it('returns 404 when the membership does not exist', async () => {

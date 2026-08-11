@@ -99,7 +99,7 @@ describe('TeamSprintPlan routes', () => {
       const res = await request(app).patch('/api/team-sprint-plans/p1').send({ workingDays: 9 })
 
       expect(res.status).toBe(200)
-      expect(TeamSprintPlan.findByIdAndUpdate).toHaveBeenCalledWith('p1', { workingDays: 9 }, { new: true })
+      expect(TeamSprintPlan.findByIdAndUpdate).toHaveBeenCalledWith('p1', { workingDays: 9 }, { returnDocument: 'after' })
     })
 
     it('rejects a non-numeric workingDays', async () => {

@@ -259,7 +259,7 @@ describe('fullSyncTickets', () => {
     expect(Epic.findOneAndUpdate).toHaveBeenCalledWith(
       { jiraKey: 'WOSMVP-500' },
       { jiraKey: 'WOSMVP-500', title: 'The epic title', status: 'In Progress', lastSyncedAt: expect.any(Date) },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
   })
 
@@ -334,7 +334,7 @@ describe('lightweightSyncTickets', () => {
           labels: [],
         }),
       }),
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
     expect(ticket.type).toBeNull()
     expect(ticket.assigneeAccountId).toBeNull()

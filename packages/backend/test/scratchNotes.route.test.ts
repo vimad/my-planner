@@ -258,7 +258,7 @@ describe('ScratchNote routes', () => {
       expect(ScratchNote.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'note-1', profileId: 'p1' },
         { archived: true },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -275,7 +275,7 @@ describe('ScratchNote routes', () => {
       expect(ScratchNote.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'note-1', profileId: 'p1' },
         { archived: false },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 

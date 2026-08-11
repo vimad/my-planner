@@ -147,7 +147,7 @@ describe('Profile routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.name).toBe('Deep Work')
-      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { name: 'Deep Work' }, { new: true })
+      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { name: 'Deep Work' }, { returnDocument: 'after' })
     })
 
     it('returns 404 when the profile does not exist', async () => {
@@ -167,7 +167,7 @@ describe('Profile routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.activeBoardId).toBe('b2')
-      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: 'b2' }, { new: true })
+      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: 'b2' }, { returnDocument: 'after' })
     })
 
     it('clears the active board via activeBoardId: null', async () => {
@@ -178,7 +178,7 @@ describe('Profile routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.activeBoardId).toBeNull()
-      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: null }, { new: true })
+      expect(Profile.findByIdAndUpdate).toHaveBeenCalledWith('p1', { activeBoardId: null }, { returnDocument: 'after' })
     })
   })
 

@@ -179,7 +179,7 @@ describe('NoteFolder routes', () => {
       expect(NoteFolder.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { name: 'New Name' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -199,7 +199,7 @@ describe('NoteFolder routes', () => {
       expect(NoteFolder.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { parentId: '3' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -257,7 +257,7 @@ describe('NoteFolder routes', () => {
       expect(NoteFolder.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { parentId: null },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -294,7 +294,7 @@ describe('NoteFolder routes', () => {
       expect(NoteFolder.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'profile-b' },
         { name: 'Hijacked' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
   })

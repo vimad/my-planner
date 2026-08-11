@@ -35,7 +35,7 @@ describe('Settings routes', () => {
       expect(Settings.findOneAndUpdate).toHaveBeenCalledWith(
         {},
         {},
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
     })
   })
@@ -52,7 +52,7 @@ describe('Settings routes', () => {
       expect(Settings.findOneAndUpdate).toHaveBeenCalledWith(
         {},
         { nextOfficeDay: '2026-07-29' },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
     })
 
@@ -67,7 +67,7 @@ describe('Settings routes', () => {
       expect(Settings.findOneAndUpdate).toHaveBeenCalledWith(
         {},
         { nextOfficeDay: null },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
     })
   })

@@ -277,7 +277,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { name: 'New Name' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -293,7 +293,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { folderId: 'f2' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -322,7 +322,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { folderId: null },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -334,7 +334,7 @@ describe('Note routes', () => {
       const res = await request(app).patch('/api/notes/2').query({ profileId: 'p1' }).send({ body: doc })
 
       expect(res.status).toBe(200)
-      expect(Note.findOneAndUpdate).toHaveBeenCalledWith({ _id: '2', profileId: 'p1' }, { body: doc }, { new: true })
+      expect(Note.findOneAndUpdate).toHaveBeenCalledWith({ _id: '2', profileId: 'p1' }, { body: doc }, { returnDocument: 'after' })
     })
 
     it('persists a provided linkedTodoIds array', async () => {
@@ -351,7 +351,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { linkedTodoIds: ['t1', 't2'] },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -369,7 +369,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { linkedTodoIds: [] },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -403,7 +403,7 @@ describe('Note routes', () => {
       expect(Note.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'profile-b' },
         { name: 'Hijacked' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
   })

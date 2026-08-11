@@ -89,7 +89,7 @@ describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
     expect(TicketDevQaOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: { devPersonId: 'person-ada' }, $setOnInsert: { ticketId: 'ticket-1' } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })
 
@@ -109,7 +109,7 @@ describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
     expect(TicketDevQaOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: { devPersonId: 'person-ada', qaPersonId: 'person-bob' }, $setOnInsert: { ticketId: 'ticket-1' } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })
 
@@ -127,7 +127,7 @@ describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
     expect(TicketDevQaOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: { devPersonId: null }, $setOnInsert: { ticketId: 'ticket-1' } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })
 
@@ -145,7 +145,7 @@ describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
     expect(TicketDevQaOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: {}, $setOnInsert: { ticketId: 'ticket-1' } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })
 })

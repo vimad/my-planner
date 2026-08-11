@@ -147,7 +147,7 @@ describe('Category routes', () => {
       expect(Category.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'p1' },
         { name: 'Deep Work' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -186,7 +186,7 @@ describe('Category routes', () => {
       expect(Category.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: '2', profileId: 'profile-b' },
         { name: 'Hijacked' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
   })

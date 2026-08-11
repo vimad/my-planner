@@ -190,7 +190,7 @@ describe('Board routes', () => {
       expect(Board.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'b1', profileId: 'p1' },
         { name: 'New Name' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -209,7 +209,7 @@ describe('Board routes', () => {
       expect(Board.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'b1', profileId: 'p1' },
         { items: newItems },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -227,7 +227,7 @@ describe('Board routes', () => {
       expect(Board.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'b1', profileId: 'p1' },
         { name: 'Renamed', items },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
 
@@ -264,7 +264,7 @@ describe('Board routes', () => {
       expect(Board.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'b1', profileId: 'profile-b' },
         { name: 'Hijacked' },
-        { new: true },
+        { returnDocument: 'after' },
       )
     })
   })

@@ -107,7 +107,7 @@ describe('CapacityEntry routes', () => {
       const res = await request(app).patch('/api/capacity-entries/e1').send({ leaveDays: 2 })
 
       expect(res.status).toBe(200)
-      expect(CapacityEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { leaveDays: 2 }, { new: true })
+      expect(CapacityEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { leaveDays: 2 }, { returnDocument: 'after' })
     })
 
     it('rejects a non-numeric leaveDays', async () => {

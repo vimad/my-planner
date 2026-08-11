@@ -81,7 +81,7 @@ describe('CapacityLookup routes', () => {
       const res = await request(app).patch('/api/capacity-lookup/l1').send({ hours: 60 })
 
       expect(res.status).toBe(200)
-      expect(CapacityLookup.findByIdAndUpdate).toHaveBeenCalledWith('l1', { hours: 60 }, { new: true })
+      expect(CapacityLookup.findByIdAndUpdate).toHaveBeenCalledWith('l1', { hours: 60 }, { returnDocument: 'after' })
     })
 
     it('returns 404 when the row does not exist', async () => {
