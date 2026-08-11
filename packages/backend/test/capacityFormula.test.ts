@@ -14,33 +14,45 @@ describe('computeCapacity', () => {
     expect(result.total).toBe(72)
   })
 
-  it('uses the matching CapacityLookup row for (percentage, effectiveDays) when one exists', () => {
+  it('uses the matching CapacityLookup row for (percentage, workingDays) when one exists, then subtracts leave hours unscaled', () => {
     const result = computeCapacity({
       workingDays: 10,
-      leaveDays: 1, // effectiveDays = 72 / 8 = 9
+      leaveDays: 1, // leaveHours = 8, subtracted straight off the row's hours
       effectivePercentage: 80,
       planned: 20,
       lookupRows: [
-        { percentage: 80, days: 9, hours: 58 },
-        { percentage: 50, days: 9, hours: 36 },
+        { percentage: 80, days: 10, hours: 64 },
+        { percentage: 50, days: 10, hours: 40 },
       ],
     })
 
-    expect(result.available).toBe(58)
-    expect(result.remaining).toBe(38)
+    expect(result.available).toBe(64 - 8)
+    expect(result.remaining).toBe(64 - 8 - 20)
   })
 
-  it('falls back to Total x (effectivePercentage / 100) when no CapacityLookup row matches', () => {
+  it('falls back to (workingDays x 8 x effectivePercentage / 100) minus leave hours when no CapacityLookup row matches', () => {
     const result = computeCapacity({
       workingDays: 10,
-      leaveDays: 1, // Total = 72, effectiveDays = 9
+      leaveDays: 1, // leaveHours = 8
       effectivePercentage: 80,
       planned: 20,
-      lookupRows: [{ percentage: 50, days: 9, hours: 36 }], // no row for (80, 9)
+      lookupRows: [{ percentage: 50, days: 10, hours: 40 }], // no row for (80, 10)
     })
 
-    expect(result.available).toBe(72 * 0.8)
-    expect(result.remaining).toBe(72 * 0.8 - 20)
+    expect(result.available).toBe(10 * 8 * 0.8 - 8)
+    expect(result.remaining).toBe(10 * 8 * 0.8 - 8 - 20)
+  })
+
+  it('subtracts a half leave day as 4h off Available, unscaled by effectivePercentage', () => {
+    const result = computeCapacity({
+      workingDays: 10,
+      leaveDays: 0.5,
+      effectivePercentage: 50, // a low percentage would halve an 8h leave day to 4h under the old (buggy) scaling - it must not
+      planned: 0,
+      lookupRows: [],
+    })
+
+    expect(result.available).toBe(10 * 8 * 0.5 - 4)
   })
 
   it('defaults to zero leave, computing Total purely from workingDays x 8', () => {

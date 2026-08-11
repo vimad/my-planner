@@ -1,10 +1,13 @@
 import mongoose, { Schema } from 'mongoose'
 
 // Global, admin-editable (settings view) lookup of exact hours for a given
-// (percentage, effective days) pair — overrides the fallback formula
-// (Total x percentage/100) when a row matches. See spec's "Domain model —
-// Capacity". Seeded at boot (seed.ts's seedCapacityLookup) but never
-// overwritten once a row exists, so later admin edits survive restarts.
+// (percentage, working days) pair — overrides the fallback formula
+// (workingDays x 8 x percentage/100) when a row matches. `days` is the
+// sprint's raw working days, before any leave is subtracted - leave comes
+// off the resulting Available hours afterward, unscaled (see
+// services/capacityFormula.ts). Seeded at boot (seed.ts's
+// seedCapacityLookup) but never overwritten once a row exists, so later
+// admin edits survive restarts.
 export interface CapacityLookupDoc {
   percentage: number
   days: number

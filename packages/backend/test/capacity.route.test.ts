@@ -113,11 +113,14 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
     expect(TeamMembership.find).not.toHaveBeenCalled()
   })
 
-  it('reconciles the worked example (10-day sprint, 1 day leave -> Total = 72) and hits the CapacityLookup row', async () => {
+  it('reconciles the worked example (10-day sprint, 1 day leave -> Total = 72) and hits the CapacityLookup row, subtracting leave unscaled from Available', async () => {
     TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
     TeamMembership.find.mockReturnValue(withPopulate([membership()]))
     CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [{ date: '2026-08-03', portion: 'full' }] })
-    CapacityLookup.find.mockResolvedValue([{ percentage: 80, days: 9, hours: 58 }])
+    // Keyed by the sprint's raw working days (10), not leave-adjusted days -
+    // the lookup row gives Available-before-leave; the leave day's 8h then
+    // comes off afterward, unscaled by percentage.
+    CapacityLookup.find.mockResolvedValue([{ percentage: 80, days: 10, hours: 64 }])
     SprintPlanEntry.find.mockReturnValue(withPopulate([]))
 
     const app = createApp()
@@ -131,13 +134,13 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
       effectivePercentage: 80,
       leaveDays: 1,
       total: 72,
-      available: 58,
+      available: 56, // 64 (looked-up Available-before-leave) - 8 (1 leave day, unscaled)
       planned: 0,
-      remaining: 58,
+      remaining: 56,
     })
   })
 
-  it('falls back to Total x (effectivePercentage / 100) when no CapacityLookup row matches', async () => {
+  it('falls back to (workingDays x 8 x effectivePercentage / 100) minus leave hours when no CapacityLookup row matches', async () => {
     TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
     TeamMembership.find.mockReturnValue(withPopulate([membership()]))
     CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [{ date: '2026-08-03', portion: 'full' }] })
@@ -148,7 +151,7 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
     const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
 
     expect(res.status).toBe(200)
-    expect(res.body[0].available).toBe(72 * 0.8)
+    expect(res.body[0].available).toBe(10 * 8 * 0.8 - 8)
   })
 
   it('defaults leaveDays to 0 and effectivePercentage to the role default when neither is set', async () => {
