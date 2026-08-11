@@ -64,7 +64,7 @@ The record of a Ticket having been manually added to a specific Team's plan for 
 _Avoid_: conflating with a Ticket's own current-sprint field, which only ever reflects Jira's live answer.
 
 **Team Sprint Plan**:
-A Team's per-Sprint header settings — currently just the sprint's shared working-day count (holiday-adjusted, entered manually, same for every person on the team).
+A Team's per-Sprint header settings: a picked start/end date range plus any individually-marked holidays within it, same for every person on the team. The shared working-day count is derived from those three fields (weekends auto-excluded, holidays excluded on top) rather than typed in directly. Editable at any time via the same form used to set it initially — not a one-shot entry. A plan saved before this derivation existed may still carry only a bare working-day count with no stored date range; the Planning view treats that as "period not set" until the plan is next edited.
 
 **Capacity Entry**:
 A Team Membership's leave for one Sprint (in days, down to half-day granularity). The only per-person input to capacity planning beyond the Team Sprint Plan's shared working-day count.

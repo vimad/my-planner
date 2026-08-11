@@ -224,6 +224,13 @@ function entry(
 // applyReassignmentResets).
 let syncReassign: { entryId: string; newAccountId: string } | null = null
 
+// Sprint period picker (`.scratch/sprint-period-picker/spec.md`) test state:
+// the single TeamSprintPlan doc backing GET/POST/PATCH
+// /api/team-sprint-plans, `null` meaning "no plan saved yet" (the same
+// state a test gets by simply not touching this variable).
+let teamSprintPlanDoc: { _id: string; teamId: string; sprintId: string; startDate?: string; endDate?: string; holidays: string[]; workingDays: number } | null =
+  null
+
 function stubFetch(): FetchMock {
   const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
@@ -232,6 +239,38 @@ function stubFetch(): FetchMock {
     if (href.includes('/api/sprints')) return jsonResponse([sprint])
     if (href.includes('/api/team-memberships')) return jsonResponse([membershipAda, membershipGrace])
     if (href.includes('/api/epics')) return jsonResponse([epicRow])
+
+    if (href.includes('/api/team-sprint-plans')) {
+      const patchMatch = href.match(/\/api\/team-sprint-plans\/([^/?]+)$/)
+      if (patchMatch && method === 'PATCH') {
+        const body: { startDate: string; endDate: string; holidays?: string[] } = JSON.parse(init?.body ?? '{}')
+        teamSprintPlanDoc = {
+          ...(teamSprintPlanDoc as NonNullable<typeof teamSprintPlanDoc>),
+          startDate: body.startDate,
+          endDate: body.endDate,
+          holidays: body.holidays ?? [],
+          workingDays: 0,
+        }
+        return jsonResponse(teamSprintPlanDoc)
+      }
+      if (method === 'POST') {
+        const body: { teamId: string; sprintId: string; startDate: string; endDate: string; holidays?: string[] } = JSON.parse(
+          init?.body ?? '{}',
+        )
+        teamSprintPlanDoc = {
+          _id: 'plan-1',
+          teamId: body.teamId,
+          sprintId: body.sprintId,
+          startDate: body.startDate,
+          endDate: body.endDate,
+          holidays: body.holidays ?? [],
+          workingDays: 0,
+        }
+        return jsonResponse(teamSprintPlanDoc, 201)
+      }
+      // GET /api/team-sprint-plans?teamId=&sprintId=
+      return teamSprintPlanDoc ? jsonResponse(teamSprintPlanDoc) : jsonResponse({ error: 'not found' }, 404)
+    }
 
     if (href.includes('/dev-qa-override') && method === 'PUT') {
       const match = href.match(/\/api\/tickets\/([^/]+)\/dev-qa-override/)
@@ -298,6 +337,7 @@ function stubFetch(): FetchMock {
 describe('PlanningView', () => {
   beforeEach(() => {
     entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0)]
+    teamSprintPlanDoc = null
     fetchMock = stubFetch()
     syncReassign = null
     dragEndByRowIndex = []
@@ -866,6 +906,224 @@ describe('PlanningView', () => {
       const graceRow = await screen.findByLabelText('Tickets for Grace Hopper')
       await waitFor(() => expect(within(graceRow).getByText('100')).toBeInTheDocument())
       await waitFor(() => expect(within(adaRow).queryByText('100')).not.toBeInTheDocument())
+    })
+  })
+
+  describe('Sprint period picker (.scratch/sprint-period-picker/spec.md)', () => {
+    // 2026-08-01 is a Saturday, 2026-08-07 the following Friday - Aug 1
+    // deliberately being the 1st of a month makes this the regression guard
+    // for the toISOString() timezone bug (spec's timezone decision): that
+    // bug shifts every date back a day in this environment's UTC+5:30
+    // timezone, which would have silently turned "Aug 1" into "Jul 31" and
+    // dropped "Aug 7" off the end of the range.
+    const sprintWithJiraDates: Sprint = {
+      _id: 'sprint-2',
+      jiraSprintId: '200',
+      name: 'Sprint With Dates',
+      state: 'active',
+      startDate: '2026-08-01',
+      endDate: '2026-08-07',
+    }
+    const sprintNoDates: Sprint = { _id: 'sprint-3', jiraSprintId: '300', name: 'Sprint No Dates', state: 'active' }
+
+    // Overrides just the /api/sprints response on top of the shared
+    // stubFetch() (team-sprint-plans/capacity/memberships/entries stay the
+    // same), mirroring the "sync error" test's base-plus-override pattern
+    // above.
+    function stubFetchWithSprint(selectedSprint: Sprint): FetchMock {
+      const base = stubFetch()
+      const mock: FetchMock = vi.fn((url, init) => {
+        const href = String(url)
+        if (href.includes('/api/sprints')) return jsonResponse([selectedSprint])
+        return base(url, init)
+      })
+      vi.stubGlobal('fetch', mock)
+      return mock
+    }
+
+    it("pre-fills the period form from the selected Sprint's own Jira dates when no plan is saved yet", async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+
+      const form = await screen.findByLabelText('Sprint period')
+      expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-01')
+      expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-07')
+    })
+
+    it('leaves the date inputs blank when neither a saved plan nor the Sprint itself has dates', async () => {
+      fetchMock = stubFetchWithSprint(sprintNoDates)
+      render(<PlanningView team={team} />)
+
+      const form = await screen.findByLabelText('Sprint period')
+      expect(within(form).getByLabelText('Start date')).toHaveValue('')
+      expect(within(form).getByLabelText('End date')).toHaveValue('')
+      expect(screen.getByText('Pick a valid date range')).toBeInTheDocument()
+    })
+
+    it('renders exactly the day chips in the picked range, split correctly across weekend/weekday - the timezone regression guard', async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+
+      await screen.findByLabelText('Sprint period')
+
+      // 5 weekdays (Mon 08-03 .. Fri 08-07) are interactive toggle buttons.
+      const weekdayChips = screen.getAllByRole('button', { name: /Toggle holiday for/ })
+      expect(weekdayChips).toHaveLength(5)
+      // The exact boundary dates - if the toISOString() bug regressed, these
+      // dates would be off by one and these lookups would fail.
+      expect(screen.getByLabelText('Toggle holiday for 2026-08-03')).toBeInTheDocument()
+      expect(screen.getByLabelText('Toggle holiday for 2026-08-07')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Toggle holiday for 2026-08-01')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Toggle holiday for 2026-08-08')).not.toBeInTheDocument()
+
+      expect(screen.getByText('5/5 working days')).toBeInTheDocument()
+    })
+
+    it('toggles a weekday chip to a struck-through holiday state and updates the live working-day count', async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Sprint period')
+
+      const chip = screen.getByLabelText('Toggle holiday for 2026-08-05')
+      expect(chip).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByText('5/5 working days')).toBeInTheDocument()
+
+      fireEvent.click(chip)
+
+      expect(chip).toHaveAttribute('aria-pressed', 'true')
+      expect(chip).toHaveClass('line-through')
+      expect(screen.getByText('4/5 working days')).toBeInTheDocument()
+
+      fireEvent.click(chip)
+
+      expect(chip).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByText('5/5 working days')).toBeInTheDocument()
+    })
+
+    it('saves the period via POST with the exact { startDate, endDate, holidays } body and re-fetches the capacity strip', async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Sprint period')
+
+      fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
+
+      const capacityCallsBefore = fetchMock.mock.calls.filter(([url]) => String(url).includes('/capacity')).length
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save period' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/team-sprint-plans',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({
+              teamId: 'team-a',
+              sprintId: 'sprint-2',
+              startDate: '2026-08-01',
+              endDate: '2026-08-07',
+              holidays: ['2026-08-05'],
+            }),
+          }),
+        ),
+      )
+
+      await waitFor(() => {
+        const capacityCallsAfter = fetchMock.mock.calls.filter(([url]) => String(url).includes('/capacity')).length
+        expect(capacityCallsAfter).toBeGreaterThan(capacityCallsBefore)
+      })
+    })
+
+    it("pre-fills the form from a saved plan's stored dates/holidays (not the Sprint's own Jira dates) and shows capacity cards", async () => {
+      teamSprintPlanDoc = {
+        _id: 'plan-existing',
+        teamId: 'team-a',
+        sprintId: 'sprint-2',
+        startDate: '2026-08-03',
+        endDate: '2026-08-06',
+        holidays: ['2026-08-05'],
+        workingDays: 3,
+      }
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+
+      const form = await screen.findByLabelText('Sprint period')
+      expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-03')
+      expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-06')
+      expect(screen.getByLabelText('Toggle holiday for 2026-08-05')).toHaveAttribute('aria-pressed', 'true')
+      // Aug 1/2/7 belong to the Sprint's own Jira dates, not the saved
+      // plan's range - proves the form used the saved plan, not the Sprint.
+      expect(screen.queryByLabelText('Toggle holiday for 2026-08-07')).not.toBeInTheDocument()
+
+      await waitFor(() => expect(screen.getByText('32h planned')).toBeInTheDocument())
+    })
+
+    it('narrowing the date range drops a holiday that now falls outside it, without an error', async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Sprint period')
+
+      fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-07'))
+      expect(screen.getByText('4/5 working days')).toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-08-05' } })
+
+      expect(screen.queryByLabelText('Toggle holiday for 2026-08-07')).not.toBeInTheDocument()
+      expect(screen.getByText('3/3 working days')).toBeInTheDocument()
+      expect(screen.queryByText(/error/i)).not.toBeInTheDocument()
+    })
+
+    it('blocks Save and hides the working-day count for an invalid (inverted) range', async () => {
+      fetchMock = stubFetchWithSprint(sprintNoDates)
+      render(<PlanningView team={team} />)
+      const form = await screen.findByLabelText('Sprint period')
+
+      fireEvent.change(within(form).getByLabelText('Start date'), { target: { value: '2026-08-07' } })
+      fireEvent.change(within(form).getByLabelText('End date'), { target: { value: '2026-08-03' } })
+
+      expect(screen.getByText('Pick a valid date range')).toBeInTheDocument()
+      expect(screen.queryByText(/working days/)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save period' })).toBeDisabled()
+    })
+
+    it('shows an error and leaves in-progress selections unchanged when the save fails', async () => {
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      const base = fetchMock
+      fetchMock = vi.fn((url, init) => {
+        const href = String(url)
+        const method = init?.method ?? 'GET'
+        if (href === 'http://localhost:4100/api/team-sprint-plans' && method === 'POST') {
+          return jsonResponse({ error: 'Server exploded' }, 500)
+        }
+        return base(url, init)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Sprint period')
+
+      fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
+      fireEvent.click(screen.getByRole('button', { name: 'Save period' }))
+
+      expect(await screen.findByText('Server exploded')).toBeInTheDocument()
+      expect(screen.getByLabelText('Toggle holiday for 2026-08-05')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByLabelText('Start date')).toHaveValue('2026-08-01')
+      expect(screen.getByLabelText('End date')).toHaveValue('2026-08-07')
+    })
+
+    it('renders the "period not set" default (Sprint\'s own dates, not a crash) for a legacy plan that only has workingDays', async () => {
+      teamSprintPlanDoc = {
+        _id: 'plan-legacy',
+        teamId: 'team-a',
+        sprintId: 'sprint-2',
+        holidays: [],
+        workingDays: 9,
+      }
+      fetchMock = stubFetchWithSprint(sprintWithJiraDates)
+      render(<PlanningView team={team} />)
+
+      const form = await screen.findByLabelText('Sprint period')
+      expect(within(form).getByLabelText('Start date')).toHaveValue('2026-08-01')
+      expect(within(form).getByLabelText('End date')).toHaveValue('2026-08-07')
     })
   })
 })

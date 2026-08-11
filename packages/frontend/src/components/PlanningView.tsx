@@ -4,14 +4,14 @@ import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordi
 import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
-import { useSprintPlan, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
+import { useSprintPlan, type SprintPeriod, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { SprintSelect } from './SprintSelect'
 import { getId } from '../utils/getId'
 import { ticketTypeAccent } from '../utils/ticketType'
-import type { SprintCapacity, SprintPlanEntry, Team } from '../types'
+import type { Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
 
 // A ticket's placement within one "Tickets by person" row. `role` is set
 // only for a Split ticket's dev or qa sub-placement (CONTEXT.md "Split
@@ -175,24 +175,116 @@ function CapacityCard({ capacity }: { capacity: SprintCapacity }) {
   )
 }
 
-// The capacity strip 404s (planConfigured=false) until someone has entered
-// this sprint's working days at least once - no dedicated ticket owns that
-// input, so it lives here as the minimal thing needed to unblock the strip
-// this ticket is actually responsible for rendering.
-function WorkingDaysForm({ saving, onSave }: { saving: boolean; onSave: (days: number) => Promise<void> }) {
-  const [value, setValue] = useState('10')
+// Formats a Date's LOCAL fields into "YYYY-MM-DD" - never
+// Date#toISOString(), which converts through UTC and silently shifts the
+// calendar day in a UTC+ environment (the bug this spec's timezone decision
+// is built around; see also dateAgenda.ts's localTodayISO()).
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// Parses a "YYYY-MM-DD" string into a local midnight Date, entirely via
+// local constructor arguments (mirrors dateAgenda.ts's parseLocalDate,
+// duplicated locally so this file's date-range iteration stays self
+// contained - both read the same 'YYYY-MM-DD' convention).
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+interface RangeDay {
+  date: string
+  isWeekend: boolean
+}
+
+// Enumerates every calendar day in [start, end] inclusive, one entry per
+// day, tagged with whether it's a Sat/Sun. Blank or inverted input (end <
+// start) yields [] - the same "invalid range" condition the form uses to
+// block Save and hide the working-day badge (spec story 14).
+function enumerateRangeDays(start: string, end: string): RangeDay[] {
+  if (!start || !end || end < start) return []
+  const days: RangeDay[] = []
+  const cursor = parseLocalDate(start)
+  const last = parseLocalDate(end)
+  while (cursor.getTime() <= last.getTime()) {
+    const dayOfWeek = cursor.getDay() // 0 = Sunday, 6 = Saturday
+    days.push({ date: toLocalDateString(cursor), isWeekend: dayOfWeek === 0 || dayOfWeek === 6 })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return days
+}
+
+function formatChipLabel(dateStr: string): string {
+  return parseLocalDate(dateStr).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+// The Variant B period picker (see .scratch/sprint-period-picker/spec.md):
+// two native date inputs plus a flat wrap-list of day chips, one per
+// calendar day in the picked range - weekend chips are static/dimmed,
+// weekday chips toggle a struck-through "holiday" state on click. Renders
+// unconditionally once a sprint is selected (PlanningView below), replacing
+// the old WorkingDaysForm and its !planConfigured gating entirely - this
+// form is both the "set" and "edit" UI, pre-filled from the saved
+// `period` if one exists, else the selected Sprint's own Jira dates, else
+// blank. Keyed by PlanningView on `${sprintId}-${loading}` so a fresh
+// instance mounts exactly once the sprint's own plan fetch has settled,
+// which is what lets this component's local state be the single source of
+// truth from then on - it deliberately never re-syncs from `period` after
+// mount, so a failed save leaves in-progress selections exactly as the user
+// left them (spec story 16).
+function SprintPeriodForm({
+  period,
+  sprint,
+  saving,
+  onSave,
+}: {
+  period: SprintPeriod | null
+  sprint: Sprint | null
+  saving: boolean
+  onSave: (period: { startDate: string; endDate: string; holidays: string[] }) => Promise<void>
+}) {
+  const [startDate, setStartDate] = useState(period?.startDate ?? sprint?.startDate ?? '')
+  const [endDate, setEndDate] = useState(period?.endDate ?? sprint?.endDate ?? '')
+  const [holidays, setHolidays] = useState<Set<string>>(new Set(period?.holidays ?? []))
   const [error, setError] = useState<string | null>(null)
+
+  const days = useMemo(() => enumerateRangeDays(startDate, endDate), [startDate, endDate])
+  const rangeValid = days.length > 0
+  const totalWeekdays = days.filter((d) => !d.isWeekend).length
+  const workingDaysCount = days.filter((d) => !d.isWeekend && !holidays.has(d.date)).length
+
+  // Holiday selection intersected with range changes (spec): narrowing the
+  // range silently drops any checked holiday that now falls outside it,
+  // rather than erroring or leaving a "phantom" holiday the chip list no
+  // longer shows.
+  function handleRangeChange(nextStart: string, nextEnd: string) {
+    setStartDate(nextStart)
+    setEndDate(nextEnd)
+    const nextDates = new Set(enumerateRangeDays(nextStart, nextEnd).map((d) => d.date))
+    setHolidays((prev) => new Set([...prev].filter((d) => nextDates.has(d))))
+  }
+
+  function toggleHoliday(date: string) {
+    setHolidays((prev) => {
+      const next = new Set(prev)
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
+      return next
+    })
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setError('Enter a positive number of working days')
+    if (!rangeValid) {
+      setError('Pick a valid start and end date')
       return
     }
     setError(null)
     try {
-      await onSave(parsed)
+      await onSave({ startDate, endDate, holidays: [...holidays] })
     } catch (err) {
       setError((err as Error).message)
     }
@@ -201,28 +293,79 @@ function WorkingDaysForm({ saving, onSave }: { saving: boolean; onSave: (days: n
   return (
     <form
       onSubmit={handleSubmit}
-      aria-label="Set working days for this sprint"
-      className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md"
+      aria-label="Sprint period"
+      className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md"
     >
-      <span className="text-sm text-slate-500 dark:text-slate-400">
-        No working days set for this sprint yet — capacity can&apos;t be computed until they are.
-      </span>
-      <input
-        type="number"
-        min={1}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        aria-label="Working days"
-        className="w-20 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-      />
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {saving ? 'Saving…' : 'Save'}
-      </button>
-      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300">
+          {rangeValid ? `${workingDaysCount}/${totalWeekdays} working days` : 'Pick a valid date range'}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="sprint-period-start" className="text-xs font-medium text-slate-500 dark:text-slate-300">
+            Start date
+          </label>
+          <input
+            id="sprint-period-start"
+            type="date"
+            value={startDate}
+            onChange={(e) => handleRangeChange(e.target.value, endDate)}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="sprint-period-end" className="text-xs font-medium text-slate-500 dark:text-slate-300">
+            End date
+          </label>
+          <input
+            id="sprint-period-end"
+            type="date"
+            value={endDate}
+            onChange={(e) => handleRangeChange(startDate, e.target.value)}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={saving || !rangeValid}
+          className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save period'}
+        </button>
+        {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+      </div>
+      {days.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {days.map((d) => {
+            if (d.isWeekend) {
+              return (
+                <span
+                  key={d.date}
+                  className="rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-300 dark:border-white/5 dark:bg-white/5 dark:text-slate-600"
+                >
+                  {formatChipLabel(d.date)}
+                </span>
+              )
+            }
+            const isHoliday = holidays.has(d.date)
+            return (
+              <button
+                key={d.date}
+                type="button"
+                onClick={() => toggleHoliday(d.date)}
+                aria-pressed={isHoliday}
+                aria-label={`Toggle holiday for ${d.date}`}
+                className={
+                  isHoliday
+                    ? 'rounded-full border border-red-300 bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 line-through dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300'
+                    : 'rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'
+                }
+              >
+                {formatChipLabel(d.date)}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </form>
   )
 }
@@ -615,8 +758,10 @@ export function PlanningView({ team }: { team: Team }) {
     entries,
     loadingPlan,
     planError,
-    savingWorkingDays,
-    setWorkingDays,
+    sprintPeriod,
+    loadingSprintPeriod,
+    savingSprintPeriod,
+    setSprintPeriod,
     addingTicket,
     addTicketError,
     addTicket,
@@ -632,6 +777,9 @@ export function PlanningView({ team }: { team: Team }) {
     syncPlan,
   } = useSprintPlan(teamId)
   const { epics, loadingEpics, epicsError } = useEpics(selectedSprintId)
+  // The selected Sprint's own Jira-cached dates - SprintPeriodForm's default
+  // seed when no plan has been saved yet (spec story 8).
+  const selectedSprint = useMemo(() => sprints.find((s) => getId(s) === selectedSprintId) ?? null, [sprints, selectedSprintId])
 
   const [entryValue, setEntryValue] = useState('')
   // Ticket id of a just-added Split ticket, watched for below until it
@@ -789,22 +937,34 @@ export function PlanningView({ team }: { team: Team }) {
         <>
           <EpicPillStrip epics={epics} loading={loadingEpics} error={epicsError} />
 
+          {loadingSprintPeriod ? (
+            <p className="text-sm text-slate-400 dark:text-slate-500">Loading period…</p>
+          ) : (
+            <SprintPeriodForm
+              key={selectedSprintId}
+              period={sprintPeriod}
+              sprint={selectedSprint}
+              saving={savingSprintPeriod}
+              onSave={setSprintPeriod}
+            />
+          )}
+
           {loadingPlan ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">Loading capacity…</p>
           ) : planError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
               Error: {planError}
             </p>
-          ) : !planConfigured ? (
-            <WorkingDaysForm saving={savingWorkingDays} onSave={setWorkingDays} />
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {capacity.length === 0 ? (
-                <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
-              ) : (
-                capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
-              )}
-            </div>
+            planConfigured && (
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {capacity.length === 0 ? (
+                  <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
+                ) : (
+                  capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
+                )}
+              </div>
+            )
           )}
 
           <AddToPlanForm

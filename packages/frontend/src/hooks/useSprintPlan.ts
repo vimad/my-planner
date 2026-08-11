@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
-import type { Sprint, SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
+import type { Sprint, SprintCapacity, SprintPlanEntry, TeamMembership, TeamSprintPlan } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -29,6 +29,35 @@ interface PlanFetchResult {
   planConfigured: boolean
   capacity: SprintCapacity[]
   entries: SprintPlanEntry[]
+}
+
+// The picked date range + holidays a saved TeamSprintPlan carries, minus its
+// id/teamId/sprintId bookkeeping - what the period-picker form actually
+// needs. `null` covers both "no plan saved yet" and the migration case (a
+// legacy plan with workingDays but no stored startDate/endDate) - the form
+// treats both the same way, defaulting from the selected Sprint's own dates.
+export interface SprintPeriod {
+  startDate: string
+  endDate: string
+  holidays: string[]
+  workingDays: number
+}
+
+function toSprintPeriod(plan: TeamSprintPlan | null): SprintPeriod | null {
+  if (!plan || !plan.startDate || !plan.endDate) return null
+  return { startDate: plan.startDate, endDate: plan.endDate, holidays: plan.holidays, workingDays: plan.workingDays }
+}
+
+// GET /api/team-sprint-plans?teamId=&sprintId= - the plan doc itself (not
+// the derived capacity), so the period-picker form can read back
+// startDate/endDate/holidays and PlanningView.tsx knows whether to POST or
+// PATCH on save. Tolerates its own 404 as "no plan yet", same as
+// fetchCapacityAndEntries tolerates the capacity endpoint's 404.
+async function fetchSprintPlan(teamId: string, sprintId: string): Promise<TeamSprintPlan | null> {
+  const res = await fetch(`${API_URL}/api/team-sprint-plans?teamId=${teamId}&sprintId=${sprintId}`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(await parseErrorMessage(res))
+  return (await res.json()) as TeamSprintPlan
 }
 
 // One row-reorder's worth of a save-on-drop PATCH (ticket 19): `field` picks
@@ -92,8 +121,20 @@ export interface UseSprintPlanResult {
   loadingPlan: boolean
   planError: string | null
 
-  savingWorkingDays: boolean
-  setWorkingDays: (workingDays: number) => Promise<void>
+  // The saved period (date range + holidays + derived workingDays) for the
+  // selected sprint - `null` before any plan exists, or when an existing
+  // legacy plan has no stored startDate/endDate (see toSprintPeriod above).
+  // Separate from planConfigured, which keeps reading the capacity
+  // endpoint's own 404 exactly as before (capacity.ts is unmodified).
+  sprintPeriod: SprintPeriod | null
+  loadingSprintPeriod: boolean
+  savingSprintPeriod: boolean
+  // Branches POST-vs-PATCH internally on whether a plan already exists for
+  // this team+sprint - the UI never has to know which. On success, refreshes
+  // both the plan fetch (so sprintPeriod reflects what was just saved) and
+  // refreshPlan() (capacity+entries), since a changed workingDays changes
+  // every capacity card.
+  setSprintPeriod: (period: { startDate: string; endDate: string; holidays: string[] }) => Promise<void>
 
   addingTicket: boolean
   addTicketError: string | null
@@ -168,7 +209,17 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [refreshTick, setRefreshTick] = useState(0)
   const refreshPlan = useCallback(() => setRefreshTick((t) => t + 1), [])
 
-  const [savingWorkingDays, setSavingWorkingDays] = useState(false)
+  // The plan doc itself (id + startDate/endDate/holidays/workingDays),
+  // fetched independently of capacity+entries above - kept as the raw doc
+  // (not just the derived SprintPeriod) so setSprintPeriod below can read
+  // its id to decide POST vs PATCH. Its own refresh tick, separate from
+  // refreshTick, since a period save needs to re-fetch this doc regardless
+  // of whether it also calls refreshPlan().
+  const [sprintPlanDoc, setSprintPlanDoc] = useState<TeamSprintPlan | null>(null)
+  const [loadingSprintPeriod, setLoadingSprintPeriod] = useState(true)
+  const [sprintPlanRefreshTick, setSprintPlanRefreshTick] = useState(0)
+
+  const [savingSprintPeriod, setSavingSprintPeriod] = useState(false)
   const [addingTicket, setAddingTicket] = useState(false)
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
@@ -289,23 +340,79 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     }
   }, [teamId, selectedSprintId, refreshTick])
 
-  const setWorkingDays = useCallback(
-    async (workingDays: number) => {
+  // The plan doc for the period-picker form - independent fetch, own
+  // refresh trigger, same "parallel fetch" pattern as sprints/memberships/
+  // capacity+entries above. Tolerates its own 404 (fetchSprintPlan resolves
+  // to null) as "no plan yet", not an error.
+  useEffect(() => {
+    if (!teamId) {
+      setSprintPlanDoc(null)
+      setLoadingSprintPeriod(false)
+      return
+    }
+    if (!selectedSprintId) {
+      // The sprint list hasn't resolved yet (or the team has none) -
+      // `selectedSprintId` will very shortly flip to a real id once the
+      // sprints fetch lands. Deliberately does NOT flip loadingSprintPeriod
+      // to false here: doing so would let the render where selectedSprintId
+      // first becomes non-null read a stale "not loading" flag (this
+      // effect's own true->false transition for THAT id hasn't run yet,
+      // since effects run after commit) and mount SprintPeriodForm one tick
+      // early, seeded from a still-null sprintPeriod - clobbering PlanningView's
+      // key={selectedSprintId} remount guard against showing a "no plan"
+      // default flash before a real saved plan's dates ever get a chance to
+      // render. Staying "loading" through this transient null keeps that
+      // first real render already showing the loading placeholder instead.
+      setSprintPlanDoc(null)
+      return
+    }
+
+    let ignore = false
+    setLoadingSprintPeriod(true)
+
+    fetchSprintPlan(teamId, selectedSprintId)
+      .then((plan) => {
+        if (!ignore) setSprintPlanDoc(plan)
+      })
+      .catch(() => {
+        // Tolerated silently, same as memberships' fetch above - the form
+        // just falls back to defaulting from the Sprint's own Jira dates.
+        if (!ignore) setSprintPlanDoc(null)
+      })
+      .finally(() => {
+        if (!ignore) setLoadingSprintPeriod(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [teamId, selectedSprintId, sprintPlanRefreshTick])
+
+  const setSprintPeriod = useCallback(
+    async (period: { startDate: string; endDate: string; holidays: string[] }) => {
       if (!teamId || !selectedSprintId) return
-      setSavingWorkingDays(true)
+      setSavingSprintPeriod(true)
       try {
-        const res = await fetch(`${API_URL}/api/team-sprint-plans`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ teamId, sprintId: selectedSprintId, workingDays }),
-        })
+        const existingId = getId(sprintPlanDoc)
+        const res = existingId
+          ? await fetch(`${API_URL}/api/team-sprint-plans/${existingId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(period),
+            })
+          : await fetch(`${API_URL}/api/team-sprint-plans`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ teamId, sprintId: selectedSprintId, ...period }),
+            })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
+        setSprintPlanRefreshTick((t) => t + 1)
         refreshPlan()
       } finally {
-        setSavingWorkingDays(false)
+        setSavingSprintPeriod(false)
       }
     },
-    [teamId, selectedSprintId, refreshPlan],
+    [teamId, selectedSprintId, sprintPlanDoc, refreshPlan],
   )
 
   const addTicket = useCallback(
@@ -441,8 +548,10 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     entries,
     loadingPlan,
     planError,
-    savingWorkingDays,
-    setWorkingDays,
+    sprintPeriod: toSprintPeriod(sprintPlanDoc),
+    loadingSprintPeriod,
+    savingSprintPeriod,
+    setSprintPeriod,
     addingTicket,
     addTicketError,
     addTicket,

@@ -276,13 +276,21 @@ export interface SprintPlanEntry {
   qaEstimateHours?: number
 }
 
-// The Team x Sprint header - manually entered, holiday-adjusted working
-// days, never derived from a calendar. See backend models/TeamSprintPlan.ts.
+// The Team x Sprint header - a picked start/end date range plus any
+// individually-marked holidays within it. workingDays is server-derived from
+// those three fields (never client-supplied) - see backend
+// models/TeamSprintPlan.ts and services/sprintWorkingDays.ts.
+// startDate/endDate are absent on a legacy plan saved before this feature
+// shipped (manually-entered workingDays only, no stored date range) - the
+// Planning view treats that as "period not set" rather than crashing.
 export interface TeamSprintPlan {
   _id?: string
   id?: string
   teamId: string
   sprintId: string
+  startDate?: string
+  endDate?: string
+  holidays: string[]
   workingDays: number
 }
 
