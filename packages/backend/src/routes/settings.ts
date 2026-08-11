@@ -14,7 +14,7 @@ settingsRouter.get('/', async (req: Request, res: Response, next: NextFunction) 
     const settings = await Settings.findOneAndUpdate(
       {},
       {},
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
     res.json(settings)
   } catch (err) {
@@ -38,7 +38,7 @@ settingsRouter.patch(
 
       const settings = await Settings.findOneAndUpdate({}, update, {
         upsert: true,
-        new: true,
+        returnDocument: 'after',
         setDefaultsOnInsert: true,
       })
       res.json(settings)

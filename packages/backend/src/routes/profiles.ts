@@ -64,7 +64,7 @@ profilesRouter.patch(
       if (activeBoardId !== undefined) update.activeBoardId = activeBoardId
 
       const profile = await Profile.findByIdAndUpdate(req.params.id, update, {
-        new: true,
+        returnDocument: 'after',
       })
 
       if (!profile) {

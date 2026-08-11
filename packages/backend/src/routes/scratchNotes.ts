@@ -171,7 +171,7 @@ scratchNotesRouter.patch(
       if (!profileId) return
 
       const archived = req.body.archived !== undefined ? req.body.archived : true
-      const note = await ScratchNote.findOneAndUpdate({ _id: req.params.id, profileId }, { archived }, { new: true })
+      const note = await ScratchNote.findOneAndUpdate({ _id: req.params.id, profileId }, { archived }, { returnDocument: 'after' })
 
       if (!note) {
         return res.status(404).json({ error: 'Scratch note not found' })

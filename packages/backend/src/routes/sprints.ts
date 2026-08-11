@@ -47,7 +47,7 @@ sprintsRouter.get('/', async (req: Request, res: Response, next: NextFunction) =
             endDate: sprint.endDate ? new Date(sprint.endDate) : null,
             lastSyncedAt: syncedAt,
           },
-          { upsert: true, new: true },
+          { upsert: true, returnDocument: 'after' },
         ),
       ),
     )

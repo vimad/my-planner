@@ -69,7 +69,7 @@ capacityEntriesRouter.patch(
         return res.status(400).json({ error: 'leaveDays must be a number' })
       }
 
-      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, { leaveDays }, { new: true })
+      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, { leaveDays }, { returnDocument: 'after' })
 
       if (!entry) {
         return res.status(404).json({ error: 'Capacity entry not found' })

@@ -336,7 +336,7 @@ sprintPlanEntriesRouter.patch(
         return res.status(400).json({ error: 'order, devOrder or qaOrder is required' })
       }
 
-      const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, update, { new: true }).populate(
+      const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' }).populate(
         'ticketId',
       )
 

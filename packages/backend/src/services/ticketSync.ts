@@ -158,7 +158,7 @@ export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[
     if (fieldsToSet.epicKey) epicKeys.add(fieldsToSet.epicKey)
     const ticket = await Ticket.findOneAndUpdate({ jiraKey: issue.key }, fieldsToSet, {
       upsert: true,
-      new: true,
+      returnDocument: 'after',
     })
     synced.push({
       ticket: ticket as HydratedDocument<TicketDoc>,
@@ -172,7 +172,7 @@ export async function fullSyncTickets(jiraKeys: string[]): Promise<SyncedTicket[
     for (const issue of epicResult.issues) {
       await Epic.findOneAndUpdate({ jiraKey: issue.key }, mapIssueToEpicFields(issue, syncedAt), {
         upsert: true,
-        new: true,
+        returnDocument: 'after',
       })
     }
   }
@@ -217,7 +217,7 @@ export async function lightweightSyncTickets(jql: string): Promise<HydratedDocum
           currentSprintKey: null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
     tickets.push(ticket as HydratedDocument<TicketDoc>)
   }

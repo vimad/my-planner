@@ -85,7 +85,7 @@ teamMembershipsRouter.patch(
         update.capacityPercentOverride = req.body.capacityPercentOverride ?? null
       }
 
-      const membership = await TeamMembership.findByIdAndUpdate(req.params.id, update, { new: true }).populate(
+      const membership = await TeamMembership.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' }).populate(
         'personId',
       )
 

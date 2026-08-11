@@ -156,7 +156,7 @@ notesRouter.patch(
       if (linkedTodoIds !== undefined) update.linkedTodoIds = linkedTodoIds
 
       const note = await Note.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
-        new: true,
+        returnDocument: 'after',
       })
 
       if (!note) {

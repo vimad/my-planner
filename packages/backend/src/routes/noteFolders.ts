@@ -137,7 +137,7 @@ noteFoldersRouter.patch(
       if (parentId !== undefined) update.parentId = parentId
 
       const folder = await NoteFolder.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
-        new: true,
+        returnDocument: 'after',
       })
 
       if (!folder) {

@@ -63,7 +63,7 @@ ticketsRouter.put(
       const override = await TicketDevQaOverride.findOneAndUpdate(
         { ticketId: req.params.ticketId },
         { $set: update, $setOnInsert: { ticketId: req.params.ticketId } },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
 
       res.json(override)

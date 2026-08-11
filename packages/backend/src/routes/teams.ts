@@ -50,7 +50,7 @@ teamsRouter.patch(
       if (name !== undefined) update.name = name
       if (jiraLabels !== undefined) update.jiraLabels = jiraLabels
 
-      const team = await Team.findByIdAndUpdate(req.params.id, update, { new: true })
+      const team = await Team.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
 
       if (!team) {
         return res.status(404).json({ error: 'Team not found' })

@@ -79,7 +79,7 @@ peopleRouter.patch(
       if (email !== undefined) update.email = email
       if (jiraAccountId !== undefined) update.jiraAccountId = jiraAccountId
 
-      const person = await Person.findByIdAndUpdate(req.params.id, update, { new: true })
+      const person = await Person.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
 
       if (!person) {
         return res.status(404).json({ error: 'Person not found' })

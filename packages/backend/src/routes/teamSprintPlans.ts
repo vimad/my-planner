@@ -69,7 +69,7 @@ teamSprintPlansRouter.patch(
         return res.status(400).json({ error: 'workingDays must be a number' })
       }
 
-      const plan = await TeamSprintPlan.findByIdAndUpdate(req.params.id, { workingDays }, { new: true })
+      const plan = await TeamSprintPlan.findByIdAndUpdate(req.params.id, { workingDays }, { returnDocument: 'after' })
 
       if (!plan) {
         return res.status(404).json({ error: 'Team sprint plan not found' })

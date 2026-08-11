@@ -337,7 +337,7 @@ todosRouter.patch(
       if (linkedTodoIds !== undefined) update.linkedTodoIds = linkedTodoIds as unknown as TodoDoc['linkedTodoIds']
 
       const todo = await Todo.findByIdAndUpdate(req.params.id, update, {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       })
 

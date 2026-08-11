@@ -60,7 +60,7 @@ capacityLookupRouter.patch(
       if (days !== undefined) update.days = days
       if (hours !== undefined) update.hours = hours
 
-      const row = await CapacityLookup.findByIdAndUpdate(req.params.id, update, { new: true })
+      const row = await CapacityLookup.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
 
       if (!row) {
         return res.status(404).json({ error: 'Capacity lookup row not found' })

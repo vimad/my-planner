@@ -115,7 +115,7 @@ categoriesRouter.patch(
       if (color !== undefined) update.color = color
 
       const category = await Category.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
-        new: true,
+        returnDocument: 'after',
       })
 
       if (!category) {

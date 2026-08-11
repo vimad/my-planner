@@ -78,7 +78,7 @@ boardsRouter.patch(
       if (items !== undefined) update.items = items
 
       const board = await Board.findOneAndUpdate({ _id: req.params.id, profileId }, update, {
-        new: true,
+        returnDocument: 'after',
       })
 
       if (!board) {
