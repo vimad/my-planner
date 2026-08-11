@@ -401,7 +401,7 @@ function SprintPeriodToggle({ open, planConfigured, onToggle }: { open: boolean;
       aria-label={label}
       className="shrink-0 rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
     >
-      {open ? '×' : '✎'}
+      {open ? '×' : <span className="inline-block scale-x-[-1]">✎</span>}
     </button>
   )
 }
