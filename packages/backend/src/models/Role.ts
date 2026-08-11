@@ -1,9 +1,9 @@
 // Fixed job-title/seniority union, not a DB collection — each value maps to
 // a hardcoded default capacity percentage via the constant below. See
 // CONTEXT.md ("Role", "Effective capacity percentage").
-export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'Intern'
+export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'QA Intern' | 'Dev Intern'
 
-export const ROLES: Role[] = ['TL', 'ATL', 'SSE', 'SE', 'SQA', 'QA', 'Intern']
+export const ROLES: Role[] = ['TL', 'ATL', 'SSE', 'SE', 'SQA', 'QA', 'QA Intern', 'Dev Intern']
 
 // Seeded from the reference spreadsheet's role defaults. Effective capacity
 // % is computed, never stored: TeamMembership.capacityPercentOverride ??
@@ -15,5 +15,6 @@ export const ROLE_DEFAULT_CAPACITY_PERCENT: Record<Role, number> = {
   SE: 80,
   SQA: 80,
   QA: 80,
-  Intern: 50,
+  'QA Intern': 50,
+  'Dev Intern': 50,
 }

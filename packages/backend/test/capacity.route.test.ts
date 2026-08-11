@@ -151,6 +151,27 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
     expect(res.body[0]).toMatchObject({ leaveDays: 0, effectivePercentage: 80, total: 64 })
   })
 
+  it("defaults 'QA Intern' and 'Dev Intern' to a 50% effectivePercentage when no override is set", async () => {
+    TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 8 })
+    TeamMembership.find.mockReturnValue(
+      withPopulate([
+        membership({ role: 'QA Intern', capacityPercentOverride: null }),
+        membership({ role: 'Dev Intern', capacityPercentOverride: null, personId: { _id: 'p2', jiraAccountId: 'acct-b' } }),
+      ]),
+    )
+    CapacityEntry.findOne.mockResolvedValue(null)
+    CapacityLookup.find.mockResolvedValue([])
+    SprintPlanEntry.find.mockReturnValue(withPopulate([]))
+
+    const app = createApp()
+    const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(2)
+    expect(res.body[0]).toMatchObject({ role: 'QA Intern', effectivePercentage: 50 })
+    expect(res.body[1]).toMatchObject({ role: 'Dev Intern', effectivePercentage: 50 })
+  })
+
   it("sums Planned only across tickets whose current assignee matches this person, ignoring who added the entry", async () => {
     TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 10 })
     TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))

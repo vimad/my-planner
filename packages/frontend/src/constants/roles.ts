@@ -4,7 +4,7 @@ import type { Role } from '../types'
 // not fetched from the API, so both sides hardcode the same values rather
 // than the frontend round-tripping through a request just to render a
 // <select> and a placeholder.
-export const ROLES: Role[] = ['TL', 'ATL', 'SSE', 'SE', 'SQA', 'QA', 'Intern']
+export const ROLES: Role[] = ['TL', 'ATL', 'SSE', 'SE', 'SQA', 'QA', 'QA Intern', 'Dev Intern']
 
 export const ROLE_DEFAULT_CAPACITY_PERCENT: Record<Role, number> = {
   TL: 50,
@@ -13,5 +13,6 @@ export const ROLE_DEFAULT_CAPACITY_PERCENT: Record<Role, number> = {
   SE: 80,
   SQA: 80,
   QA: 80,
-  Intern: 50,
+  'QA Intern': 50,
+  'Dev Intern': 50,
 }

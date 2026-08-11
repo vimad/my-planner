@@ -130,7 +130,7 @@ export interface Person {
 // Fixed job-title/seniority union, not a DB collection - see
 // constants/roles.ts for the matching ROLE_DEFAULT_CAPACITY_PERCENT lookup
 // (mirrors the backend's Role.ts exactly).
-export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'Intern'
+export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'QA Intern' | 'Dev Intern'
 
 // The join between a Team and a Person - one roster row. `personId` comes
 // back populated (a full Person object) from GET /api/team-memberships, per

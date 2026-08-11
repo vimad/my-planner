@@ -13,7 +13,7 @@ A human team member identified by a Jira `accountId` (the actual match key again
 _Avoid_: User, Member.
 
 **Role**:
-A fixed job-title/seniority category (TL, ATL, SSE, SE, SQA, QA, Intern) that determines a Team Membership's default capacity percentage.
+A fixed job-title/seniority category (TL, ATL, SSE, SE, SQA, QA, QA Intern, Dev Intern) that determines a Team Membership's default capacity percentage.
 _Avoid_: Title, Position.
 
 **Team Membership**:
