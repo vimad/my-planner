@@ -253,6 +253,47 @@ describe('StatusView', () => {
     expect(parentLink).toHaveAttribute('target', '_blank')
   })
 
+  it("colors a sub-task's card by its parent's issue type, not its own", async () => {
+    ticketsData = [
+      ticket({ jiraKey: 'WOSMVP-310', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Bug', title: 'Parent bug' }),
+      ticket({
+        jiraKey: 'WOSMVP-311',
+        assigneeAccountId: 'acc-1',
+        status: 'To Do',
+        type: 'Sub-task',
+        title: 'Bug sub-task',
+        parentKey: 'WOSMVP-310',
+      }),
+    ]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    expect(within(board).getByText('Bug sub-task').closest('div')).toHaveClass('bg-red-100')
+  })
+
+  it("hides a sub-task's parent as its own separate board card, even when the parent is also assigned to the same person", async () => {
+    ticketsData = [
+      ticket({ jiraKey: 'WOSMVP-300', assigneeAccountId: 'acc-1', status: 'To Do', type: 'Story', title: 'Parent story' }),
+      ticket({
+        jiraKey: 'WOSMVP-301',
+        assigneeAccountId: 'acc-1',
+        status: 'To Do',
+        type: 'Sub-task',
+        title: 'Sub-task title',
+        parentKey: 'WOSMVP-300',
+      }),
+    ]
+    fetchMock = stubFetch()
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    expect(within(board).getByText('Sub-task title')).toBeInTheDocument()
+    expect(within(board).queryByRole('link', { name: 'Open WOSMVP-300 in Jira' })).not.toBeInTheDocument()
+  })
+
   it("falls back to the parent's bare key when the parent ticket wasn't independently synced", async () => {
     ticketsData = [
       ticket({

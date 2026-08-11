@@ -75,9 +75,20 @@ function ParentStrip({ parentKey, parent }: { parentKey: string; parent: Ticket 
   )
 }
 
+// A sub-task's own Jira type is always "Sub-task" - not the bug/story
+// distinction that actually matters for at-a-glance triage, so a sub-task
+// colors by its parent's type instead (falling back to its own type only
+// when the parent wasn't independently synced locally, see ParentStrip).
+function accentTypeFor(ticket: Ticket, parentTicket: Ticket | undefined): string | null {
+  if (ticket.parentKey && parentTicket) return parentTicket.type
+  return ticket.type
+}
+
 function TicketCard({ ticket, parentTicket }: { ticket: Ticket; parentTicket: Ticket | undefined }) {
   return (
-    <div className={`rounded-xl border p-3 shadow-sm dark:shadow-none dark:backdrop-blur-md ${cardAccentClasses(ticket.type)}`}>
+    <div
+      className={`rounded-xl border p-3 shadow-sm dark:shadow-none dark:backdrop-blur-md ${cardAccentClasses(accentTypeFor(ticket, parentTicket))}`}
+    >
       {ticket.parentKey && <ParentStrip parentKey={ticket.parentKey} parent={parentTicket} />}
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
@@ -174,15 +185,25 @@ export function StatusView({ team }: { team: Team }) {
     ? (ticketsByAccountId.get(selectedMembership.personId.jiraAccountId) ?? [])
     : []
 
+  // A sub-task's card already surfaces its parent via ParentStrip - if that
+  // parent is also assigned to this same person, it would otherwise also get
+  // its own separate board card, duplicating the same ticket. Excluded from
+  // the board here; still counted in the roster's per-person ticket count
+  // (summaryFor, above `selectedTickets` untouched).
+  const boardTickets = useMemo(() => {
+    const parentKeys = new Set(selectedTickets.filter((t) => t.parentKey).map((t) => t.parentKey as string))
+    return selectedTickets.filter((t) => !parentKeys.has(t.jiraKey))
+  }, [selectedTickets])
+
   // ADR 0003: only ever render a column the selected person actually has a
   // ticket in right now - an empty-but-possible column (e.g. "Merged" with
   // nothing there) is omitted entirely, not shown blank.
   const occupiedColumns = useMemo(
     () =>
       statuses
-        .map((status) => ({ status, tickets: selectedTickets.filter((t) => sameStatus(t.status, status.name)) }))
+        .map((status) => ({ status, tickets: boardTickets.filter((t) => sameStatus(t.status, status.name)) }))
         .filter((column) => column.tickets.length > 0),
-    [statuses, selectedTickets],
+    [statuses, boardTickets],
   )
 
   return (
