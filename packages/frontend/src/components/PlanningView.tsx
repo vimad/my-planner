@@ -285,11 +285,16 @@ function AddToPlanForm({
 // that opens DevQaAssignmentPopup for that ticket. The full title/status/
 // staleness lives in the title tooltip rather than on the face of the
 // badge, per the ticket's "enough to identify the ticket". A Split ticket's
-// two placements (ticket 24) land in separate rows already keyed to their
-// resolved dev/qa person, so no DEV/QA sub-label is needed on the badge
-// itself to tell them apart - but `role` still picks which estimate to
-// show, since a dev placement and a qa placement of the same Story/Bug have
-// their own independent [Dev]/[Test] Sub-task estimate, never the parent's.
+// two resolved placements (ticket 24) land in separate rows already keyed
+// to their resolved dev/qa person, so no DEV/QA sub-label is needed there -
+// the Unmapped catch-all row is the one place it comes back, by explicit
+// request, since it mixes placements from unrelated off-roster Jira
+// assignees together rather than keying them by role. Needs dev/qa is
+// structurally the same kind of mixed catch-all but was deliberately left
+// without the sub-label - narrowly scoped to Unmapped, not "any catch-all
+// row". `role` also always picks which estimate to show, since a dev
+// placement and a qa placement of the same Story/Bug have their own
+// independent [Dev]/[Test] Sub-task estimate, never the parent's.
 function TicketBadge({
   entry,
   role,
@@ -321,6 +326,9 @@ function TicketBadge({
   const content = (
     <>
       {ticket.jiraKey.replace(/^WOSMVP-/, '')}
+      {unmapped && role && (
+        <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role}</span>
+      )}
       {estimateHours != null && (
         <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatEstimate(estimateHours)}</span>
       )}

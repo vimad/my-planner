@@ -392,6 +392,23 @@ describe('PlanningView', () => {
     expect(within(unmappedRow).getByText('150')).toHaveClass('bg-amber-100')
   })
 
+  it("shows a DEV/QA sub-label for a Split ticket's placement only when it lands in the Unmapped catch-all row, not a resolved per-person row", async () => {
+    const splitUnmappedQa = ticket({ jiraKey: 'WOSMVP-310', assigneeAccountId: null, title: 'Split unmapped qa', type: 'Story' })
+    const devQa = { dev: resolvedSubtask('p1'), qa: unmappedRole('acc-x', 'Mystery QA') }
+    entriesData = [...entriesData, entry('e-split-unmapped', splitUnmappedQa, 1, { devQa, devOrder: 0 })]
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    await waitFor(() => expect(within(adaRow).getByText('310')).toBeInTheDocument())
+    expect(within(adaRow).queryByText('DEV')).not.toBeInTheDocument()
+
+    const unmappedRow = await screen.findByLabelText('Tickets for Unmapped')
+    await waitFor(() => expect(within(unmappedRow).getByText('310')).toBeInTheDocument())
+    // Text node itself stays lowercase - the `uppercase` Tailwind class does
+    // the visual transform, matching capacity.role's sibling badge pattern.
+    expect(within(unmappedRow).getByText('qa')).toBeInTheDocument()
+  })
+
   it('adding a ticket via the entry bar populates the right person\'s row', async () => {
     render(<PlanningView team={team} />)
     await waitFor(() => expect(screen.getByLabelText('Tickets for Ada Lovelace')).toBeInTheDocument())
