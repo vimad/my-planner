@@ -80,6 +80,38 @@ function formatHours(hours: number): string {
   return `${Math.round(hours * 10) / 10}h`
 }
 
+// Ticket badge's estimate sub-label, e.g. "1d 4h" - an 8h workday, matching
+// Jira's own default timetracking format, since estimateHours is Jira's
+// timeoriginalestimate converted straight from seconds (see ticketSync.ts).
+function formatEstimate(hours: number): string {
+  const totalMinutes = Math.round(hours * 60)
+  const days = Math.floor(totalMinutes / (8 * 60))
+  const hrs = Math.floor((totalMinutes % (8 * 60)) / 60)
+  const mins = totalMinutes % 60
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hrs > 0) parts.push(`${hrs}h`)
+  if (mins > 0 && days === 0) parts.push(`${mins}m`)
+  return parts.length > 0 ? parts.join(' ') : '0h'
+}
+
+// Ticket badge's background color-codes by Jira issue type - bug/story/task
+// buckets matched by substring since `type` is Jira's raw issuetype.name,
+// not a closed enum (e.g. "Dev Story" still buckets as a story).
+function typeColorClasses(type: string | null): string {
+  const t = type?.toLowerCase() ?? ''
+  if (t.includes('bug')) {
+    return 'border-red-300 bg-red-100 text-red-700 dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300'
+  }
+  if (t.includes('story')) {
+    return 'border-green-300 bg-green-100 text-green-700 dark:border-green-500/30 dark:bg-green-500/20 dark:text-green-300'
+  }
+  if (t.includes('task')) {
+    return 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-300'
+  }
+  return 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300'
+}
+
 function ProgressBar({ planned, available }: { planned: number; available: number }) {
   const pct = available > 0 ? Math.min(100, (planned / available) * 100) : 0
   const over = planned > available
@@ -243,7 +275,7 @@ function AddToPlanForm({
 // that opens DevQaAssignmentPopup for that ticket. The full title/status/
 // staleness lives in the title tooltip rather than on the face of the
 // badge, per the ticket's "enough to identify the ticket". `role` renders a
-// small "DEV"/"QA" sub-label alongside the existing type sub-label,
+// small "DEV"/"QA" sub-label alongside the estimate sub-label,
 // distinguishing a Split ticket's two placements (ticket 24) - omitted
 // entirely for a non-split entry's single placement.
 function TicketBadge({
@@ -269,7 +301,7 @@ function TicketBadge({
     ? 'border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/20 dark:text-sky-300'
     : unmapped
       ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300'
-      : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300'
+      : typeColorClasses(ticket.type)
   const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold shadow-sm ${colorClasses}`
 
   const content = (
@@ -278,8 +310,10 @@ function TicketBadge({
       {role && (
         <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role.toUpperCase()}</span>
       )}
-      {ticket.type && (
-        <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{ticket.type}</span>
+      {ticket.estimateHours != null && (
+        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">
+          {formatEstimate(ticket.estimateHours)}
+        </span>
       )}
     </>
   )

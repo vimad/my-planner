@@ -342,6 +342,26 @@ describe('PlanningView', () => {
     await waitFor(() => expect(within(adaRow).getByText('100')).toBeInTheDocument())
   })
 
+  it("shows an estimate sub-label (e.g. '1d 4h') instead of the raw type text, and colors the badge by issue type", async () => {
+    const bugTicket = ticket({ jiraKey: 'WOSMVP-110', assigneeAccountId: 'acc-1', type: 'Bug', estimateHours: 12 })
+    const taskTicket = ticket({ jiraKey: 'WOSMVP-120', assigneeAccountId: 'acc-1', type: 'Dev Task', estimateHours: 1.5 })
+    entriesData = [...entriesData, entry('e-bug', bugTicket, 1), entry('e-task', taskTicket, 2)]
+
+    render(<PlanningView team={team} />)
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+
+    const storyBadge = await within(adaRow).findByText('100')
+    expect(within(adaRow).getByText('4h')).toBeInTheDocument()
+    expect(within(adaRow).queryByText('Story')).not.toBeInTheDocument()
+    expect(storyBadge).toHaveClass('bg-green-100')
+
+    expect(within(adaRow).getByText('1d 4h')).toBeInTheDocument()
+    expect(within(adaRow).getByText('110')).toHaveClass('bg-red-100')
+
+    expect(within(adaRow).getByText('1h 30m')).toBeInTheDocument()
+    expect(within(adaRow).getByText('120')).toHaveClass('bg-blue-100')
+  })
+
   it('lands a ticket whose assignee is not on the team in the flagged unmapped row', async () => {
     render(<PlanningView team={team} />)
 
@@ -349,6 +369,9 @@ describe('PlanningView', () => {
     const unmappedRow = await screen.findByLabelText('Tickets for Unmapped')
     await waitFor(() => expect(within(unmappedRow).getByText('150')).toBeInTheDocument())
     expect(screen.getByText('⚠ Unmapped')).toBeInTheDocument()
+    // unmappedTicket's type defaults to 'Story' - confirms the amber Unmapped
+    // treatment still wins over type-based coloring, not just role state.
+    expect(within(unmappedRow).getByText('150')).toHaveClass('bg-amber-100')
   })
 
   it('adding a ticket via the entry bar populates the right person\'s row', async () => {
