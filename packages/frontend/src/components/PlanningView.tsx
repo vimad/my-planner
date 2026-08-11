@@ -313,12 +313,19 @@ function TicketBadge({
   unmapped,
   needsAssignment,
   onFlagClick,
+  onRemove,
+  removing,
 }: {
   entry: SprintPlanEntry
   role?: 'dev' | 'qa'
   unmapped?: boolean
   needsAssignment?: boolean
   onFlagClick?: () => void
+  // Undoes an accidental add-to-plan (spec). A Split ticket's dev and qa
+  // placements share one SprintPlanEntry (PlacedEntry's `role`), so removing
+  // from either placement clears both - there's nothing to remove per-role.
+  onRemove?: () => void
+  removing?: boolean
 }) {
   const ticket = entry.ticketId
   const tooltip = `${ticket.title} — ${ticket.status}, synced ${relativeTime(ticket.lastSyncedAt)}`
@@ -370,8 +377,19 @@ function TicketBadge({
   )
 
   return (
-    <span className="group relative inline-flex">
+    <span className="group relative inline-flex items-center gap-0.5">
       {badgeEl}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={removing}
+          aria-label={`Remove ${ticket.jiraKey} from plan`}
+          className="font-sans text-xs leading-none text-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-slate-100"
+        >
+          ×
+        </button>
+      )}
       <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 font-sans text-[11px] font-normal normal-case text-slate-700 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-200">
         {tooltip}
       </span>
@@ -386,7 +404,15 @@ function TicketBadge({
 // (never used here - only a resolved, non-flagged placement ever lands in a
 // real per-person row, see ticketsByMembershipId) conflict-free by
 // construction.
-function SortableTicketBadge({ placement }: { placement: PlacedEntry }) {
+function SortableTicketBadge({
+  placement,
+  onRemove,
+  removing,
+}: {
+  placement: PlacedEntry
+  onRemove?: () => void
+  removing?: boolean
+}) {
   const key = placementKey(placement)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: key })
   const style = { transform: CSS.Transform.toString(transform), transition }
@@ -403,7 +429,7 @@ function SortableTicketBadge({ placement }: { placement: PlacedEntry }) {
       >
         ⠿
       </button>
-      <TicketBadge entry={placement.entry} role={placement.role} />
+      <TicketBadge entry={placement.entry} role={placement.role} onRemove={onRemove} removing={removing} />
     </span>
   )
 }
@@ -414,6 +440,8 @@ function PersonRow({
   variant = 'normal',
   onOpenPopup,
   onReorder,
+  onRemove,
+  removingEntryId,
 }: {
   name: string
   placements: PlacedEntry[]
@@ -423,6 +451,10 @@ function PersonRow({
   // the Unmapped/Needs dev/qa catch-all rows, which stay undraggable (see
   // TicketBadge's comment above).
   onReorder?: (patches: SprintPlanEntryOrderPatch[]) => void
+  // Undoes an accidental add-to-plan - available in every row, including
+  // Unmapped/Needs dev/qa, unlike drag-reorder above.
+  onRemove?: (entryId: string) => void
+  removingEntryId?: string | null
 }) {
   const unmapped = variant === 'unmapped'
   const needsAssignment = variant === 'needsAssignment'
@@ -471,24 +503,37 @@ function PersonRow({
         <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={placements.map(placementKey)} strategy={rectSortingStrategy}>
             <div className="flex flex-wrap gap-1.5">
-              {placements.map((p) => (
-                <SortableTicketBadge key={placementKey(p)} placement={p} />
-              ))}
+              {placements.map((p) => {
+                const entryId = getId(p.entry) ?? ''
+                return (
+                  <SortableTicketBadge
+                    key={placementKey(p)}
+                    placement={p}
+                    onRemove={onRemove ? () => onRemove(entryId) : undefined}
+                    removing={removingEntryId === entryId}
+                  />
+                )
+              })}
             </div>
           </SortableContext>
         </DndContext>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {placements.map(({ entry, role }) => (
-            <TicketBadge
-              key={placementKey({ entry, role })}
-              entry={entry}
-              role={role}
-              unmapped={unmapped}
-              needsAssignment={needsAssignment}
-              onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
-            />
-          ))}
+          {placements.map(({ entry, role }) => {
+            const entryId = getId(entry) ?? ''
+            return (
+              <TicketBadge
+                key={placementKey({ entry, role })}
+                entry={entry}
+                role={role}
+                unmapped={unmapped}
+                needsAssignment={needsAssignment}
+                onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
+                onRemove={onRemove ? () => onRemove(entryId) : undefined}
+                removing={removingEntryId === entryId}
+              />
+            )
+          })}
         </div>
       )}
     </div>
@@ -524,6 +569,9 @@ export function PlanningView({ team }: { team: Team }) {
     devQaOverrideError,
     saveDevQaOverride,
     reorderEntries,
+    removingEntryId,
+    removeEntryError,
+    removeEntry,
     syncingPlan,
     syncPlanError,
     syncPlan,
@@ -703,7 +751,10 @@ export function PlanningView({ team }: { team: Team }) {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
-              <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
+              <div className="flex items-center gap-2">
+                {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
+                <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
+              </div>
             </div>
             {loadingMemberships ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
@@ -720,14 +771,25 @@ export function PlanningView({ team }: { team: Team }) {
                     placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
                     onOpenPopup={setPopupTicketId}
                     onReorder={reorderEntries}
+                    onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
+                    removingEntryId={removingEntryId}
                   />
                 ))}
-                <PersonRow name="Unmapped" placements={unmappedPlacements} variant="unmapped" onOpenPopup={setPopupTicketId} />
+                <PersonRow
+                  name="Unmapped"
+                  placements={unmappedPlacements}
+                  variant="unmapped"
+                  onOpenPopup={setPopupTicketId}
+                  onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
+                  removingEntryId={removingEntryId}
+                />
                 <PersonRow
                   name="Needs dev/qa"
                   placements={needsAssignmentPlacements}
                   variant="needsAssignment"
                   onOpenPopup={setPopupTicketId}
+                  onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
+                  removingEntryId={removingEntryId}
                 />
               </div>
             )}

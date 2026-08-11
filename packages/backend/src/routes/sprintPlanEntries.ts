@@ -316,6 +316,24 @@ sprintPlanEntriesRouter.post(
   },
 )
 
+// DELETE /api/sprint-plan-entries/:id -> removes one ticket from a team's
+// sprint plan (e.g. undoing an accidental add-to-plan). A Split ticket has
+// exactly one SprintPlanEntry regardless of how many role placements it
+// renders as (dev + qa are two placements of the same entry, see PlacedEntry
+// in PlanningView.tsx), so this clears both at once - nothing else to delete
+// per-role.
+sprintPlanEntriesRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
+  try {
+    const entry = await SprintPlanEntry.findByIdAndDelete(req.params.id)
+    if (!entry) {
+      return res.status(404).json({ error: 'Sprint plan entry not found' })
+    }
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
+})
+
 // PATCH /api/sprint-plan-entries/:id -> body { order?, devOrder?, qaOrder? },
 // only-touch-what's-present (same convention as PUT
 // /api/tickets/:ticketId/dev-qa-override). Drag-reorder save-on-drop (ticket

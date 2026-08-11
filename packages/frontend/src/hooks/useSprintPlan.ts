@@ -121,6 +121,15 @@ export interface UseSprintPlanResult {
   // same minimal-UX convention as that existing reorder.
   reorderEntries: (patches: SprintPlanEntryOrderPatch[]) => Promise<void>
 
+  removingEntryId: string | null
+  removeEntryError: string | null
+  // DELETE /api/sprint-plan-entries/:id - undoes an accidental add-to-plan.
+  // Optimistic like reorderEntries: removes the entry from local `entries`
+  // immediately, rolling back on failure. A Split ticket's entry backs both
+  // its dev-row and qa-row placements (PlacedEntry in PlanningView.tsx), so
+  // removing it clears both at once.
+  removeEntry: (entryId: string) => Promise<void>
+
   syncingPlan: boolean
   syncPlanError: string | null
   // POST /api/sprint-plan-entries/sync (ticket 13) - ticket 19's global
@@ -166,6 +175,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
   const [syncingPlan, setSyncingPlan] = useState(false)
   const [syncPlanError, setSyncPlanError] = useState<string | null>(null)
+  const [removingEntryId, setRemovingEntryId] = useState<string | null>(null)
+  const [removeEntryError, setRemoveEntryError] = useState<string | null>(null)
 
   // Sprint list - resolves the team's Jira board and re-selects an active
   // sprint (falling back to the first) whenever the previously-selected id
@@ -376,6 +387,26 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [entries],
   )
 
+  const removeEntry = useCallback(
+    async (entryId: string) => {
+      const previous = entries
+      setRemovingEntryId(entryId)
+      setRemoveEntryError(null)
+      setEntries((prev) => prev.filter((e) => getId(e) !== entryId))
+      try {
+        const res = await fetch(`${API_URL}/api/sprint-plan-entries/${entryId}`, { method: 'DELETE' })
+        if (!res.ok && res.status !== 404) throw new Error(await parseErrorMessage(res))
+      } catch (err) {
+        setEntries(previous)
+        setRemoveEntryError((err as Error).message)
+        throw err
+      } finally {
+        setRemovingEntryId(null)
+      }
+    },
+    [entries],
+  )
+
   const syncPlan = useCallback(async () => {
     if (!teamId || !selectedSprintId) return
     setSyncingPlan(true)
@@ -419,6 +450,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     devQaOverrideError,
     saveDevQaOverride,
     reorderEntries,
+    removingEntryId,
+    removeEntryError,
+    removeEntry,
     syncingPlan,
     syncPlanError,
     syncPlan,
