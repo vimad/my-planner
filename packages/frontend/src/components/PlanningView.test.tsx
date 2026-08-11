@@ -631,16 +631,25 @@ describe('PlanningView', () => {
       )
     })
 
-    it("only patches a placement's own role field, never a co-placed role sharing the same entry or an unrelated plain order", async () => {
+    it('drags a placement past a differently-fielded neighbor (mixed dev/qa row) and the new order survives a reload', async () => {
       // eBoth is a Split ticket resolved dev *and* qa to Ada - it lands in
       // Ada's row twice, once per role (devOrder 0, qaOrder 0). eDevOnly is
       // a second Split ticket resolved dev to Ada (qa to Grace, elsewhere) -
-      // devOrder 1, giving the dev-role group two members so a drag among
-      // them produces a real devOrder change. Dragging eDevOnly's dev badge
-      // ahead of eBoth's dev badge must only ever patch devOrder - eBoth's
-      // own qaOrder (same entry id!) and e1's unrelated plain order must
-      // never be touched (ticket 19: "dragging one only ever writes that
-      // role's own devOrder/qaOrder, never the other").
+      // devOrder 1. Ada's row is therefore [e1 (order), e-both-dev
+      // (devOrder), e-both-qa (qaOrder), e-devonly-dev (devOrder)] - three
+      // different order fields in one row, same shape as a real person's row
+      // mixing Bug/Story badges (every Split ticket independently resolves
+      // a dev-role and a qa-role placement - see PlacedEntry above).
+      //
+      // Dragging eDevOnly's dev badge (index 3) to land just after e1
+      // (index 1, in front of both of eBoth's badges) crosses two
+      // differently-fielded neighbors on the way. This is exactly what used
+      // to silently no-op (ticket 19's original per-field-local-rank scheme
+      // couldn't represent it - see computeReorderPatches's comment): eBoth's
+      // two badges shift row-wide position without their same-field rank
+      // changing (each is the only member of its field in this row), so
+      // both devOrder and qaOrder need patching even though only one badge
+      // was actually dragged.
       const splitBoth = ticket({ jiraKey: 'WOSMVP-301', assigneeAccountId: null, title: 'Both dev and qa', type: 'Story' })
       const splitDevOnly = ticket({ jiraKey: 'WOSMVP-302', assigneeAccountId: null, title: 'Dev only', type: 'Story' })
       entriesData = [
@@ -656,21 +665,33 @@ describe('PlanningView', () => {
 
       await dragEndByRowIndex[0]?.({ active: { id: 'e-devonly-dev' }, over: { id: 'e-both-dev' } } as DragEndEvent)
 
+      // e-both's dev badge (index 1 -> 2) and qa badge (index 2 -> 3) both
+      // shift row-wide position, so both of its order fields get patched -
+      // e-devonly-dev itself doesn't need a patch (its row-wide index is
+      // unchanged: it lands at index 1, same value it already had).
       await waitFor(() =>
         expect(fetchMock).toHaveBeenCalledWith(
           'http://localhost:4100/api/sprint-plan-entries/e-both',
-          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ devOrder: 1 }) }),
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ devOrder: 2 }) }),
         ),
       )
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:4100/api/sprint-plan-entries/e-devonly',
-        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ devOrder: 0 }) }),
+        'http://localhost:4100/api/sprint-plan-entries/e-both',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ qaOrder: 3 }) }),
       )
       expect(fetchMock).not.toHaveBeenCalledWith(
-        'http://localhost:4100/api/sprint-plan-entries/e-both',
-        expect.objectContaining({ body: expect.stringContaining('qaOrder') }),
+        'http://localhost:4100/api/sprint-plan-entries/e-devonly',
+        expect.anything(),
       )
       expect(fetchMock).not.toHaveBeenCalledWith('http://localhost:4100/api/sprint-plan-entries/e1', expect.anything())
+
+      // Survives a reload, and lands where it was dropped: e-devonly's dev
+      // badge (302) now renders ahead of both of e-both's badges (301, 301).
+      const { container } = render(<PlanningView team={team} />)
+      const reloadedAdaRow = await within(container).findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(reloadedAdaRow).getAllByText(/^(301|302)$/)).toHaveLength(3))
+      const badges = within(reloadedAdaRow).getAllByText(/^(301|302)$/)
+      expect(badges.map((b) => b.textContent)).toEqual(['302', '301', '301'])
     })
 
     it('rolls back the optimistic reorder if the PATCH fails', async () => {

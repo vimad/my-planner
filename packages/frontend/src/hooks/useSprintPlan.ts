@@ -353,8 +353,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       const previous = entries
       setEntries((prev) =>
         prev.map((e) => {
-          const patch = patches.find((p) => p.entryId === (getId(e) ?? ''))
-          return patch ? { ...e, [patch.field]: patch.value } : e
+          const entryId = getId(e) ?? ''
+          const ownPatches = patches.filter((p) => p.entryId === entryId)
+          return ownPatches.length > 0 ? { ...e, ...Object.fromEntries(ownPatches.map((p) => [p.field, p.value])) } : e
         }),
       )
       try {

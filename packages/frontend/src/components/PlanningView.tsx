@@ -55,23 +55,34 @@ function roleEstimateHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefine
 }
 
 // Ticket 19's drag-reorder save-on-drop: reorders `placements` per the drag
-// result, then re-numbers each field-type group (order / devOrder / qaOrder)
-// within the row independently, 0-indexed by its new position among only
-// its own group - mirroring nextOrderForAssignee/nextOrderForRole's
-// server-side placement math. Only entries whose field value actually
-// changed are returned, so a drop that doesn't cross a group boundary
-// doesn't PATCH unrelated entries.
+// result, then assigns each placement its new value using its position in
+// that single reordered row - not a per-field-local rank. This used to
+// re-number each of order/devOrder/qaOrder from 0 within its own group,
+// which can't represent an arbitrary interleaving of the three: three
+// independently-zeroed counters lose which-group-came-first information the
+// moment two placements from different groups tie (e.g. a fresh devOrder=0
+// and a fresh qaOrder=0 are indistinguishable to `ticketsByMembershipId`'s
+// merge sort below, which compares the raw values across fields). That's
+// why a row mixing dev- and qa-role placements (any Split ticket, ticket 23)
+// could only ever have same-field neighbors swap - crossing a
+// differently-fielded neighbor either produced no patch at all (its
+// within-group rank hadn't changed) or a patch that the merge sort couldn't
+// actually place where it was dropped. Using the row-wide index instead
+// keeps every field's values globally comparable, so the merge sort
+// reproduces the drop exactly; nextOrderForAssignee/nextOrderForRole
+// (server-side) only ever need a field's current max, so gaps in a field's
+// values (devOrder jumping 0 -> 3 because its neighbors are in other
+// fields) don't affect them. Still only patches placements whose value
+// actually changed, so a drop that doesn't move a placement relative to its
+// row-wide position doesn't PATCH it.
 function computeReorderPatches(placements: PlacedEntry[], oldIndex: number, newIndex: number): SprintPlanEntryOrderPatch[] {
   const reordered = arrayMove(placements, oldIndex, newIndex)
-  const counters: Record<'order' | 'devOrder' | 'qaOrder', number> = { order: 0, devOrder: 0, qaOrder: 0 }
   const patches: SprintPlanEntryOrderPatch[] = []
-  for (const p of reordered) {
-    const field = placementField(p)
-    const value = counters[field]++
-    if (placementFieldValue(p) !== value) {
-      patches.push({ entryId: getId(p.entry) ?? '', field, value })
+  reordered.forEach((p, index) => {
+    if (placementFieldValue(p) !== index) {
+      patches.push({ entryId: getId(p.entry) ?? '', field: placementField(p), value: index })
     }
-  }
+  })
   return patches
 }
 
@@ -616,10 +627,11 @@ export function PlanningView({ team }: { team: Team }) {
       }
     }
 
-    // A non-split placement sorts by the entry's plain `order`; a Split
-    // role placement sorts by that role's own devOrder/qaOrder (ticket 23) -
-    // meaningless to compare across different roles/tickets, only used to
-    // keep each row's own placements stable.
+    // A non-split placement sorts by the entry's plain `order`; a Split role
+    // placement sorts by that role's own devOrder/qaOrder (ticket 23).
+    // Comparing these three fields' raw values directly only produces the
+    // right row-wide order because computeReorderPatches above always
+    // writes them as one shared, row-wide index space - see its comment.
     function placementOrder(p: PlacedEntry): number {
       if (p.role === 'dev') return p.entry.devOrder ?? 0
       if (p.role === 'qa') return p.entry.qaOrder ?? 0
