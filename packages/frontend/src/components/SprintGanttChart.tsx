@@ -92,10 +92,11 @@ function buildTasks(
   // Leave/holiday sibling tasks (ticket 08, ticket 01's confirmed
   // "ordinary 1-day sibling task" approach - SVAR's `highlightTime` hook is
   // global/per-column only, no per-row argument, so it can't shade a single
-  // person's row). Read-only same as every other bar here: the whole
-  // `<Gantt readonly>` below already disables drag/edit chart-wide, so
-  // these need no extra per-task flag to satisfy "no click/drag
-  // affordance."
+  // person's row). Ticket 08's "no click/drag affordance" AC is enforced in
+  // handleInit below (ids are always `leave-`-prefixed, see
+  // ganttLeaveDays.ts), not here - the chart as a whole is draggable since
+  // ticket 09, so leave/holiday tasks need their own guard rather than a
+  // chart-wide `readonly` flag.
   for (const day of buildLeaveDays(memberships, capacity, sprintPeriod.holidays)) {
     const start = parseLocalDate(day.date)
     tasks.push({
@@ -187,19 +188,33 @@ function SprintGantt({
   const onDragRescheduleRef = useRef(onDragReschedule)
   onDragRescheduleRef.current = onDragReschedule
 
-  // Ticket 09: SVAR fires `update-task` on every intermediate drag frame
-  // (`inProgress: true`) and once more on drop (`inProgress` false/absent) -
-  // only the drop should autosave (no separate Save button/state, per the
-  // map's Leave-grid/Planning-reorder convention), so every in-progress
-  // event is ignored. `api.getTask(id)` (ticket 01's confirmed readback
-  // path) returns the dropped task's own resolved `start`/`parent` - parent
-  // is checked so a task dropped outside any row (shouldn't happen, but
-  // defensive) never crashes computeDragPatches with an unknown
-  // membershipId. Only ticket-bar ids are ever handled - the synthetic
-  // `person-<membershipId>` summary rows are both invisible
-  // (visibility: hidden below, so unreachable by mouse) and explicitly
-  // skipped here as a second guard.
+  // Ticket 08's "no click/drag affordance" AC for leave/holiday bars: since
+  // the chart as a whole is draggable (ticket 09), a leave/holiday task
+  // (always `leave-`-prefixed, see ganttLeaveDays.ts) needs its own guard.
+  // `api.intercept` runs BEFORE the store applies an action - returning
+  // `false` cancels it outright, the same pattern SVAR's own bundle uses to
+  // disable row selection/scroll/sort (traced in the compiled bundle, not
+  // documented in the public API surface). Intercepting `drag-task` blocks
+  // the drag from ever starting (so the bar visually never moves), which is
+  // stronger than merely ignoring the resulting `update-task` below.
   const handleInit = useCallback((api: IApi) => {
+    api.intercept('drag-task', (ev: { id: string | number }) => {
+      if (String(ev.id).startsWith('leave-')) return false
+    })
+
+    // Ticket 09: SVAR fires `update-task` on every intermediate drag frame
+    // (`inProgress: true`) and once more on drop (`inProgress` false/absent) -
+    // only the drop should autosave (no separate Save button/state, per the
+    // map's Leave-grid/Planning-reorder convention), so every in-progress
+    // event is ignored. `api.getTask(id)` (ticket 01's confirmed readback
+    // path) returns the dropped task's own resolved `start`/`parent` - parent
+    // is checked so a task dropped outside any row (shouldn't happen, but
+    // defensive) never crashes computeDragPatches with an unknown
+    // membershipId. Only ticket-bar ids are ever handled - the synthetic
+    // `person-<membershipId>` summary rows are both invisible
+    // (visibility: hidden below, so unreachable by mouse) and explicitly
+    // skipped here as a second guard; leave/holiday tasks never reach this
+    // point at all now that `drag-task` is intercepted above.
     api.on('update-task', (ev: { id: string | number; inProgress?: boolean }) => {
       if (ev.inProgress) return
       const id = String(ev.id)

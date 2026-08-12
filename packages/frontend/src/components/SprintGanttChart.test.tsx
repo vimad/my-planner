@@ -34,6 +34,13 @@ function setFakeTaskOverride(id: string, override: { start?: Date; parent?: stri
   fakeTaskOverrides.set(id, override)
 }
 
+// Mirrors updateTaskHandler above - captures the `drag-task` interceptor
+// SprintGanttChart registers to block leave/holiday bars from being dragged
+// at all (see the component's handleInit). Returns the interceptor's own
+// return value so a test can assert whether a given drag was cancelled
+// (`false`) or allowed through (`undefined`).
+let dragTaskInterceptor: ((ev: { id: string | number }) => boolean | undefined) | null = null
+
 vi.mock('@svar-ui/react-gantt', () => ({
   Gantt: (props: {
     tasks: { id: string | number; text?: string; parent?: string | number; start?: Date }[]
@@ -46,6 +53,9 @@ vi.mock('@svar-ui/react-gantt', () => ({
       init({
         on: (event: string, cb: (ev: { id: string | number; inProgress?: boolean }) => void) => {
           if (event === 'update-task') updateTaskHandler = cb
+        },
+        intercept: (event: string, cb: (ev: { id: string | number }) => boolean | undefined) => {
+          if (event === 'drag-task') dragTaskInterceptor = cb
         },
         getTask: (id: string | number) => {
           const base = tasks.find((t) => String(t.id) === String(id)) ?? {}
@@ -143,6 +153,7 @@ const noop = () => {}
 
 beforeEach(() => {
   updateTaskHandler = null
+  dragTaskInterceptor = null
   lastGanttProps = null
   fakeTaskOverrides.clear()
 })
@@ -401,6 +412,22 @@ describe('GanttChartButton', () => {
       updateTaskHandler?.({ id: 'person-m1', inProgress: false })
 
       expect(onDragReschedule).not.toHaveBeenCalled()
+    })
+
+    it('blocks dragging a leave/holiday bar via a drag-task interceptor (ticket 08: read-only, no click/drag affordance)', async () => {
+      const capacity: SprintCapacity = {
+        ...capacityFor(adaMembership),
+        leaveEntries: [{ date: '2026-08-11', portion: 'full' }],
+      }
+      render(<GanttChartButton memberships={[adaMembership]} entries={[]} capacity={[capacity]} sprintPeriod={sprintPeriod} onDragReschedule={noop} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+      await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+      expect(dragTaskInterceptor).not.toBeNull()
+      expect(dragTaskInterceptor?.({ id: 'leave-full-leave-m1-2026-08-11' })).toBe(false)
+      // An ordinary ticket bar's drag is left uncancelled (interceptor
+      // returns undefined, not false) - only leave/holiday ids are blocked.
+      expect(dragTaskInterceptor?.({ id: 'e1-main' })).toBeUndefined()
     })
   })
 })
