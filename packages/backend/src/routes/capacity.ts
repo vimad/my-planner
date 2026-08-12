@@ -125,8 +125,16 @@ capacityRouter.get(
         placeholderHoursByPersonId.set(key, (placeholderHoursByPersonId.get(key) ?? 0) + placeholder.estimateHours)
       }
 
+      // PO has no allocation/capacity concept at all (CLAUDE.md/CONTEXT.md) -
+      // excluded here so it never gets a Planning capacity card, same
+      // exclusion PlanningView.tsx's planningMemberships applies client-side
+      // to the "Tickets by person" table/Gantt. The full `memberships` list
+      // (PO included) is still used above for dev/qa/assignee resolution -
+      // harmless, since PO is never offered in any of those pickers anyway
+      // (constants/roles.ts's DEV_ROLES/QA_ROLES).
+      const capacityMemberships = memberships.filter((membership) => membership.role !== 'PO')
       const capacities = await Promise.all(
-        memberships.map(async (membership) => {
+        capacityMemberships.map(async (membership) => {
           const capacityEntry = await CapacityEntry.findOne({ teamMembershipId: membership._id, sprintId })
           const reconciledLeaveEntries = reconcileWithWorkingDates(capacityEntry?.leaveEntries ?? [], workingDates)
           const leaveDays = totalLeaveDays(reconciledLeaveEntries)

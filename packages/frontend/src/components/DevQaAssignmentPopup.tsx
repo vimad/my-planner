@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { DEV_ROLES, QA_ROLES } from '../constants/roles'
 import { getId } from '../utils/getId'
+import { isPoEligibleTicket } from '../utils/ticketType'
 import { initialPlanSpillPair, PlanSpillTrio, type PlanSpillPair } from './PlanSpillTrio'
 import type { DevQaRoleResolution, SprintPlanEntry, TeamMembership } from '../types'
 
@@ -12,6 +13,14 @@ import type { DevQaRoleResolution, SprintPlanEntry, TeamMembership } from '../ty
 export interface DevQaOverrideBody {
   devPersonId?: string | null
   qaPersonId?: string | null
+}
+
+// PUT /api/tickets/:ticketId/po-assignment's body - PO's own, simpler
+// counterpart to DevQaOverrideBody (a flat pick + an hours figure, no
+// Jira-derived Sub-task to resolve against - see TicketPoAssignment.ts).
+export interface PoAssignmentBody {
+  poPersonId?: string | null
+  poEstimateHours?: number | null
 }
 
 interface DevQaAssignmentPopupProps {
@@ -31,6 +40,13 @@ interface DevQaAssignmentPopupProps {
   savingPlanSpill: boolean
   planSpillError: string | null
   onSavePlanSpill: (role: 'dev' | 'qa', pair: PlanSpillPair) => Promise<void>
+  // PO assignment - Story tickets only (checked against entry.ticketId.type
+  // below, never rendered for a Bug even though both are Split). A separate
+  // save action from onSave above since it's its own TicketPoAssignment
+  // collection, not a third role on TicketDevQaOverride.
+  poSaving: boolean
+  poError: string | null
+  onSavePo: (body: PoAssignmentBody) => Promise<void>
   onClose: () => void
 }
 
@@ -97,6 +113,67 @@ function RoleField({
   )
 }
 
+function parseEstimateHours(e: ChangeEvent<HTMLInputElement>): number {
+  return Number.isNaN(e.target.valueAsNumber) ? 0 : Math.max(0, e.target.valueAsNumber)
+}
+
+// PO's assignee select and hours estimate, deliberately laid out in one row
+// (not RoleField+PlanSpillTrio's stacked select-then-card shape) - the user
+// asked for PO to "save space" rather than get the full Original/Plan/Spill
+// treatment Dev/QA has, since a PO's estimate has no Jira Sub-task to
+// compare against (TicketPoAssignment.ts) and Planning never counts it
+// toward anyone's capacity - it's just recorded alongside who owns the
+// Story from a product standpoint.
+function PoRow({
+  options,
+  personId,
+  onPersonChange,
+  estimateHours,
+  onEstimateChange,
+  disabled,
+}: {
+  options: TeamMembership[]
+  personId: string
+  onPersonChange: (v: string) => void
+  estimateHours: number
+  onEstimateChange: (hours: number) => void
+  disabled: boolean
+}) {
+  return (
+    <div className="flex items-end gap-2">
+      <div className="flex flex-1 flex-col gap-1">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-300">PO</span>
+        <select
+          aria-label="PO assignee"
+          value={personId}
+          disabled={disabled}
+          onChange={(e) => onPersonChange(e.target.value)}
+          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm focus:border-fuchsia-400/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+        >
+          <option value="">— Unassigned —</option>
+          {options.map((m) => (
+            <option key={getId(m)} value={getId(m.personId)}>
+              {m.personId.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex w-20 shrink-0 flex-col gap-1">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-300">Est (h)</span>
+        <input
+          type="number"
+          min={0}
+          value={estimateHours}
+          disabled={disabled}
+          onChange={(e) => onEstimateChange(parseEstimateHours(e))}
+          aria-label="PO estimate hours"
+          className="[appearance:textfield] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm focus:border-fuchsia-400/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+        />
+      </div>
+    </div>
+  )
+}
+
 // Ticket 24's popup: shows both roles for one Split ticket, a Jira deep
 // link, and lets the user fill in or edit a Dev/QA Override (CONTEXT.md).
 // Reachable from PlanningView either by clicking any TicketBadge for a Split
@@ -116,6 +193,9 @@ export function DevQaAssignmentPopup({
   savingPlanSpill,
   planSpillError,
   onSavePlanSpill,
+  poSaving,
+  poError,
+  onSavePo,
   onClose,
 }: DevQaAssignmentPopupProps) {
   const { dev, qa } = entry.devQa
@@ -123,6 +203,17 @@ export function DevQaAssignmentPopup({
   const [qaPersonId, setQaPersonId] = useState(initialPersonId(qa))
   const devOptions = memberships.filter((m) => DEV_ROLES.includes(m.role))
   const qaOptions = memberships.filter((m) => QA_ROLES.includes(m.role))
+
+  // PO - Story tickets only (not Bug, even though both are Split per
+  // isSplitTicket) - CLAUDE.md/CONTEXT.md: app-side data, never Jira's real
+  // assignee, so there's no RoleHint/Jira comparison line the way Dev/QA
+  // have.
+  const isStory = isPoEligibleTicket(entry.ticketId.type)
+  const poOptions = memberships.filter((m) => m.role === 'PO')
+  const initialPoPersonId = entry.poPersonId ?? ''
+  const initialPoEstimateHours = entry.poEstimateHours ?? 0
+  const [poPersonId, setPoPersonId] = useState(initialPoPersonId)
+  const [poEstimateHours, setPoEstimateHours] = useState(initialPoEstimateHours)
 
   // Reassigning a role's person does not reset that role's Plan/Spill -
   // they're properties of the ticket+role+sprint, not of whichever person
@@ -153,6 +244,13 @@ export function DevQaAssignmentPopup({
     if (Object.keys(body).length > 0) saves.push(onSave(body))
     if (pairChanged(devPair, initialDevPair)) saves.push(onSavePlanSpill('dev', devPair))
     if (pairChanged(qaPair, initialQaPair)) saves.push(onSavePlanSpill('qa', qaPair))
+
+    if (isStory) {
+      const poBody: PoAssignmentBody = {}
+      if (poPersonId !== initialPoPersonId) poBody.poPersonId = poPersonId || null
+      if (poEstimateHours !== initialPoEstimateHours) poBody.poEstimateHours = poEstimateHours
+      if (Object.keys(poBody).length > 0) saves.push(onSavePo(poBody))
+    }
 
     if (saves.length === 0) {
       onClose()
@@ -217,7 +315,18 @@ export function DevQaAssignmentPopup({
               error={planSpillError}
             />
           </div>
+          {isStory && (
+            <PoRow
+              options={poOptions}
+              personId={poPersonId}
+              onPersonChange={setPoPersonId}
+              estimateHours={poEstimateHours}
+              onEstimateChange={setPoEstimateHours}
+              disabled={poSaving}
+            />
+          )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {isStory && poError && <p className="text-xs text-red-600 dark:text-red-400">{poError}</p>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -228,10 +337,10 @@ export function DevQaAssignmentPopup({
             </button>
             <button
               type="submit"
-              disabled={saving || savingPlanSpill}
+              disabled={saving || savingPlanSpill || poSaving}
               className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving || savingPlanSpill ? 'Saving…' : 'Save'}
+              {saving || savingPlanSpill || poSaving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>

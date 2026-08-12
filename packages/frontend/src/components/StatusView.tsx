@@ -4,8 +4,8 @@ import { useStatusView } from '../hooks/useStatusView'
 import { SprintSelect } from './SprintSelect'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
-import { ticketTypeAccent } from '../utils/ticketType'
-import type { Team, TeamMembership, Ticket } from '../types'
+import { isPoEligibleTicket, ticketTypeAccent } from '../utils/ticketType'
+import type { Team, TeamMembership, Ticket, TicketPoAssignmentSummary } from '../types'
 
 // Fisher-Yates, new array each call - used to let the roster be shuffled for
 // standups (different reading order on different days) without touching the
@@ -97,7 +97,20 @@ function accentTypeFor(ticket: Ticket, parentTicket: Ticket | undefined): string
   return ticket.type
 }
 
-function TicketCard({ ticket, parentTicket }: { ticket: Ticket; parentTicket: Ticket | undefined }) {
+// `estimateHours` is only ever passed for a PO's board (StatusView's
+// selectedMembership.role === 'PO') - the user's own request ("for POs only
+// in this view show the estimated hours as well in the ticket card"), so
+// every other role's card renders exactly as before (prop omitted, nothing
+// shown).
+function TicketCard({
+  ticket,
+  parentTicket,
+  estimateHours,
+}: {
+  ticket: Ticket
+  parentTicket: Ticket | undefined
+  estimateHours?: number | null
+}) {
   return (
     <div
       className={`rounded-xl border p-3 shadow-sm dark:shadow-none dark:backdrop-blur-md ${cardAccentClasses(accentTypeFor(ticket, parentTicket))}`}
@@ -119,7 +132,12 @@ function TicketCard({ ticket, parentTicket }: { ticket: Ticket; parentTicket: Ti
         </a>
       </div>
       <p className="mt-1.5 text-sm text-slate-800 dark:text-slate-100">{ticket.title}</p>
-      <div className="mt-2 flex items-center justify-end">
+      <div className="mt-2 flex items-center justify-between">
+        {estimateHours != null ? (
+          <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400">{estimateHours}h est</span>
+        ) : (
+          <span />
+        )}
         <span className="shrink-0 text-[10px] text-slate-400" title={exactTime(ticket.lastSyncedAt)}>
           {relativeTime(ticket.lastSyncedAt)}
         </span>
@@ -153,6 +171,7 @@ export function StatusView({ team }: { team: Team }) {
     tickets,
     loadingTickets,
     ticketsError,
+    poAssignments,
     selectedPersonId,
     setSelectedPersonId,
     syncingPersonId,
@@ -182,6 +201,31 @@ export function StatusView({ team }: { team: Team }) {
     return map
   }, [tickets])
 
+  // PO assignment join, keyed by ticket id - app-side data (never Jira's
+  // real assignee, CLAUDE.md/CONTEXT.md), so a PO's board can't be built
+  // from ticketsByAccountId the way everyone else's is.
+  const poAssignmentByTicketId = useMemo(() => {
+    const map = new Map<string, TicketPoAssignmentSummary>()
+    for (const a of poAssignments) map.set(a.ticketId, a)
+    return map
+  }, [poAssignments])
+
+  // Same shape as ticketsByAccountId above, but for a PO's Story tickets -
+  // keyed by the assigned PO's Person id (poPersonId) rather than a Jira
+  // assigneeAccountId, since that's the only match key a PO assignment has.
+  const ticketsByPoPersonId = useMemo(() => {
+    const map = new Map<string, Ticket[]>()
+    for (const t of tickets) {
+      if (!isPoEligibleTicket(t.type)) continue
+      const poPersonId = poAssignmentByTicketId.get(getId(t) ?? '')?.poPersonId
+      if (!poPersonId) continue
+      const list = map.get(poPersonId) ?? []
+      list.push(t)
+      map.set(poPersonId, list)
+    }
+    return map
+  }, [tickets, poAssignmentByTicketId])
+
   // Lookup for a sub-task's ParentStrip - the parent Story/Bug's own Ticket
   // doc, if the sprint/team-scoped `tickets` fetch (route's query isn't
   // assignee-filtered) happened to include it. Built from the same flat
@@ -192,8 +236,15 @@ export function StatusView({ team }: { team: Team }) {
     return map
   }, [tickets])
 
-  function summaryFor(accountId: string): { count: number; lastSyncedAt: string | null } {
-    const list = ticketsByAccountId.get(accountId) ?? []
+  // A PO's roster-row summary/board is sourced from ticketsByPoPersonId (app-
+  // side Story assignment), never ticketsByAccountId - a PO's own
+  // jiraAccountId is irrelevant here (CLAUDE.md: "no assignee pieces about
+  // it, it's just data from this app side").
+  function summaryFor(membership: TeamMembership): { count: number; lastSyncedAt: string | null } {
+    const list =
+      membership.role === 'PO'
+        ? (ticketsByPoPersonId.get(getId(membership.personId) ?? '') ?? [])
+        : (ticketsByAccountId.get(membership.personId.jiraAccountId) ?? [])
     const lastSyncedAt = list.reduce<string | null>((latest, t) => {
       if (!latest || new Date(t.lastSyncedAt) > new Date(latest)) return t.lastSyncedAt
       return latest
@@ -202,8 +253,11 @@ export function StatusView({ team }: { team: Team }) {
   }
 
   const selectedMembership = memberships.find((m) => getId(m.personId) === selectedPersonId) ?? null
+  const isPoSelected = selectedMembership?.role === 'PO'
   const selectedTickets = selectedMembership
-    ? (ticketsByAccountId.get(selectedMembership.personId.jiraAccountId) ?? [])
+    ? isPoSelected
+      ? (ticketsByPoPersonId.get(selectedPersonId ?? '') ?? [])
+      : (ticketsByAccountId.get(selectedMembership.personId.jiraAccountId) ?? [])
     : []
 
   // A sub-task's card already surfaces its parent via ParentStrip - if that
@@ -278,7 +332,7 @@ export function StatusView({ team }: { team: Team }) {
                   const personId = getId(membership.personId) ?? ''
                   const active = personId === selectedPersonId
                   const syncing = syncingPersonId === personId
-                  const summary = summaryFor(membership.personId.jiraAccountId)
+                  const summary = summaryFor(membership)
                   return (
                     <li key={getId(membership)}>
                       <div
@@ -338,7 +392,9 @@ export function StatusView({ team }: { team: Team }) {
             ) : occupiedColumns.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-white/10">
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  No tickets discovered yet — sync {selectedMembership.personId.name} from the roster to fetch them.
+                  {isPoSelected
+                    ? `No stories assigned to ${selectedMembership.personId.name} yet — assign them as PO from a Story's popup in Planning.`
+                    : `No tickets discovered yet — sync ${selectedMembership.personId.name} from the roster to fetch them.`}
                 </p>
               </div>
             ) : (
@@ -359,6 +415,7 @@ export function StatusView({ team }: { team: Team }) {
                           key={t.jiraKey}
                           ticket={t}
                           parentTicket={t.parentKey ? ticketsByKey.get(t.parentKey) : undefined}
+                          estimateHours={isPoSelected ? (poAssignmentByTicketId.get(getId(t) ?? '')?.poEstimateHours ?? null) : undefined}
                         />
                       ))}
                     </div>

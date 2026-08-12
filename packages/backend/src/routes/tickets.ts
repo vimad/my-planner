@@ -5,6 +5,8 @@ import { Ticket } from '../models/Ticket.ts'
 import { TicketAssigneeOverride } from '../models/TicketAssigneeOverride.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import { TicketFeatureOverride } from '../models/TicketFeatureOverride.ts'
+import { TicketPoAssignment } from '../models/TicketPoAssignment.ts'
+import { PO_ELIGIBLE_TICKET_TYPE } from '../services/devQaResolution.ts'
 
 export const ticketsRouter = Router()
 
@@ -19,6 +21,11 @@ interface AssigneeOverrideBody {
 
 interface FeatureOverrideBody {
   isFeature?: unknown
+}
+
+interface PoAssignmentBody {
+  poPersonId?: string | null
+  poEstimateHours?: number | null
 }
 
 // GET /api/tickets?teamId=&sprintId= -> every cached Ticket currently in
@@ -42,6 +49,47 @@ ticketsRouter.get('/', async (req: Request, res: Response, next: NextFunction) =
 
     const tickets = await Ticket.find({ currentSprintKey: sprint.jiraSprintId, labels: { $in: team.jiraLabels } })
     res.json(tickets)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/tickets/po-assignments?teamId=&sprintId= -> every TicketPoAssignment
+// for a Story ticket currently in scope (same team-label + current-sprint
+// scope as GET / above). Backs the Status view's PO board (CLAUDE.md/
+// CONTEXT.md: a PO's assigned stories are this app's own data, never Jira's
+// real assignee - unlike everyone else's board there, which groups by
+// Ticket.assigneeAccountId straight off the already-fetched GET / list, a
+// PO's grouping key lives only in this separate collection, so the frontend
+// needs this dedicated join rather than a field already present on Ticket).
+// Only tickets with an actual assignment doc are returned - an unassigned
+// Story has nothing to report, mirroring loadAssigneeOverrides/
+// loadFeatureOverrides's "only existing docs" shape.
+ticketsRouter.get('/po-assignments', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { teamId, sprintId } = req.query
+
+    if (!teamId || typeof teamId !== 'string' || !sprintId || typeof sprintId !== 'string') {
+      return res.status(400).json({ error: 'teamId and sprintId are required' })
+    }
+
+    const [team, sprint] = await Promise.all([Team.findById(teamId), Sprint.findById(sprintId)])
+    if (!team) return res.status(404).json({ error: 'Team not found' })
+    if (!sprint) return res.status(404).json({ error: 'Sprint not found' })
+
+    const storyTickets = await Ticket.find({
+      currentSprintKey: sprint.jiraSprintId,
+      labels: { $in: team.jiraLabels },
+      type: PO_ELIGIBLE_TICKET_TYPE,
+    })
+    const assignments = await TicketPoAssignment.find({ ticketId: { $in: storyTickets.map((t) => t._id) } })
+    res.json(
+      assignments.map((a) => ({
+        ticketId: a.ticketId,
+        poPersonId: a.poPersonId,
+        poEstimateHours: a.poEstimateHours,
+      })),
+    )
   } catch (err) {
     next(err)
   }
@@ -132,6 +180,43 @@ ticketsRouter.patch(
       )
 
       res.json(override)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// PUT /api/tickets/:ticketId/po-assignment -> body { poPersonId?, poEstimateHours? }.
+// Upserts the Story ticket's TicketPoAssignment, touching only whichever
+// field(s) are present in the body - same "presence not truthiness" partial-
+// update convention as PUT .../dev-qa-override above. `poPersonId` is picked
+// from the team roster's PO members only (DevQaAssignmentPopup.tsx filters
+// its select to role === 'PO'), but that's a frontend-only restriction - this
+// route accepts any Person id, same as every other override route here never
+// re-validates role server-side. `poEstimateHours`, when present and not
+// null, must be a non-negative number (mirrors validatePlanSpillPair's
+// non-negative check elsewhere in this app).
+ticketsRouter.put(
+  '/:ticketId/po-assignment',
+  async (req: Request<{ ticketId: string }, unknown, PoAssignmentBody>, res: Response, next: NextFunction) => {
+    try {
+      const update: { poPersonId?: string | null; poEstimateHours?: number | null } = {}
+      if ('poPersonId' in req.body) update.poPersonId = req.body.poPersonId ?? null
+      if ('poEstimateHours' in req.body) {
+        const { poEstimateHours } = req.body
+        if (poEstimateHours !== null && (typeof poEstimateHours !== 'number' || poEstimateHours < 0)) {
+          return res.status(400).json({ error: 'poEstimateHours must be a non-negative number or null' })
+        }
+        update.poEstimateHours = poEstimateHours ?? null
+      }
+
+      const assignment = await TicketPoAssignment.findOneAndUpdate(
+        { ticketId: req.params.ticketId },
+        { $set: update, $setOnInsert: { ticketId: req.params.ticketId } },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      )
+
+      res.json(assignment)
     } catch (err) {
       next(err)
     }

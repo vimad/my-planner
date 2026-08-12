@@ -76,6 +76,14 @@ vi.mock('../src/models/TicketFeatureOverride.ts', () => ({
   TicketFeatureOverride: { find: vi.fn() },
 }))
 
+interface MockedTicketPoAssignmentModel {
+  findOne: Mock
+}
+
+vi.mock('../src/models/TicketPoAssignment.ts', () => ({
+  TicketPoAssignment: { findOne: vi.fn() },
+}))
+
 // isSplitTicket is real (a trivial pure predicate) — only resolveDevQa (the
 // DB-touching part) is mocked, same posture as capacity.route.test.ts. Its
 // own resolution logic gets its own coverage in devQaResolution.test.ts;
@@ -84,6 +92,7 @@ vi.mock('../src/models/TicketFeatureOverride.ts', () => ({
 // reset extension).
 vi.mock('../src/services/devQaResolution.ts', () => ({
   isSplitTicket: (type: unknown) => type === 'Story' || type === 'Bug',
+  isPoEligibleTicket: (type: unknown) => type === 'Story',
   resolveDevQa: vi.fn(),
   roleSubtaskEstimateHours: vi.fn(),
 }))
@@ -111,6 +120,9 @@ const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOv
 }
 const { TicketFeatureOverride } = (await import('../src/models/TicketFeatureOverride.ts')) as unknown as {
   TicketFeatureOverride: MockedTicketFeatureOverrideModel
+}
+const { TicketPoAssignment } = (await import('../src/models/TicketPoAssignment.ts')) as unknown as {
+  TicketPoAssignment: MockedTicketPoAssignmentModel
 }
 const { resolveDevQa, roleSubtaskEstimateHours } = (await import('../src/services/devQaResolution.ts')) as unknown as {
   resolveDevQa: Mock
@@ -158,6 +170,9 @@ describe('SprintPlanEntry routes', () => {
     // Default: no Feature Override recorded for any ticket - only the GET
     // tests that specifically exercise it need to override this.
     TicketFeatureOverride.find.mockResolvedValue([])
+    // Default: no PO assignment recorded for any Story ticket - only a test
+    // that specifically exercises it needs to override this.
+    TicketPoAssignment.findOne.mockResolvedValue(null)
     // Default: no Sub-tasks - GET's non-split branch now always calls the
     // real computeEffortHours (Original for Plan/Spill, spec ".scratch/
     // sprint-plan-spill-estimate/spec.md") which queries Ticket.find itself;
@@ -425,6 +440,8 @@ describe('SprintPlanEntry routes', () => {
           qaEstimateHours: 2,
           devPlannedHours: 6,
           qaPlannedHours: 2,
+          poPersonId: null,
+          poEstimateHours: null,
         },
       ])
     })

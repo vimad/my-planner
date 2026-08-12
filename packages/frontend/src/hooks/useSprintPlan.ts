@@ -227,6 +227,13 @@ export interface UseSprintPlanResult {
   // so the badge moves into the newly-picked person's row.
   saveAssigneeOverride: (ticketId: string, body: { personId: string | null }) => Promise<void>
 
+  savingPoAssignment: boolean
+  poAssignmentError: string | null
+  // PUT /api/tickets/:ticketId/po-assignment - DevQaAssignmentPopup's PO row
+  // save action (Story tickets only). Refreshes the plan on success, same as
+  // saveDevQaOverride/saveAssigneeOverride above.
+  savePoAssignment: (ticketId: string, body: { poPersonId?: string | null; poEstimateHours?: number | null }) => Promise<void>
+
   savingFeatureOverride: boolean
   featureOverrideError: string | null
   // PATCH /api/tickets/:ticketId/feature (map's Notes) - TicketInfoPopup's
@@ -336,6 +343,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
   const [savingAssigneeOverride, setSavingAssigneeOverride] = useState(false)
   const [assigneeOverrideError, setAssigneeOverrideError] = useState<string | null>(null)
+  const [savingPoAssignment, setSavingPoAssignment] = useState(false)
+  const [poAssignmentError, setPoAssignmentError] = useState<string | null>(null)
   const [savingFeatureOverride, setSavingFeatureOverride] = useState(false)
   const [featureOverrideError, setFeatureOverrideError] = useState<string | null>(null)
   const [savingPlanSpill, setSavingPlanSpill] = useState(false)
@@ -711,6 +720,28 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [refreshPlan],
   )
 
+  const savePoAssignment = useCallback(
+    async (ticketId: string, body: { poPersonId?: string | null; poEstimateHours?: number | null }) => {
+      setSavingPoAssignment(true)
+      setPoAssignmentError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/tickets/${ticketId}/po-assignment`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setPoAssignmentError((err as Error).message)
+        throw err
+      } finally {
+        setSavingPoAssignment(false)
+      }
+    },
+    [refreshPlan],
+  )
+
   const saveFeatureOverride = useCallback(
     async (ticketId: string, isFeature: boolean) => {
       setSavingFeatureOverride(true)
@@ -891,6 +922,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingPoAssignment,
+    poAssignmentError,
+    savePoAssignment,
     savingFeatureOverride,
     featureOverrideError,
     saveFeatureOverride,

@@ -130,7 +130,7 @@ export interface Person {
 // Fixed job-title/seniority union, not a DB collection - see
 // constants/roles.ts for the matching ROLE_DEFAULT_CAPACITY_PERCENT lookup
 // (mirrors the backend's Role.ts exactly).
-export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'QA Intern' | 'Dev Intern'
+export type Role = 'TL' | 'ATL' | 'SSE' | 'SE' | 'SQA' | 'QA' | 'QA Intern' | 'Dev Intern' | 'PO'
 
 // The join between a Team and a Person - one roster row. `personId` comes
 // back populated (a full Person object) from GET /api/team-memberships, per
@@ -179,6 +179,19 @@ export interface JiraSprintSearchResult {
   state: SprintState
   startDate?: string
   endDate?: string
+}
+
+// One row of GET /api/tickets/po-assignments - a Story ticket's PO
+// assignment (TicketPoAssignment on the backend), app-side data only, never
+// Jira's real assignee. Backs the Status view's PO board (CLAUDE.md/
+// CONTEXT.md) - unlike everyone else there, who's grouped by
+// Ticket.assigneeAccountId straight off the already-fetched Ticket list, a
+// PO's grouping key lives only here, so useStatusView fetches this
+// separately and joins it against `tickets` client-side.
+export interface TicketPoAssignmentSummary {
+  ticketId: string
+  poPersonId: string | null
+  poEstimateHours: number | null
 }
 
 // One value from the Jira board's real workflow column configuration,
@@ -325,6 +338,15 @@ export interface SprintPlanEntry {
   ganttStartDate?: string | null
   devGanttStartDate?: string | null
   qaGanttStartDate?: string | null
+  // A Story entry's PO assignment (TicketPoAssignment) - app-side only, never
+  // synced from Jira's real assignee. Present (possibly null on either field)
+  // only when ticketId.type === 'Story' - a Bug (also a Split entry, per
+  // isSplitTicket) never carries these, since only Story tickets get a PO.
+  // Unlike devQa, there's no Jira Sub-task to resolve against, so this is a
+  // flat nullable pair rather than a resolution object - always either set or
+  // not.
+  poPersonId?: string | null
+  poEstimateHours?: number | null
 }
 
 // A non-Jira, manually-created "ticket" - just a short text description, one

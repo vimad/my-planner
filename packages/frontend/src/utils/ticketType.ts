@@ -13,3 +13,12 @@ export function ticketTypeAccent(type: string | null): TicketTypeAccent | null {
   if (t.includes('task')) return 'task'
   return null
 }
+
+// Jira's own issuetype.name for a Story, exact match (unlike
+// ticketTypeAccent's substring match above) - mirrors the backend's
+// devQaResolution.ts::isPoEligibleTicket exactly. PO assignment applies to a
+// Story ticket only, never a Bug even though both get ticketTypeAccent's
+// 'story'/'bug' treatment elsewhere.
+export function isPoEligibleTicket(type: string | null | undefined): boolean {
+  return type === 'Story'
+}

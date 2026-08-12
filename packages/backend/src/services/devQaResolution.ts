@@ -10,6 +10,18 @@ export function isSplitTicket(type: string | null | undefined): boolean {
   return type === 'Story' || type === 'Bug'
 }
 
+// Jira's own issuetype.name for a Story - the one ticket type PO assignment
+// applies to (CONTEXT.md "PO assignment"). Unlike isSplitTicket (Story or
+// Bug), PO scope is narrower: Story only, never Bug. Exported alongside
+// isPoEligibleTicket below so a caller that needs the literal for a Mongo
+// query (routes/tickets.ts's GET /po-assignments) and a caller that needs the
+// predicate (routes/sprintPlanEntries.ts) share the same source of truth.
+export const PO_ELIGIBLE_TICKET_TYPE = 'Story'
+
+export function isPoEligibleTicket(type: string | null | undefined): boolean {
+  return type === PO_ELIGIBLE_TICKET_TYPE
+}
+
 // A team's current TeamMembership roster, reduced to just what role
 // resolution needs (ADR 0001's match key). Callers already have
 // TeamMembership populated with Person for their own purposes

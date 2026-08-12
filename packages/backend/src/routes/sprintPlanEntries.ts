@@ -5,6 +5,7 @@ import { Ticket, type TicketDoc } from '../models/Ticket.ts'
 import { TeamMembership } from '../models/TeamMembership.ts'
 import { TeamSprintPlan } from '../models/TeamSprintPlan.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
+import { TicketPoAssignment } from '../models/TicketPoAssignment.ts'
 import type { PersonDoc } from '../models/Person.ts'
 import { refreshStatusSet } from '../services/statusSync.ts'
 import { computeEffortHours, fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
@@ -12,6 +13,7 @@ import { loadAssigneeOverrides } from '../services/assigneeResolution.ts'
 import { loadFeatureOverrides } from '../services/featureResolution.ts'
 import { clampToNextWorkingDay } from '../services/sprintWorkingDays.ts'
 import {
+  isPoEligibleTicket,
   isSplitTicket,
   resolveDevQa,
   roleSubtaskEstimateHours,
@@ -378,6 +380,17 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
         const qaGanttStartDate = ganttCalendar
           ? reconcileGanttStartDate(entry.qaGanttStartDate, ganttCalendar)
           : entry.qaGanttStartDate
+
+        // PO assignment (app-side only, never Jira-derived) - Story tickets
+        // only, not Bug, even though both are Split (isSplitTicket) - see
+        // CLAUDE.md's Jira read-only note and TicketPoAssignment's own
+        // comment for why this lives in its own collection.
+        let po: { poPersonId: Types.ObjectId | null; poEstimateHours: number | null } | undefined
+        if (isPoEligibleTicket(ticket.type)) {
+          const assignment = await TicketPoAssignment.findOne({ ticketId: ticket._id })
+          po = { poPersonId: assignment?.poPersonId ?? null, poEstimateHours: assignment?.poEstimateHours ?? null }
+        }
+
         return {
           ...entry.toObject(),
           devQa,
@@ -387,6 +400,7 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
           qaPlannedHours,
           devGanttStartDate,
           qaGanttStartDate,
+          ...(po ? { poPersonId: po.poPersonId, poEstimateHours: po.poEstimateHours } : {}),
         }
       }),
     )

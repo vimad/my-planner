@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getId } from '../utils/getId'
-import type { Sprint, Status, TeamMembership, Ticket } from '../types'
+import type { Sprint, Status, TeamMembership, Ticket, TicketPoAssignmentSummary } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -35,6 +35,14 @@ export interface UseStatusViewResult {
   tickets: Ticket[]
   loadingTickets: boolean
   ticketsError: string | null
+
+  // GET /api/tickets/po-assignments?teamId=&sprintId= - a PO's assigned
+  // Story tickets (app-side only, never Jira's real assignee - see
+  // types.ts's TicketPoAssignmentSummary). Fetched alongside `tickets` above
+  // (same team/sprint/refreshTick deps) so a PO roster row's board can be
+  // built by joining the two client-side, mirroring how everyone else's
+  // board is grouped from `tickets` alone via their real assigneeAccountId.
+  poAssignments: TicketPoAssignmentSummary[]
 
   // A Person id (matches TeamMembership.personId's populated _id, and the
   // POST /api/status-sync body's `personId`) - auto-selects the roster's
@@ -74,6 +82,7 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loadingTickets, setLoadingTickets] = useState(true)
   const [ticketsError, setTicketsError] = useState<string | null>(null)
+  const [poAssignments, setPoAssignments] = useState<TicketPoAssignmentSummary[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
 
   const [syncingPersonId, setSyncingPersonId] = useState<string | null>(null)
@@ -196,11 +205,13 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
     }
   }, [refreshTick])
 
-  // Cached tickets in scope - re-run on team/sprint change or an explicit
-  // sync (refreshTick).
+  // Cached tickets in scope, plus the PO board's own assignment join
+  // (poAssignments) - both re-run on team/sprint change or an explicit sync
+  // (refreshTick), fetched together since a PO's board needs both.
   useEffect(() => {
     if (!teamId || !selectedSprintId) {
       setTickets([])
+      setPoAssignments([])
       setLoadingTickets(false)
       return
     }
@@ -209,13 +220,20 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
     setLoadingTickets(true)
     setTicketsError(null)
 
-    fetch(`${API_URL}/api/tickets?teamId=${teamId}&sprintId=${selectedSprintId}`)
-      .then(async (res) => {
+    Promise.all([
+      fetch(`${API_URL}/api/tickets?teamId=${teamId}&sprintId=${selectedSprintId}`).then(async (res) => {
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         return (await res.json()) as Ticket[]
-      })
-      .then((data) => {
-        if (!ignore) setTickets(data)
+      }),
+      fetch(`${API_URL}/api/tickets/po-assignments?teamId=${teamId}&sprintId=${selectedSprintId}`).then(async (res) => {
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        return (await res.json()) as TicketPoAssignmentSummary[]
+      }),
+    ])
+      .then(([ticketData, poAssignmentData]) => {
+        if (ignore) return
+        setTickets(ticketData)
+        setPoAssignments(poAssignmentData)
       })
       .catch((err) => {
         if (!ignore) setTicketsError((err as Error).message)
@@ -265,6 +283,7 @@ export function useStatusView(teamId: string | null): UseStatusViewResult {
     tickets,
     loadingTickets,
     ticketsError,
+    poAssignments,
     selectedPersonId,
     setSelectedPersonId,
     syncingPersonId,

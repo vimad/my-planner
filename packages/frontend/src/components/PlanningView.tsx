@@ -947,6 +947,9 @@ export function PlanningView({ team }: { team: Team }) {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingPoAssignment,
+    poAssignmentError,
+    savePoAssignment,
     savingFeatureOverride,
     featureOverrideError,
     saveFeatureOverride,
@@ -1049,9 +1052,17 @@ export function PlanningView({ team }: { team: Team }) {
   // Planning Gantt Chart's ticket 07) so the Gantt's own per-person
   // placement algorithm (utils/ganttPlacement.ts) can resolve rows the exact
   // same way, rather than re-deriving this resolution logic a second time.
+  // PO has no allocation concept at all (CLAUDE.md/CONTEXT.md) - excluded
+  // from every Planning-tab consumer of `memberships` below (the "Tickets by
+  // person" table, Sprint Breakdown, the placeholder-ticket picker, the
+  // Gantt chart). The raw `memberships` (PO included) is still passed to
+  // DevQaAssignmentPopup, which needs it to build its own PO-only picker for
+  // the popup's PO row.
+  const planningMemberships = useMemo(() => memberships.filter((m) => m.role !== 'PO'), [memberships])
+
   const { ticketsByMembershipId, unmappedPlacements, needsAssignmentPlacements } = useMemo(
-    () => groupPlacementsByMembership(entries, memberships),
-    [memberships, entries],
+    () => groupPlacementsByMembership(entries, planningMemberships),
+    [planningMemberships, entries],
   )
 
   // Sprint Breakdown card's Features/Technical items/Bugs totals (map's
@@ -1060,7 +1071,7 @@ export function PlanningView({ team }: { team: Team }) {
   // `placeholders` (spec ".scratch/placeholder-tickets/spec.md": a
   // placeholder ticket has no effect on the Sprint Breakdown card) -
   // computeSprintBreakdown only ever accepts SprintPlanEntry[].
-  const breakdown = useMemo(() => computeSprintBreakdown(entries, memberships), [entries, memberships])
+  const breakdown = useMemo(() => computeSprintBreakdown(entries, planningMemberships), [entries, planningMemberships])
 
   // One bucket of PlaceholderTicket[] per current TeamMembership, keyed by
   // personId (spec ".scratch/placeholder-tickets/spec.md") - unlike
@@ -1070,7 +1081,7 @@ export function PlanningView({ team }: { team: Team }) {
   // build here; a placeholder whose person has since left the team simply
   // has nowhere to render until it's removed.
   const placeholdersByMembershipId = useMemo(() => {
-    const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+    const membershipIdByPersonId = new Map(planningMemberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
     const byMembership = new Map<string, PlaceholderTicket[]>()
     for (const placeholder of placeholders) {
       const membershipId = membershipIdByPersonId.get(placeholder.personId)
@@ -1079,7 +1090,7 @@ export function PlanningView({ team }: { team: Team }) {
       byMembership.get(membershipId)!.push(placeholder)
     }
     return byMembership
-  }, [memberships, placeholders])
+  }, [planningMemberships, placeholders])
 
   return (
     <div className="flex flex-col gap-5">
@@ -1169,7 +1180,7 @@ export function PlanningView({ team }: { team: Team }) {
                 <div className="flex items-center gap-2">
                   {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
                   <GanttChartButton
-                    memberships={memberships}
+                    memberships={planningMemberships}
                     entries={entries}
                     capacity={capacity}
                     sprintPeriod={sprintPeriod}
@@ -1180,7 +1191,7 @@ export function PlanningView({ team }: { team: Team }) {
               </div>
               {loadingMemberships ? (
                 <p className="text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
-              ) : memberships.length === 0 ? (
+              ) : planningMemberships.length === 0 ? (
                 <p className="text-sm text-slate-400 dark:text-slate-500">
                   No one on this team yet — use &quot;Manage teams&quot; to add people.
                 </p>
@@ -1189,7 +1200,7 @@ export function PlanningView({ team }: { team: Team }) {
                   {removePlaceholderError && (
                     <span className="text-xs text-red-600 dark:text-red-400">{removePlaceholderError}</span>
                   )}
-                  {memberships.map((membership) => (
+                  {planningMemberships.map((membership) => (
                     <PersonRow
                       key={getId(membership)}
                       name={membership.personId.name}
@@ -1244,12 +1255,15 @@ export function PlanningView({ team }: { team: Team }) {
             savingPlanSpill={savingPlanSpill}
             planSpillError={planSpillError}
             onSavePlanSpill={(role, pair) => savePlanSpill(getId(popupEntry) ?? '', role, pair)}
+            poSaving={savingPoAssignment}
+            poError={poAssignmentError}
+            onSavePo={(body) => savePoAssignment(getId(popupEntry.ticketId) ?? '', body)}
             onClose={() => setPopupTicketId(null)}
           />
         ) : (
           <TicketInfoPopup
             entry={popupEntry}
-            memberships={memberships}
+            memberships={planningMemberships}
             saving={savingAssigneeOverride}
             error={assigneeOverrideError}
             onSave={(body) => saveAssigneeOverride(getId(popupEntry.ticketId) ?? '', body)}
@@ -1265,7 +1279,7 @@ export function PlanningView({ team }: { team: Team }) {
 
       {placeholderPopupOpen && (
         <AddPlaceholderPopup
-          memberships={memberships}
+          memberships={planningMemberships}
           saving={addingPlaceholder}
           error={addPlaceholderError}
           onSave={(body: AddPlaceholderBody) => addPlaceholder(body).then(() => {})}
