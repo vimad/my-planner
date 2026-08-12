@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
+import type { GanttDragPatch } from '../utils/ganttPlacement'
 import type {
   LeaveEntry,
   PlaceholderTicket,
@@ -252,6 +253,17 @@ export interface UseSprintPlanResult {
   // linked-todo drag-reorder). No separate loading/error state exposed -
   // same minimal-UX convention as that existing reorder.
   reorderEntries: (patches: SprintPlanEntryOrderPatch[]) => Promise<void>
+
+  // PATCH /api/sprint-plan-entries/:id per patch (ticket 09's Gantt
+  // drag-to-reschedule autosave-on-drop) - same optimistic-then-roll-back
+  // shape as reorderEntries above, except each patch's body can bundle
+  // multiple fields together (a dragged placement's own patch always
+  // carries both its new start-date override and its own order/devOrder/
+  // qaOrder value in one request, per Ticket 05's write-back composition),
+  // rather than reorderEntries's always-one-field-per-patch shape. Computed
+  // by utils/ganttPlacement.ts's computeDragPatches, not this hook - this is
+  // purely the "apply these patches" side effect.
+  applyGanttDragPatches: (patches: GanttDragPatch[]) => Promise<void>
 
   removingEntryId: string | null
   removeEntryError: string | null
@@ -772,6 +784,35 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [entries],
   )
 
+  const applyGanttDragPatches = useCallback(
+    async (patches: GanttDragPatch[]) => {
+      if (patches.length === 0) return
+      const previous = entries
+      setEntries((prev) =>
+        prev.map((e) => {
+          const entryId = getId(e) ?? ''
+          const ownPatches = patches.filter((p) => p.entryId === entryId)
+          return ownPatches.length > 0 ? { ...e, ...Object.assign({}, ...ownPatches.map((p) => p.body)) } : e
+        }),
+      )
+      try {
+        await Promise.all(
+          patches.map(async (p) => {
+            const res = await fetch(`${API_URL}/api/sprint-plan-entries/${p.entryId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(p.body),
+            })
+            if (!res.ok) throw new Error(await parseErrorMessage(res))
+          }),
+        )
+      } catch {
+        setEntries(previous)
+      }
+    },
+    [entries],
+  )
+
   const removeEntry = useCallback(
     async (entryId: string) => {
       const previous = entries
@@ -857,6 +898,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     planSpillError,
     savePlanSpill,
     reorderEntries,
+    applyGanttDragPatches,
     removingEntryId,
     removeEntryError,
     removeEntry,

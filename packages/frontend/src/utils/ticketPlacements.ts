@@ -60,6 +60,25 @@ export function rolePlannedHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | un
   return entry.plannedHours ?? null
 }
 
+// Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09) -
+// which of SprintPlanEntry's three independent start-date-override fields a
+// placement's saved override lives in (mirrors placementField's order/
+// devOrder/qaOrder namespace pick above, one level down: a non-split
+// placement always uses ganttStartDate; a Split ticket's dev-row or qa-row
+// placement uses only its own role's field).
+export function overrideStartField(p: PlacedEntry): 'ganttStartDate' | 'devGanttStartDate' | 'qaGanttStartDate' {
+  if (p.role === 'dev') return 'devGanttStartDate'
+  if (p.role === 'qa') return 'qaGanttStartDate'
+  return 'ganttStartDate'
+}
+
+// The placement's own saved start-date override, or null when not
+// overridden (auto-place) - what utils/ganttPlacement.ts's walk-forward
+// cursor (GanttPlacementItem.overrideStart) reads per placement.
+export function overrideStartValue(p: PlacedEntry): string | null {
+  return p.entry[overrideStartField(p)] ?? null
+}
+
 export interface GroupedPlacements {
   ticketsByMembershipId: Map<string, PlacedEntry[]>
   unmappedPlacements: PlacedEntry[]

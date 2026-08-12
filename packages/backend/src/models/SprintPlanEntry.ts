@@ -43,6 +43,18 @@ export interface SprintPlanEntryDoc {
   qaSpillHours: number | null
   planHours: number | null
   spillHours: number | null
+  // Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09):
+  // a per-ticket-placement start-date override, reconciled on read (not a
+  // frozen snapshot) - `null` means "not overridden, auto-place" per Ticket
+  // 04's walk-forward algorithm. Each holds a plain 'YYYY-MM-DD' string,
+  // never a `Date` object - same convention as TeamSprintPlan.startDate/
+  // LeaveEntry.date. No end/duration field - a bar's end is always derived
+  // at render time (Ticket 04), never stored. Same Split-only (dev*/qa*) vs
+  // non-split-only (bare) "never coexist on the same entry" convention as
+  // devPlanHours/planHours above.
+  ganttStartDate: string | null
+  devGanttStartDate: string | null
+  qaGanttStartDate: string | null
 }
 
 const sprintPlanEntrySchema = new Schema<SprintPlanEntryDoc>({
@@ -59,6 +71,9 @@ const sprintPlanEntrySchema = new Schema<SprintPlanEntryDoc>({
   qaSpillHours: { type: Number, default: null },
   planHours: { type: Number, default: null },
   spillHours: { type: Number, default: null },
+  ganttStartDate: { type: String, default: null },
+  devGanttStartDate: { type: String, default: null },
+  qaGanttStartDate: { type: String, default: null },
 })
 
 sprintPlanEntrySchema.index({ teamId: 1, sprintId: 1, ticketId: 1 }, { unique: true })

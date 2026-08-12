@@ -314,6 +314,17 @@ export interface SprintPlanEntry {
   planHours?: number | null
   spillHours?: number | null
   plannedHours?: number
+  // Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09) -
+  // a per-ticket-placement start-date override, reconciled on read (not a
+  // frozen snapshot). `null` means "not overridden, auto-place" per Ticket
+  // 04's walk-forward algorithm (utils/ganttPlacement.ts). A plain
+  // 'YYYY-MM-DD' string, never a Date - same convention as
+  // TeamSprintPlan.startDate/LeaveEntry.date. Split-only (dev*/qa*) vs
+  // non-split-only (bare) never coexist on the same entry, same convention
+  // as devPlanHours/planHours above.
+  ganttStartDate?: string | null
+  devGanttStartDate?: string | null
+  qaGanttStartDate?: string | null
 }
 
 // A non-Jira, manually-created "ticket" - just a short text description, one

@@ -1,8 +1,9 @@
-// Sprint Planning Gantt Chart — button + modal + read-only auto-placed
-// timeline (wayfinder ticket 07,
-// .scratch/sprint-gantt-chart/issues/07-gantt-modal-and-static-timeline.md),
-// plus leave/holiday shading and Dev/QA bar linking (wayfinder ticket 08,
-// .scratch/sprint-gantt-chart/issues/08-leave-shading-and-devqa-linking.md).
+// Sprint Planning Gantt Chart — button + modal + auto-placed timeline with
+// leave/holiday shading, Dev/QA bar linking, and drag-to-reschedule
+// (wayfinder tickets 07 + 08 + 09,
+// .scratch/sprint-gantt-chart/issues/07-gantt-modal-and-static-timeline.md,
+// .scratch/sprint-gantt-chart/issues/08-leave-shading-and-devqa-linking.md,
+// .scratch/sprint-gantt-chart/issues/09-drag-reschedule-and-persistence.md).
 // Renders one row per current TeamMembership (a synthetic parent/child task
 // tree, since SVAR's own "resource planning"/"task grouping" are PRO-gated —
 // see ticket 01's API specifics) with each person's Dev-role/QA-role
@@ -10,19 +11,20 @@
 // (ticket 04), plus one sibling child task per leave/holiday day
 // (utils/ganttLeaveDays.ts) styled red/amber via CSS. A Split ticket's
 // rendered Dev/QA pair gets a native SVAR dependency link
-// (utils/ganttDevQaLinks.ts) plus matching `data-id`-keyed CSS. Still no
-// drag, no persistence — that's ticket 09's scope, built on top of this same
-// task-tree shape.
+// (utils/ganttDevQaLinks.ts) plus matching `data-id`-keyed CSS. Dragging a
+// bar's body persists a per-placement start-date override (ticket 09),
+// autosaving on drop with no separate Save button.
 
 import { Gantt, WillowDark } from '@svar-ui/react-gantt'
-import type { ITask } from '@svar-ui/react-gantt'
+import type { IApi, ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
-import { useMemo, useState } from 'react'
-import { computeGanttRows, type GanttPlacedBar } from '../utils/ganttPlacement'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { computeDragPatches, computeGanttRows, type GanttDragPatch, type GanttPlacedBar } from '../utils/ganttPlacement'
 import { buildLeaveDays } from '../utils/ganttLeaveDays'
 import { computeDevQaLinks } from '../utils/ganttDevQaLinks'
+import { overrideStartValue, placementKey } from '../utils/ticketPlacements'
 import { getId } from '../utils/getId'
-import { parseLocalDate } from '../utils/dateAgenda'
+import { localTodayISO, parseLocalDate } from '../utils/dateAgenda'
 import type { SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
 import type { SprintPeriod } from '../hooks/useSprintPlan'
 
@@ -108,38 +110,131 @@ function buildTasks(
   return tasks
 }
 
+// Every current saved override, keyed the same way computeGanttRows/
+// placePersonBars key their placements (utils/ticketPlacements.ts's
+// placementKey) - a non-split entry contributes at most one `-main` key, a
+// Split entry contributes both a `-dev` and a `-qa` key regardless of
+// whether that role's currently resolved (harmless if a key is never looked
+// up - computeGanttRows only ever queries this map for placements it has
+// already resolved into a row). Reused directly off `p.entry`'s own
+// ganttStartDate/devGanttStartDate/qaGanttStartDate fields via
+// overrideStartValue, the same helper computeDragPatches uses, so this
+// file never duplicates the "which field, for which role" logic.
+function buildOverrideStartMap(entries: SprintPlanEntry[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const entry of entries) {
+    const placements = entry.devQa ? [{ entry, role: 'dev' as const }, { entry, role: 'qa' as const }] : [{ entry }]
+    for (const p of placements) {
+      const value = overrideStartValue(p)
+      if (value) map.set(placementKey(p), value)
+    }
+  }
+  return map
+}
+
 function SprintGantt({
   memberships,
   entries,
   capacity,
   sprintPeriod,
+  onDragReschedule,
 }: {
   memberships: TeamMembership[]
   entries: SprintPlanEntry[]
   capacity: SprintCapacity[]
   sprintPeriod: SprintPeriod
+  onDragReschedule: (patches: GanttDragPatch[]) => void
 }) {
+  const window = useMemo(
+    () => ({ startDate: sprintPeriod.startDate, holidays: sprintPeriod.holidays }),
+    [sprintPeriod.startDate, sprintPeriod.holidays],
+  )
+
   const { tasks, links } = useMemo(() => {
-    // No saved-override input yet (ticket 05/09) — always an empty map, so
-    // every placement takes the pure auto-placement branch. The
-    // override-aware cursor-continuation branch inside computeGanttRows/
-    // placePersonBars is fully implemented already (ticket 04 answer #4),
-    // just unexercised until ticket 09 wires a real override source in.
-    const rowsByMembershipId = computeGanttRows(entries, memberships, capacity, {
-      startDate: sprintPeriod.startDate,
-      holidays: sprintPeriod.holidays,
-    })
+    // Ticket 09: every placement's own saved start-date override now feeds
+    // the algorithm's override-aware cursor-continuation branch (ticket 04
+    // answer #4, implemented since ticket 07 but unexercised until now) -
+    // an overridden placement is fixed at its saved start and never
+    // auto-placed, exactly what makes a drag "stick" independently of the
+    // Planning sheet from then on. Ticket 08's Dev/QA link ids and leave/
+    // holiday sibling tasks are computed from the same override-aware rows,
+    // so a dragged Split placement keeps its link/CSS pairing.
+    const rowsByMembershipId = computeGanttRows(entries, memberships, capacity, window, buildOverrideStartMap(entries))
     const { taskIdByBarKey, links } = computeDevQaLinks(rowsByMembershipId)
     const tasks = buildTasks(memberships, rowsByMembershipId, sprintPeriod, capacity, taskIdByBarKey)
     return { tasks, links }
-  }, [memberships, entries, capacity, sprintPeriod])
+  }, [memberships, entries, capacity, window, sprintPeriod])
+
+  // SVAR's `init` prop is a one-time setup hook, called once when the
+  // underlying api/store is created - it does NOT re-fire just because
+  // SprintGantt re-renders with new props (a fresh drag landing updates
+  // `entries` via applyGanttDragPatches's optimistic update, re-rendering
+  // this component with new props, but never re-invoking `init`). If the
+  // `update-task` callback below closed over `entries`/`memberships`/
+  // `capacity`/`window` directly, a *second* drag would compute its patches
+  // against stale pre-first-drag data. Refs sidestep this: the callback
+  // itself is created once (empty dep array) and always reads whichever
+  // values were current when the SUBSEQUENT drag actually landed, via
+  // `.current`.
+  const entriesRef = useRef(entries)
+  entriesRef.current = entries
+  const membershipsRef = useRef(memberships)
+  membershipsRef.current = memberships
+  const capacityRef = useRef(capacity)
+  capacityRef.current = capacity
+  const windowRef = useRef(window)
+  windowRef.current = window
+  const onDragRescheduleRef = useRef(onDragReschedule)
+  onDragRescheduleRef.current = onDragReschedule
+
+  // Ticket 09: SVAR fires `update-task` on every intermediate drag frame
+  // (`inProgress: true`) and once more on drop (`inProgress` false/absent) -
+  // only the drop should autosave (no separate Save button/state, per the
+  // map's Leave-grid/Planning-reorder convention), so every in-progress
+  // event is ignored. `api.getTask(id)` (ticket 01's confirmed readback
+  // path) returns the dropped task's own resolved `start`/`parent` - parent
+  // is checked so a task dropped outside any row (shouldn't happen, but
+  // defensive) never crashes computeDragPatches with an unknown
+  // membershipId. Only ticket-bar ids are ever handled - the synthetic
+  // `person-<membershipId>` summary rows are both invisible
+  // (visibility: hidden below, so unreachable by mouse) and explicitly
+  // skipped here as a second guard.
+  const handleInit = useCallback((api: IApi) => {
+    api.on('update-task', (ev: { id: string | number; inProgress?: boolean }) => {
+      if (ev.inProgress) return
+      const id = String(ev.id)
+      if (id.startsWith('person-')) return
+
+      const task = api.getTask(ev.id)
+      const parent = task.parent !== undefined ? String(task.parent) : ''
+      if (!task.start || !parent.startsWith('person-')) return
+
+      const membershipId = parent.slice('person-'.length)
+      const newStart = localTodayISO(task.start)
+      const patches = computeDragPatches(
+        entriesRef.current,
+        membershipsRef.current,
+        capacityRef.current,
+        windowRef.current,
+        membershipId,
+        id,
+        newStart,
+      )
+      onDragRescheduleRef.current(patches)
+    })
+  }, [])
 
   return (
     <div className="flex flex-col gap-3">
       {/* Hides each synthetic person-row's own summary bar - only its grid
-          label should show (ticket 01's API specifics). Leave/holiday
-          shading (ticket 08) reuses SprintLeaveGrid.tsx's exact color
-          vocabulary: full leave/holiday = red-400/500, half leave =
+          label should show (ticket 01's API specifics). visibility: hidden
+          (not opacity/display) also means this row never receives pointer
+          events, so it can't accidentally be dragged (ticket 09's
+          "no cross-row drag" - a ticket bar's own `parent` is fixed to its
+          row and is never itself reassigned by a plain body-drag anyway,
+          this just also keeps the hidden summary bar out of reach). Leave/
+          holiday shading (ticket 08) reuses SprintLeaveGrid.tsx's exact
+          color vocabulary: full leave/holiday = red-400/500, half leave =
           amber-300/500. A Split ticket's linked Dev/QA pair (ticket 08)
           shares a fuchsia border/background, the same accent color this
           app already uses for "highlighted/selected" affordances (see
@@ -158,7 +253,7 @@ function SprintGantt({
             columns={[{ id: 'text', header: 'Person', width: 160 }]}
             cellWidth={32}
             cellHeight={30}
-            readonly
+            init={handleInit}
           />
         </WillowDark>
       </div>
@@ -179,12 +274,14 @@ function GanttChartModal({
   capacity,
   sprintPeriod,
   onClose,
+  onDragReschedule,
 }: {
   memberships: TeamMembership[]
   entries: SprintPlanEntry[]
   capacity: SprintCapacity[]
   sprintPeriod: SprintPeriod | null
   onClose: () => void
+  onDragReschedule: (patches: GanttDragPatch[]) => void
 }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
@@ -208,7 +305,13 @@ function GanttChartModal({
           ) : memberships.length === 0 ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</p>
           ) : (
-            <SprintGantt memberships={memberships} entries={entries} capacity={capacity} sprintPeriod={sprintPeriod} />
+            <SprintGantt
+              memberships={memberships}
+              entries={entries}
+              capacity={capacity}
+              sprintPeriod={sprintPeriod}
+              onDragReschedule={onDragReschedule}
+            />
           )}
         </div>
       </div>
@@ -226,11 +329,19 @@ export function GanttChartButton({
   entries,
   capacity,
   sprintPeriod,
+  onDragReschedule,
 }: {
   memberships: TeamMembership[]
   entries: SprintPlanEntry[]
   capacity: SprintCapacity[]
   sprintPeriod: SprintPeriod | null
+  // Ticket 09's drag-to-reschedule autosave - the patches computeDragPatches
+  // derived from one drag/drop, handed to the caller (PlanningView, backed
+  // by useSprintPlan's applyGanttDragPatches) to actually persist. This
+  // component only ever computes *what* changed, never issues the PATCH
+  // itself - same separation as PlanningView's own onReorder prop
+  // (computeReorderPatches -> reorderEntries).
+  onDragReschedule: (patches: GanttDragPatch[]) => void
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -249,6 +360,7 @@ export function GanttChartButton({
           capacity={capacity}
           sprintPeriod={sprintPeriod}
           onClose={() => setOpen(false)}
+          onDragReschedule={onDragReschedule}
         />
       )}
     </>
