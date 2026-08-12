@@ -143,8 +143,11 @@ export interface UseSprintPlanResult {
   // every capacity card.
   setSprintPeriod: (period: SprintPeriodInput) => Promise<void>
 
-  savingLeaveEntries: boolean
-  leaveEntriesError: string | null
+  // Shared between SprintLeaveGrid's two inline-edited columns (leave cells
+  // and the extra-allocation-hours input) - both hit the same
+  // /api/capacity-entries doc, so one saving/error pair covers either.
+  savingCapacityEntry: boolean
+  capacityEntryError: string | null
   // SprintLeaveGrid's cell-click save (ticket ".scratch/sprint-leave-picker/
   // spec.md"): a person's full, updated leaveEntries array for the sprint
   // (not a single-cell diff - the grid always sends the whole set).
@@ -155,6 +158,10 @@ export interface UseSprintPlanResult {
   // itself (leaveDays/leaveEntries are both server-derived/reconciled)
   // reflect the save immediately.
   setLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
+  // SprintLeaveGrid's extra-hours cell save - a single typed number per
+  // membership+sprint, same POST-vs-PATCH branching and refreshPlan() as
+  // setLeaveEntries above.
+  setExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
 
   addingTicket: boolean
   addTicketError: string | null
@@ -240,8 +247,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [sprintPlanRefreshTick, setSprintPlanRefreshTick] = useState(0)
 
   const [savingSprintPeriod, setSavingSprintPeriod] = useState(false)
-  const [savingLeaveEntries, setSavingLeaveEntries] = useState(false)
-  const [leaveEntriesError, setLeaveEntriesError] = useState<string | null>(null)
+  const [savingCapacityEntry, setSavingCapacityEntry] = useState(false)
+  const [capacityEntryError, setCapacityEntryError] = useState<string | null>(null)
   const [addingTicket, setAddingTicket] = useState(false)
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
@@ -440,8 +447,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const setLeaveEntries = useCallback(
     async (teamMembershipId: string, entries: LeaveEntry[]) => {
       if (!teamId || !selectedSprintId) return
-      setSavingLeaveEntries(true)
-      setLeaveEntriesError(null)
+      setSavingCapacityEntry(true)
+      setCapacityEntryError(null)
       try {
         const existingId = capacity.find((c) => c.teamMembershipId === teamMembershipId)?.capacityEntryId ?? null
         const res = existingId
@@ -458,10 +465,40 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         refreshPlan()
       } catch (err) {
-        setLeaveEntriesError((err as Error).message)
+        setCapacityEntryError((err as Error).message)
         throw err
       } finally {
-        setSavingLeaveEntries(false)
+        setSavingCapacityEntry(false)
+      }
+    },
+    [teamId, selectedSprintId, capacity, refreshPlan],
+  )
+
+  const setExtraHours = useCallback(
+    async (teamMembershipId: string, hours: number) => {
+      if (!teamId || !selectedSprintId) return
+      setSavingCapacityEntry(true)
+      setCapacityEntryError(null)
+      try {
+        const existingId = capacity.find((c) => c.teamMembershipId === teamMembershipId)?.capacityEntryId ?? null
+        const res = existingId
+          ? await fetch(`${API_URL}/api/capacity-entries/${existingId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ extraHours: hours }),
+            })
+          : await fetch(`${API_URL}/api/capacity-entries`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ teamMembershipId, sprintId: selectedSprintId, extraHours: hours }),
+            })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setCapacityEntryError((err as Error).message)
+        throw err
+      } finally {
+        setSavingCapacityEntry(false)
       }
     },
     [teamId, selectedSprintId, capacity, refreshPlan],
@@ -604,9 +641,10 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     loadingSprintPeriod,
     savingSprintPeriod,
     setSprintPeriod,
-    savingLeaveEntries,
-    leaveEntriesError,
+    savingCapacityEntry,
+    capacityEntryError,
     setLeaveEntries,
+    setExtraHours,
     addingTicket,
     addTicketError,
     addTicket,

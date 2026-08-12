@@ -8,6 +8,7 @@ import type { CapacityLookupDoc } from '../models/CapacityLookup.ts'
 export interface CapacityFormulaInput {
   workingDays: number
   leaveDays: number
+  extraHours: number
   effectivePercentage: number
   planned: number
   lookupRows: Pick<CapacityLookupDoc, 'percentage' | 'days' | 'hours'>[]
@@ -35,7 +36,11 @@ export function computeCapacity(input: CapacityFormulaInput): CapacityFormulaRes
     (row) => row.percentage === input.effectivePercentage && row.days === input.workingDays,
   )
   const availableBeforeLeave = match ? match.hours : input.workingDays * 8 * (input.effectivePercentage / 100)
-  const available = availableBeforeLeave - leaveHours
+  // extraHours (a manually-typed on-call/support-duty figure, see
+  // CapacityEntry.ts) comes off Available the same unscaled way a leave
+  // day does - it's real hours taken off this sprint regardless of the
+  // person's capacity percentage.
+  const available = availableBeforeLeave - leaveHours - input.extraHours
 
   return { total, available, planned: input.planned, remaining: available - input.planned }
 }

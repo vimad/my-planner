@@ -20,6 +20,10 @@ export interface CapacityEntryDoc {
   teamMembershipId: Types.ObjectId
   sprintId: Types.ObjectId
   leaveEntries: LeaveEntrySubdoc[]
+  // A single manually-typed hours figure for the sprint (e.g. on-call/
+  // support duty), unlike leaveEntries' per-date picks - comes off Available
+  // the same unscaled way a leave day does (services/capacityFormula.ts).
+  extraHours: number
   createdAt: Date
   updatedAt: Date
 }
@@ -37,6 +41,7 @@ const capacityEntrySchema = new Schema<CapacityEntryDoc>(
     teamMembershipId: { type: Schema.Types.ObjectId, ref: 'TeamMembership', required: true },
     sprintId: { type: Schema.Types.ObjectId, ref: 'Sprint', required: true },
     leaveEntries: { type: [leaveEntrySchema], default: [] },
+    extraHours: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true },
 )

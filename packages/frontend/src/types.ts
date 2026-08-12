@@ -322,6 +322,10 @@ export interface SprintCapacity {
   capacityPercentOverride: number | null
   effectivePercentage: number
   leaveDays: number
+  // A single manually-typed extra-allocation hours figure for the sprint
+  // (e.g. on-call/support duty) - see backend models/CapacityEntry.ts.
+  // Comes off Available the same unscaled way leave does.
+  extraHours: number
   capacityEntryId: string | null
   leaveEntries: LeaveEntry[]
   total: number

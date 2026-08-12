@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { parseLocalDate } from '../utils/dateAgenda'
+import { formatDaysHours } from '../utils/formatDuration'
 import type { LeaveEntry, LeavePortion, SprintCapacity } from '../types'
 
 function formatShortLabel(dateStr: string): string {
@@ -36,6 +38,55 @@ export interface SprintLeaveGridColumn {
   writable: boolean
 }
 
+// The "Extra hrs" column's inline-edited number input, next to Person. A
+// local `draft` string mirrors SprintPeriodForm's own "never re-syncs after
+// mount" posture (see that component's header comment) - the row's `key` is
+// the stable teamMembershipId, so this only (re)initializes from `value`
+// once per person, and an in-progress edit survives an unrelated capacity
+// refetch (e.g. another person's leave-cell save) elsewhere in the grid.
+// Commits on blur/Enter rather than per-keystroke, to avoid a PATCH per
+// character typed.
+function ExtraHoursCell({
+  teamMembershipId,
+  personName,
+  value,
+  onSetExtraHours,
+}: {
+  teamMembershipId: string
+  personName: string
+  value: number
+  onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(String(value))
+
+  function commit() {
+    const parsed = Number(draft)
+    const next = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    setDraft(String(next))
+    if (next !== value) {
+      onSetExtraHours(teamMembershipId, next).catch(() => {
+        // capacityEntryError (via the grid's `error` prop) already surfaces the failure.
+      })
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min={0}
+      step={0.5}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+      aria-label={`Extra allocation hours for ${personName}`}
+      className="w-14 rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-right text-xs text-slate-700 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+    />
+  )
+}
+
 // Ticket ".scratch/sprint-leave-picker/spec.md" Variant C ("whole-team
 // grid"), the winning UI variant from this feature's `/prototype` session -
 // now hosted inside SprintPeriodForm (PlanningView.tsx) rather than always
@@ -53,12 +104,14 @@ export function SprintLeaveGrid({
   saving,
   error,
   onSetLeaveEntries,
+  onSetExtraHours,
 }: {
   capacity: SprintCapacity[]
   columns: SprintLeaveGridColumn[]
   saving: boolean
   error: string | null
   onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
+  onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
 }) {
   if (capacity.length === 0) return null
 
@@ -72,7 +125,7 @@ export function SprintLeaveGrid({
 
   function handleCellClick(teamMembershipId: string, entries: LeaveEntry[], date: string) {
     onSetLeaveEntries(teamMembershipId, cycleLeaveEntries(entries, date)).catch(() => {
-      // leaveEntriesError (via `error` prop) already surfaces the failure.
+      // capacityEntryError (via `error` prop) already surfaces the failure.
     })
   }
 
@@ -84,6 +137,9 @@ export function SprintLeaveGrid({
             <tr>
               <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 text-left font-semibold text-slate-500 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-300">
                 Person
+              </th>
+              <th className="border-b border-slate-200 px-1.5 py-1.5 text-right font-semibold text-slate-500 dark:border-white/10 dark:text-slate-300">
+                Extra hrs
               </th>
               {columns.map(({ date }) => (
                 <th
@@ -99,47 +155,58 @@ export function SprintLeaveGrid({
             </tr>
           </thead>
           <tbody>
-            {capacity.map((c) => (
-              <tr key={c.teamMembershipId} className="border-b border-slate-100 last:border-0 dark:border-white/5">
-                <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-2 py-1 font-medium text-slate-800 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
-                  {c.personName}
-                </td>
-                {columns.map(({ date, writable }) => {
-                  const portion = c.leaveEntries.find((e) => e.date === date)?.portion
-                  if (!writable) {
+            {capacity.map((c) => {
+              const totalHours = c.leaveDays * 8 + c.extraHours
+              return (
+                <tr key={c.teamMembershipId} className="border-b border-slate-100 last:border-0 dark:border-white/5">
+                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-2 py-1 font-medium text-slate-800 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
+                    {c.personName}
+                  </td>
+                  <td className="px-1.5 py-1 text-right">
+                    <ExtraHoursCell
+                      teamMembershipId={c.teamMembershipId}
+                      personName={c.personName}
+                      value={c.extraHours}
+                      onSetExtraHours={onSetExtraHours}
+                    />
+                  </td>
+                  {columns.map(({ date, writable }) => {
+                    const portion = c.leaveEntries.find((e) => e.date === date)?.portion
+                    if (!writable) {
+                      return (
+                        <td key={date} className="p-0.5 text-center">
+                          <span
+                            title="Save the period to record leave on this day"
+                            aria-label={`Leave for ${c.personName} on ${date} unavailable until the period is saved`}
+                            className="block h-5 w-full rounded bg-slate-50 opacity-50 dark:bg-white/5"
+                          />
+                        </td>
+                      )
+                    }
+                    const cellClass =
+                      portion === 'full'
+                        ? 'bg-red-400 dark:bg-red-500/70'
+                        : portion === 'half'
+                          ? 'bg-amber-300 dark:bg-amber-500/60'
+                          : 'bg-slate-50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/15'
                     return (
                       <td key={date} className="p-0.5 text-center">
-                        <span
-                          title="Save the period to record leave on this day"
-                          aria-label={`Leave for ${c.personName} on ${date} unavailable until the period is saved`}
-                          className="block h-5 w-full rounded bg-slate-50 opacity-50 dark:bg-white/5"
+                        <button
+                          type="button"
+                          onClick={() => handleCellClick(c.teamMembershipId, c.leaveEntries, date)}
+                          aria-label={`Toggle leave for ${c.personName} on ${date}`}
+                          aria-pressed={portion !== undefined}
+                          className={`h-5 w-full rounded ${cellClass}`}
                         />
                       </td>
                     )
-                  }
-                  const cellClass =
-                    portion === 'full'
-                      ? 'bg-red-400 dark:bg-red-500/70'
-                      : portion === 'half'
-                        ? 'bg-amber-300 dark:bg-amber-500/60'
-                        : 'bg-slate-50 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/15'
-                  return (
-                    <td key={date} className="p-0.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleCellClick(c.teamMembershipId, c.leaveEntries, date)}
-                        aria-label={`Toggle leave for ${c.personName} on ${date}`}
-                        aria-pressed={portion !== undefined}
-                        className={`h-5 w-full rounded ${cellClass}`}
-                      />
-                    </td>
-                  )
-                })}
-                <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">
-                  {c.leaveDays > 0 ? `${c.leaveDays}d` : '—'}
-                </td>
-              </tr>
-            ))}
+                  })}
+                  <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">
+                    {totalHours > 0 ? formatDaysHours(totalHours) : '—'}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

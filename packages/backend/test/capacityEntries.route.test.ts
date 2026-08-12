@@ -58,17 +58,47 @@ describe('CapacityEntry routes', () => {
         .send({ teamMembershipId: 'm1', sprintId: 's1', leaveEntries })
 
       expect(res.status).toBe(201)
-      expect(CapacityEntry.create).toHaveBeenCalledWith({ teamMembershipId: 'm1', sprintId: 's1', leaveEntries })
+      expect(CapacityEntry.create).toHaveBeenCalledWith({ teamMembershipId: 'm1', sprintId: 's1', leaveEntries, extraHours: 0 })
     })
 
-    it('defaults leaveEntries to [] when omitted', async () => {
+    it('defaults leaveEntries to [] and extraHours to 0 when omitted', async () => {
       CapacityEntry.create.mockResolvedValue({ _id: 'e1', teamMembershipId: 'm1', sprintId: 's1', leaveEntries: [] })
 
       const app = createApp()
       const res = await request(app).post('/api/capacity-entries').send({ teamMembershipId: 'm1', sprintId: 's1' })
 
       expect(res.status).toBe(201)
-      expect(CapacityEntry.create).toHaveBeenCalledWith({ teamMembershipId: 'm1', sprintId: 's1', leaveEntries: [] })
+      expect(CapacityEntry.create).toHaveBeenCalledWith({
+        teamMembershipId: 'm1',
+        sprintId: 's1',
+        leaveEntries: [],
+        extraHours: 0,
+      })
+    })
+
+    it('creates an entry with explicit extraHours', async () => {
+      CapacityEntry.create.mockResolvedValue({ _id: 'e1', teamMembershipId: 'm1', sprintId: 's1', leaveEntries: [], extraHours: 6 })
+
+      const app = createApp()
+      const res = await request(app).post('/api/capacity-entries').send({ teamMembershipId: 'm1', sprintId: 's1', extraHours: 6 })
+
+      expect(res.status).toBe(201)
+      expect(CapacityEntry.create).toHaveBeenCalledWith({
+        teamMembershipId: 'm1',
+        sprintId: 's1',
+        leaveEntries: [],
+        extraHours: 6,
+      })
+    })
+
+    it('rejects a negative extraHours', async () => {
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/capacity-entries')
+        .send({ teamMembershipId: 'm1', sprintId: 's1', extraHours: -1 })
+
+      expect(res.status).toBe(400)
+      expect(CapacityEntry.create).not.toHaveBeenCalled()
     })
 
     it('rejects a missing teamMembershipId/sprintId', async () => {
@@ -196,6 +226,48 @@ describe('CapacityEntry routes', () => {
       const res = await request(app).patch('/api/capacity-entries/does-not-exist').send({ leaveEntries: [] })
 
       expect(res.status).toBe(404)
+      expect(CapacityEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('updates extraHours alone, without touching leaveEntries or requiring a working-dates check', async () => {
+      CapacityEntry.findById.mockResolvedValue({ _id: 'e1', teamMembershipId: 'm1', sprintId: 's1' })
+      CapacityEntry.findByIdAndUpdate.mockResolvedValue({ _id: 'e1', extraHours: 6 })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/capacity-entries/e1').send({ extraHours: 6 })
+
+      expect(res.status).toBe(200)
+      expect(CapacityEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { extraHours: 6 }, { returnDocument: 'after' })
+      expect(TeamMembership.findById).not.toHaveBeenCalled()
+    })
+
+    it('updates leaveEntries and extraHours together in one call', async () => {
+      setUpWorkingRange()
+      const leaveEntries = [{ date: '2026-08-03', portion: 'full' }]
+      CapacityEntry.findByIdAndUpdate.mockResolvedValue({ _id: 'e1', leaveEntries, extraHours: 3 })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/capacity-entries/e1').send({ leaveEntries, extraHours: 3 })
+
+      expect(res.status).toBe(200)
+      expect(CapacityEntry.findByIdAndUpdate).toHaveBeenCalledWith('e1', { leaveEntries, extraHours: 3 }, { returnDocument: 'after' })
+    })
+
+    it('rejects a negative extraHours', async () => {
+      CapacityEntry.findById.mockResolvedValue({ _id: 'e1', teamMembershipId: 'm1', sprintId: 's1' })
+
+      const app = createApp()
+      const res = await request(app).patch('/api/capacity-entries/e1').send({ extraHours: -2 })
+
+      expect(res.status).toBe(400)
+      expect(CapacityEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects a body with neither leaveEntries nor extraHours', async () => {
+      const app = createApp()
+      const res = await request(app).patch('/api/capacity-entries/e1').send({})
+
+      expect(res.status).toBe(400)
       expect(CapacityEntry.findByIdAndUpdate).not.toHaveBeenCalled()
     })
   })

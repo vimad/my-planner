@@ -6,6 +6,7 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 10,
       leaveDays: 1,
+      extraHours: 0,
       effectivePercentage: 80,
       planned: 0,
       lookupRows: [],
@@ -18,6 +19,7 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 10,
       leaveDays: 1, // leaveHours = 8, subtracted straight off the row's hours
+      extraHours: 0,
       effectivePercentage: 80,
       planned: 20,
       lookupRows: [
@@ -34,6 +36,7 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 10,
       leaveDays: 1, // leaveHours = 8
+      extraHours: 0,
       effectivePercentage: 80,
       planned: 20,
       lookupRows: [{ percentage: 50, days: 10, hours: 40 }], // no row for (80, 10)
@@ -47,6 +50,7 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 10,
       leaveDays: 0.5,
+      extraHours: 0,
       effectivePercentage: 50, // a low percentage would halve an 8h leave day to 4h under the old (buggy) scaling - it must not
       planned: 0,
       lookupRows: [],
@@ -59,6 +63,7 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 8,
       leaveDays: 0,
+      extraHours: 0,
       effectivePercentage: 80,
       planned: 0,
       lookupRows: [],
@@ -71,11 +76,39 @@ describe('computeCapacity', () => {
     const result = computeCapacity({
       workingDays: 10,
       leaveDays: 0,
+      extraHours: 0,
       effectivePercentage: 50,
       planned: 0,
       lookupRows: [],
     })
 
     expect(result.remaining).toBe(result.available)
+  })
+
+  it('subtracts extraHours off Available unscaled, the same way a leave day is, and never touches Total', () => {
+    const result = computeCapacity({
+      workingDays: 10,
+      leaveDays: 0,
+      extraHours: 6,
+      effectivePercentage: 50, // a low percentage would halve 6h under scaled subtraction - it must not
+      planned: 0,
+      lookupRows: [],
+    })
+
+    expect(result.available).toBe(10 * 8 * 0.5 - 6)
+    expect(result.total).toBe(80)
+  })
+
+  it('stacks extraHours and leave hours together off Available', () => {
+    const result = computeCapacity({
+      workingDays: 10,
+      leaveDays: 1, // 8h
+      extraHours: 4,
+      effectivePercentage: 100,
+      planned: 0,
+      lookupRows: [],
+    })
+
+    expect(result.available).toBe(10 * 8 - 8 - 4)
   })
 })

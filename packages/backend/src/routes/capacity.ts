@@ -89,6 +89,7 @@ capacityRouter.get(
           const capacityEntry = await CapacityEntry.findOne({ teamMembershipId: membership._id, sprintId })
           const reconciledLeaveEntries = reconcileWithWorkingDates(capacityEntry?.leaveEntries ?? [], workingDates)
           const leaveDays = totalLeaveDays(reconciledLeaveEntries)
+          const extraHours = capacityEntry?.extraHours ?? 0
           const effectivePercentage =
             membership.capacityPercentOverride ?? ROLE_DEFAULT_CAPACITY_PERCENT[membership.role]
 
@@ -106,6 +107,7 @@ capacityRouter.get(
           const { total, available, remaining } = computeCapacity({
             workingDays: teamSprintPlan.workingDays,
             leaveDays,
+            extraHours,
             effectivePercentage,
             planned,
             lookupRows,
@@ -119,6 +121,7 @@ capacityRouter.get(
             capacityPercentOverride: membership.capacityPercentOverride,
             effectivePercentage,
             leaveDays,
+            extraHours,
             capacityEntryId: capacityEntry?._id ?? null,
             leaveEntries: reconciledLeaveEntries,
             total,

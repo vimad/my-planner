@@ -11,6 +11,7 @@ import { EpicPillStrip } from './EpicPillStrip'
 import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
 import { parseLocalDate } from '../utils/dateAgenda'
+import { formatDaysHours } from '../utils/formatDuration'
 import { getId } from '../utils/getId'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import { ticketTypeAccent } from '../utils/ticketType'
@@ -103,21 +104,6 @@ function relativeTime(iso: string): string {
 
 function formatHours(hours: number): string {
   return `${Math.round(hours * 10) / 10}h`
-}
-
-// Ticket badge's estimate sub-label, e.g. "1d 4h" - an 8h workday, matching
-// Jira's own default timetracking format, since estimateHours is Jira's
-// timeoriginalestimate converted straight from seconds (see ticketSync.ts).
-function formatEstimate(hours: number): string {
-  const totalMinutes = Math.round(hours * 60)
-  const days = Math.floor(totalMinutes / (8 * 60))
-  const hrs = Math.floor((totalMinutes % (8 * 60)) / 60)
-  const mins = totalMinutes % 60
-  const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (hrs > 0) parts.push(`${hrs}h`)
-  if (mins > 0 && days === 0) parts.push(`${mins}m`)
-  return parts.length > 0 ? parts.join(' ') : '0h'
 }
 
 // Ticket badge's background color-codes by Jira issue type (ticketTypeAccent
@@ -264,18 +250,20 @@ function SprintPeriodForm({
   saving,
   onSave,
   capacity,
-  savingLeaveEntries,
-  leaveEntriesError,
+  savingCapacityEntry,
+  capacityEntryError,
   onSetLeaveEntries,
+  onSetExtraHours,
 }: {
   period: SprintPeriod | null
   sprint: Sprint | null
   saving: boolean
   onSave: (period: SprintPeriodInput) => Promise<void>
   capacity: SprintCapacity[]
-  savingLeaveEntries: boolean
-  leaveEntriesError: string | null
+  savingCapacityEntry: boolean
+  capacityEntryError: string | null
   onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
+  onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
 }) {
   const [startDate, setStartDate] = useState(period?.startDate ?? sprintDateSeed(sprint?.startDate))
   const [endDate, setEndDate] = useState(period?.endDate ?? sprintDateSeed(sprint?.endDate))
@@ -421,9 +409,10 @@ function SprintPeriodForm({
       <SprintLeaveGrid
         capacity={capacity}
         columns={leaveGridColumns}
-        saving={savingLeaveEntries}
-        error={leaveEntriesError}
+        saving={savingCapacityEntry}
+        error={capacityEntryError}
         onSetLeaveEntries={onSetLeaveEntries}
+        onSetExtraHours={onSetExtraHours}
       />
     </div>
   )
@@ -596,7 +585,7 @@ function TicketBadge({
         <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role}</span>
       )}
       {estimateHours != null && (
-        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatEstimate(estimateHours)}</span>
+        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatDaysHours(estimateHours)}</span>
       )}
     </>
   )
@@ -849,9 +838,10 @@ export function PlanningView({ team }: { team: Team }) {
     loadingSprintPeriod,
     savingSprintPeriod,
     setSprintPeriod,
-    savingLeaveEntries,
-    leaveEntriesError,
+    savingCapacityEntry,
+    capacityEntryError,
     setLeaveEntries,
+    setExtraHours,
     addingTicket,
     addTicketError,
     addTicket,
@@ -1048,9 +1038,10 @@ export function PlanningView({ team }: { team: Team }) {
                 saving={savingSprintPeriod}
                 onSave={setSprintPeriod}
                 capacity={capacity}
-                savingLeaveEntries={savingLeaveEntries}
-                leaveEntriesError={leaveEntriesError}
+                savingCapacityEntry={savingCapacityEntry}
+                capacityEntryError={capacityEntryError}
                 onSetLeaveEntries={setLeaveEntries}
+                onSetExtraHours={setExtraHours}
               />
             ))}
 

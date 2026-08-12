@@ -283,6 +283,37 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
       expect(res.body[0].capacityEntryId).toBeNull()
       expect(res.body[0].leaveEntries).toEqual([])
       expect(res.body[0].leaveDays).toBe(0)
+      expect(res.body[0].extraHours).toBe(0)
+    })
+  })
+
+  describe('Extra allocation hours', () => {
+    it('subtracts a stored extraHours figure off Available/Remaining, unscaled by effectivePercentage', async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership()]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [], extraHours: 6 })
+      CapacityLookup.find.mockResolvedValue([{ percentage: 80, days: 10, hours: 64 }])
+      SprintPlanEntry.find.mockReturnValue(withPopulate([]))
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0]).toMatchObject({ extraHours: 6, total: 80, available: 58, remaining: 58 })
+    })
+
+    it('defaults extraHours to 0 when the CapacityEntry has none stored', async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership()]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(withPopulate([]))
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0].extraHours).toBe(0)
     })
   })
 

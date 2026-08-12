@@ -180,6 +180,7 @@ const capacityRow: SprintCapacity = {
   capacityPercentOverride: null,
   effectivePercentage: 80,
   leaveDays: 1,
+  extraHours: 0,
   capacityEntryId: 'ce1',
   leaveEntries: [{ date: '2026-08-03', portion: 'full' }],
   total: 72,
@@ -201,11 +202,18 @@ let fetchMock: FetchMock
 // teamSprintPlanDoc rather than recomputed here, since the stub doesn't
 // re-derive it from startDate/endDate/holidays - callers keep the two in
 // sync by construction (see `sprintLeavePlan` below).
-function recomputeCapacityRow(row: SprintCapacity, leaveEntries: LeaveEntry[], workingDays: number): SprintCapacity {
+function recomputeCapacityRow(
+  row: SprintCapacity,
+  leaveEntries: LeaveEntry[],
+  workingDays: number,
+  extraHours: number,
+): SprintCapacity {
   const leaveDays = leaveEntries.reduce((sum, e) => sum + (e.portion === 'full' ? 1 : 0.5), 0)
   const total = (workingDays - leaveDays) * 8
-  const available = total * (row.effectivePercentage / 100)
-  return { ...row, leaveEntries, leaveDays, total, available, remaining: available - row.planned }
+  // extraHours comes off Available unscaled, same as capacityFormula.ts's
+  // own (percentage-scaled leave, unscaled extraHours) treatment.
+  const available = total * (row.effectivePercentage / 100) - extraHours
+  return { ...row, leaveEntries, leaveDays, extraHours, total, available, remaining: available - row.planned }
 }
 
 function entry(
@@ -358,23 +366,33 @@ function stubFetch(): FetchMock {
       const entryPatchMatch = href.match(/\/api\/capacity-entries\/([^/?]+)$/)
       if (entryPatchMatch && method === 'PATCH') {
         const id = entryPatchMatch[1]
-        const body: { leaveEntries: LeaveEntry[] } = JSON.parse(init?.body ?? '{}')
+        const body: { leaveEntries?: LeaveEntry[]; extraHours?: number } = JSON.parse(init?.body ?? '{}')
         capacityData = capacityData.map((c) =>
-          c.capacityEntryId === id ? recomputeCapacityRow(c, body.leaveEntries, workingDays) : c,
+          c.capacityEntryId === id
+            ? recomputeCapacityRow(c, body.leaveEntries ?? c.leaveEntries, workingDays, body.extraHours ?? c.extraHours)
+            : c,
         )
         const updated = capacityData.find((c) => c.capacityEntryId === id)
-        return jsonResponse({ _id: id, leaveEntries: updated?.leaveEntries ?? [] })
+        return jsonResponse({ _id: id, leaveEntries: updated?.leaveEntries ?? [], extraHours: updated?.extraHours ?? 0 })
       }
       if (method === 'POST') {
-        const body: { teamMembershipId: string; sprintId: string; leaveEntries?: LeaveEntry[] } = JSON.parse(init?.body ?? '{}')
+        const body: { teamMembershipId: string; sprintId: string; leaveEntries?: LeaveEntry[]; extraHours?: number } = JSON.parse(
+          init?.body ?? '{}',
+        )
         const newId = `ce-${body.teamMembershipId}`
         capacityData = capacityData.map((c) =>
           c.teamMembershipId === body.teamMembershipId
-            ? recomputeCapacityRow({ ...c, capacityEntryId: newId }, body.leaveEntries ?? [], workingDays)
+            ? recomputeCapacityRow({ ...c, capacityEntryId: newId }, body.leaveEntries ?? c.leaveEntries, workingDays, body.extraHours ?? c.extraHours)
             : c,
         )
         return jsonResponse(
-          { _id: newId, teamMembershipId: body.teamMembershipId, sprintId: body.sprintId, leaveEntries: body.leaveEntries ?? [] },
+          {
+            _id: newId,
+            teamMembershipId: body.teamMembershipId,
+            sprintId: body.sprintId,
+            leaveEntries: body.leaveEntries ?? [],
+            extraHours: body.extraHours ?? 0,
+          },
           201,
         )
       }
@@ -1337,6 +1355,7 @@ describe('PlanningView', () => {
         capacityPercentOverride: null,
         effectivePercentage: 80,
         leaveDays: 0,
+        extraHours: 0,
         capacityEntryId: null,
         leaveEntries: [],
         total: 40, // (5 working days - 0 leave) * 8
@@ -1510,6 +1529,60 @@ describe('PlanningView', () => {
       expect(screen.getByLabelText('Leave for Ada Lovelace on 2026-08-10 unavailable until the period is saved')).toBeInTheDocument()
       // The already-saved 08-03..08-07 columns stay fully interactive.
       expect(screen.getByLabelText('Toggle leave for Ada Lovelace on 2026-08-07')).toBeInTheDocument()
+    })
+
+    describe('Extra allocation hours column', () => {
+      it('renders an inline-edited hours input per person, defaulting from the server-stored value', async () => {
+        capacityData = [
+          gridCapacityRow({ extraHours: 3 }),
+          gridCapacityRow({ teamMembershipId: 'm2', personId: 'p2', personName: 'Grace Hopper', role: 'QA' }),
+        ]
+        render(<PlanningView team={team} />)
+        await openPeriodForm()
+
+        expect(await screen.findByLabelText('Extra allocation hours for Ada Lovelace')).toHaveValue(3)
+        expect(screen.getByLabelText('Extra allocation hours for Grace Hopper')).toHaveValue(0)
+      })
+
+      it('commits a typed value on blur, POSTing then PATCHing extraHours, and reduces Available/Remaining unscaled', async () => {
+        render(<PlanningView team={team} />)
+        await openPeriodForm()
+        const input = await screen.findByLabelText('Extra allocation hours for Ada Lovelace')
+
+        fireEvent.change(input, { target: { value: '4' } })
+        fireEvent.blur(input)
+
+        await waitFor(() =>
+          expect(fetchMock).toHaveBeenCalledWith(
+            'http://localhost:4100/api/capacity-entries',
+            expect.objectContaining({
+              method: 'POST',
+              body: JSON.stringify({ teamMembershipId: 'm1', sprintId: 'sprint-1', extraHours: 4 }),
+            }),
+          ),
+        )
+        // available = 40 (total) * 0.8 - 4 (extraHours, unscaled) = 28
+        await waitFor(() => expect(screen.getByText('28h avail')).toBeInTheDocument())
+
+        fireEvent.change(input, { target: { value: '6' } })
+        fireEvent.blur(input)
+
+        await waitFor(() =>
+          expect(fetchMock).toHaveBeenCalledWith(
+            'http://localhost:4100/api/capacity-entries/ce-m1',
+            expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ extraHours: 6 }) }),
+          ),
+        )
+        await waitFor(() => expect(screen.getByText('26h avail')).toBeInTheDocument())
+      })
+
+      it('formats the Total column as days/hours (e.g. "1d 4h"), combining leave hours and extra hours', async () => {
+        capacityData = [gridCapacityRow({ leaveDays: 1, extraHours: 4 })]
+        render(<PlanningView team={team} />)
+        await openPeriodForm()
+
+        expect(await screen.findByText('1d 4h')).toBeInTheDocument()
+      })
     })
   })
 })

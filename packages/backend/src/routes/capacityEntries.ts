@@ -16,10 +16,15 @@ interface CapacityEntryBody {
   teamMembershipId?: string
   sprintId?: string
   leaveEntries?: LeaveEntry[]
+  extraHours?: number
 }
 
 function isValidPortion(portion: unknown): portion is LeavePortion {
   return portion === 'full' || portion === 'half'
+}
+
+function isValidExtraHours(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 // Every entry has a plain 'YYYY-MM-DD' `date` string and a 'full'/'half'
@@ -64,7 +69,7 @@ capacityEntriesRouter.post(
   '/',
   async (req: Request<Record<string, never>, unknown, CapacityEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { teamMembershipId, sprintId, leaveEntries } = req.body
+      const { teamMembershipId, sprintId, leaveEntries, extraHours } = req.body
 
       if (!teamMembershipId || !sprintId) {
         return res.status(400).json({ error: 'teamMembershipId and sprintId are required' })
@@ -72,8 +77,16 @@ capacityEntriesRouter.post(
       if (leaveEntries !== undefined && !isWellFormedLeaveEntries(leaveEntries)) {
         return res.status(400).json({ error: 'leaveEntries must be an array of { date, portion } with portion "full" or "half"' })
       }
+      if (extraHours !== undefined && !isValidExtraHours(extraHours)) {
+        return res.status(400).json({ error: 'extraHours must be a non-negative number' })
+      }
 
-      const entry = await CapacityEntry.create({ teamMembershipId, sprintId, leaveEntries: leaveEntries ?? [] })
+      const entry = await CapacityEntry.create({
+        teamMembershipId,
+        sprintId,
+        leaveEntries: leaveEntries ?? [],
+        extraHours: extraHours ?? 0,
+      })
       res.status(201).json(entry)
     } catch (err) {
       if (isDuplicateKeyError(err)) {
@@ -105,19 +118,27 @@ capacityEntriesRouter.get('/', async (req: Request, res: Response, next: NextFun
   }
 })
 
-// PATCH /api/capacity-entries/:id -> full-array replacement of leaveEntries
-// (the grid always holds and sends a person's complete leave set for the
-// sprint, not a single-cell diff). Validates every entry's date falls
-// within the sprint's *current* working dates and every portion is
-// 'full'/'half'.
+// PATCH /api/capacity-entries/:id -> partial update of leaveEntries and/or
+// extraHours, at least one of which must be present. leaveEntries, when
+// given, is a full-array replacement (the grid always holds and sends a
+// person's complete leave set for the sprint, not a single-cell diff) and
+// is validated against the sprint's *current* working dates; extraHours,
+// when given, replaces the stored figure outright (it's a single typed
+// number, not a set to diff).
 capacityEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, CapacityEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { leaveEntries } = req.body
+      const { leaveEntries, extraHours } = req.body
 
-      if (!isWellFormedLeaveEntries(leaveEntries)) {
+      if (leaveEntries === undefined && extraHours === undefined) {
+        return res.status(400).json({ error: 'leaveEntries or extraHours is required' })
+      }
+      if (leaveEntries !== undefined && !isWellFormedLeaveEntries(leaveEntries)) {
         return res.status(400).json({ error: 'leaveEntries must be an array of { date, portion } with portion "full" or "half"' })
+      }
+      if (extraHours !== undefined && !isValidExtraHours(extraHours)) {
+        return res.status(400).json({ error: 'extraHours must be a non-negative number' })
       }
 
       const existing = await CapacityEntry.findById(req.params.id)
@@ -125,12 +146,20 @@ capacityEntriesRouter.patch(
         return res.status(404).json({ error: 'Capacity entry not found' })
       }
 
-      const rangeError = await validateAgainstWorkingDates(existing.teamMembershipId, existing.sprintId, leaveEntries)
-      if (rangeError) {
-        return res.status(400).json({ error: rangeError })
+      const update: { leaveEntries?: LeaveEntry[]; extraHours?: number } = {}
+
+      if (leaveEntries !== undefined) {
+        const rangeError = await validateAgainstWorkingDates(existing.teamMembershipId, existing.sprintId, leaveEntries)
+        if (rangeError) {
+          return res.status(400).json({ error: rangeError })
+        }
+        update.leaveEntries = leaveEntries
+      }
+      if (extraHours !== undefined) {
+        update.extraHours = extraHours
       }
 
-      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, { leaveEntries }, { returnDocument: 'after' })
+      const entry = await CapacityEntry.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' })
 
       if (!entry) {
         return res.status(404).json({ error: 'Capacity entry not found' })
