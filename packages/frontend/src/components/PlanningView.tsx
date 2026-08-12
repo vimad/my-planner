@@ -2,9 +2,11 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import type { DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { StickyNote } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
+import { AddPlaceholderPopup, type AddPlaceholderBody } from './AddPlaceholderPopup'
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
@@ -18,7 +20,7 @@ import { getId } from '../utils/getId'
 import { computeSprintBreakdown } from '../utils/sprintBreakdown'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import { ticketTypeAccent } from '../utils/ticketType'
-import type { LeaveEntry, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
+import type { LeaveEntry, PlaceholderTicket, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
 
 // A ticket's placement within one "Tickets by person" row. `role` is set
 // only for a Split ticket's dev or qa sub-placement (CONTEXT.md "Split
@@ -490,12 +492,17 @@ function AddToPlanForm({
   onSubmit,
   loading,
   error,
+  onOpenPlaceholder,
 }: {
   value: string
   onChange: (v: string) => void
   onSubmit: (e: FormEvent) => void
   loading: boolean
   error: string | null
+  // Opens AddPlaceholderPopup (spec ".scratch/placeholder-tickets/spec.md") -
+  // a second icon-only affordance right after the "Add" button, for a
+  // non-Jira, manually-created stand-in ticket instead of a real Jira lookup.
+  onOpenPlaceholder: () => void
 }) {
   return (
     <form
@@ -518,6 +525,15 @@ function AddToPlanForm({
         className="rounded-lg border border-slate-200 px-3 py-1 text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/5"
       >
         {loading ? 'Loading…' : 'Add'}
+      </button>
+      <button
+        type="button"
+        onClick={onOpenPlaceholder}
+        aria-label="Add placeholder ticket"
+        title="Add placeholder ticket"
+        className="rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        <StickyNote className="h-4 w-4" />
       </button>
       {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </form>
@@ -733,19 +749,67 @@ function SortableTicketBadge({
   )
 }
 
+// A Placeholder ticket's badge - a non-Jira, manually-created stand-in: just
+// a short text description, one assignee (implicit, since it's rendered
+// inside that person's own row) and an estimate. Deliberately not sortable/
+// draggable and has no detail popup - no Jira link, no Dev/QA or Plan/Spill
+// concept applies to it, so the pill itself already shows everything there
+// is to know; only Remove is offered, mirroring TicketBadge's own Remove
+// affordance. Violet is a fresh accent, not reused by any other badge
+// meaning (docs/ui-conventions.md's semantic colors reserve red/green/blue/
+// slate for issue type, amber for Unmapped, sky for needs-assignment) -
+// signals "local to Planning, never synced from Jira" at a glance.
+function PlaceholderBadge({
+  placeholder,
+  onRemove,
+  removing,
+}: {
+  placeholder: PlaceholderTicket
+  onRemove: () => void
+  removing?: boolean
+}) {
+  return (
+    <span className="group relative inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/20 dark:text-violet-300">
+      <span className="max-w-[8rem] truncate font-sans font-medium normal-case">{placeholder.text}</span>
+      <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatDaysHours(placeholder.estimateHours)}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={removing}
+        aria-label={`Remove placeholder ${placeholder.text}`}
+        className="font-sans text-xs leading-none text-violet-500 hover:text-violet-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-300 dark:hover:text-violet-100"
+      >
+        ×
+      </button>
+      <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 font-sans text-[11px] font-normal normal-case text-slate-700 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-200">
+        {placeholder.text} — {formatDaysHours(placeholder.estimateHours)} placeholder
+      </span>
+    </span>
+  )
+}
+
 function PersonRow({
   name,
   placements,
+  placeholders,
   variant = 'normal',
   onOpenPopup,
   onReorder,
   onRemove,
   removingEntryId,
+  onRemovePlaceholder,
+  removingPlaceholderId,
   poppedEntryId,
   onTogglePop,
 }: {
   name: string
   placements: PlacedEntry[]
+  // Placeholder tickets landed in this person's row (spec ".scratch/
+  // placeholder-tickets/spec.md") - undefined for the Unmapped/Needs dev/qa
+  // catch-all rows, which a Placeholder ticket never lands in (its assignee
+  // is always a current TeamMembership, picked at creation time - see
+  // AddPlaceholderPopup).
+  placeholders?: PlaceholderTicket[]
   variant?: 'normal' | 'unmapped' | 'needsAssignment'
   onOpenPopup?: (ticketId: string) => void
   // Save-on-drop reorder within this row only (ticket 19) - undefined for
@@ -756,6 +820,8 @@ function PersonRow({
   // Unmapped/Needs dev/qa, unlike drag-reorder above.
   onRemove?: (entryId: string) => void
   removingEntryId?: string | null
+  onRemovePlaceholder?: (id: string) => void
+  removingPlaceholderId?: string | null
   // Option/Alt+click "pop" (find-the-pair): entry id of the single currently-
   // popped ticket across the whole table, plus the toggle callback - passed
   // through to every row so a Split ticket's dev/qa placements pop together
@@ -798,25 +864,51 @@ function PersonRow({
     onReorder?.(computeReorderPatches(placements, oldIndex, newIndex))
   }
 
+  const hasPlacements = placements.length > 0
+  const hasPlaceholders = !!placeholders && placeholders.length > 0
+
   return (
     <div
       aria-label={`Tickets for ${name}`}
       className="grid grid-cols-[10rem_1fr] items-start gap-3 border-b border-slate-100 py-2.5 last:border-0 dark:border-white/5"
     >
       <span className={`pt-0.5 text-sm font-medium ${nameClass}`}>{flagged ? `${unmapped ? '⚠' : '❓'} ${name}` : name}</span>
-      {placements.length === 0 ? (
-        <span className={`pt-0.5 text-xs ${emptyClass}`}>No tickets planned</span>
-      ) : sortable ? (
-        <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={placements.map(placementKey)} strategy={rectSortingStrategy}>
+      <div className="flex flex-col gap-1.5">
+        {!hasPlacements && !hasPlaceholders && <span className={`pt-0.5 text-xs ${emptyClass}`}>No tickets planned</span>}
+        {hasPlacements &&
+          (sortable ? (
+            <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={placements.map(placementKey)} strategy={rectSortingStrategy}>
+                <div className="flex flex-wrap gap-1.5">
+                  {placements.map((p) => {
+                    const entryId = getId(p.entry) ?? ''
+                    return (
+                      <SortableTicketBadge
+                        key={placementKey(p)}
+                        placement={p}
+                        onFlagClick={() => onOpenPopup?.(getId(p.entry.ticketId) ?? '')}
+                        onRemove={onRemove ? () => onRemove(entryId) : undefined}
+                        removing={removingEntryId === entryId}
+                        isPopped={!!entryId && entryId === poppedEntryId}
+                        onPopClick={onTogglePop ? () => onTogglePop(entryId) : undefined}
+                      />
+                    )
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
             <div className="flex flex-wrap gap-1.5">
-              {placements.map((p) => {
-                const entryId = getId(p.entry) ?? ''
+              {placements.map(({ entry, role }) => {
+                const entryId = getId(entry) ?? ''
                 return (
-                  <SortableTicketBadge
-                    key={placementKey(p)}
-                    placement={p}
-                    onFlagClick={() => onOpenPopup?.(getId(p.entry.ticketId) ?? '')}
+                  <TicketBadge
+                    key={placementKey({ entry, role })}
+                    entry={entry}
+                    role={role}
+                    unmapped={unmapped}
+                    needsAssignment={needsAssignment}
+                    onFlagClick={() => onOpenPopup?.(getId(entry.ticketId) ?? '')}
                     onRemove={onRemove ? () => onRemove(entryId) : undefined}
                     removing={removingEntryId === entryId}
                     isPopped={!!entryId && entryId === poppedEntryId}
@@ -825,29 +917,23 @@ function PersonRow({
                 )
               })}
             </div>
-          </SortableContext>
-        </DndContext>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {placements.map(({ entry, role }) => {
-            const entryId = getId(entry) ?? ''
-            return (
-              <TicketBadge
-                key={placementKey({ entry, role })}
-                entry={entry}
-                role={role}
-                unmapped={unmapped}
-                needsAssignment={needsAssignment}
-                onFlagClick={() => onOpenPopup?.(getId(entry.ticketId) ?? '')}
-                onRemove={onRemove ? () => onRemove(entryId) : undefined}
-                removing={removingEntryId === entryId}
-                isPopped={!!entryId && entryId === poppedEntryId}
-                onPopClick={onTogglePop ? () => onTogglePop(entryId) : undefined}
-              />
-            )
-          })}
-        </div>
-      )}
+          ))}
+        {hasPlaceholders && (
+          <div className="flex flex-wrap gap-1.5">
+            {placeholders!.map((p) => {
+              const placeholderId = getId(p) ?? ''
+              return (
+                <PlaceholderBadge
+                  key={placeholderId}
+                  placeholder={p}
+                  onRemove={() => onRemovePlaceholder?.(placeholderId)}
+                  removing={removingPlaceholderId === placeholderId}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -883,6 +969,13 @@ export function PlanningView({ team }: { team: Team }) {
     addingTicket,
     addTicketError,
     addTicket,
+    placeholders,
+    addingPlaceholder,
+    addPlaceholderError,
+    addPlaceholder,
+    removingPlaceholderId,
+    removePlaceholderError,
+    removePlaceholder,
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
@@ -929,6 +1022,11 @@ export function PlanningView({ team }: { team: Team }) {
   // button in the sprint-selector row, independent of `planConfigured`,
   // which only decides the toggle's own label copy.
   const [periodPanelOpen, setPeriodPanelOpen] = useState(false)
+  // AddPlaceholderPopup's open/close state (spec ".scratch/
+  // placeholder-tickets/spec.md") - independent of popupTicketId above,
+  // since a placeholder ticket has no detail popup of its own to conflict
+  // with.
+  const [placeholderPopupOpen, setPlaceholderPopupOpen] = useState(false)
 
   function handleTogglePop(entryId: string) {
     if (!entryId) return
@@ -1050,8 +1148,30 @@ export function PlanningView({ team }: { team: Team }) {
 
   // Sprint Breakdown card's Features/Technical items/Bugs totals (map's
   // Notes) - recomputed whenever entries or memberships change, same
-  // reactivity as ticketsByMembershipId above.
+  // reactivity as ticketsByMembershipId above. Deliberately never fed
+  // `placeholders` (spec ".scratch/placeholder-tickets/spec.md": a
+  // placeholder ticket has no effect on the Sprint Breakdown card) -
+  // computeSprintBreakdown only ever accepts SprintPlanEntry[].
   const breakdown = useMemo(() => computeSprintBreakdown(entries, memberships), [entries, memberships])
+
+  // One bucket of PlaceholderTicket[] per current TeamMembership, keyed by
+  // personId (spec ".scratch/placeholder-tickets/spec.md") - unlike
+  // ticketsByMembershipId above, a placeholder ticket's assignee is always a
+  // current TeamMembership (picked from the live roster at creation time via
+  // AddPlaceholderPopup), so there's no Unmapped/needs-assignment fallback to
+  // build here; a placeholder whose person has since left the team simply
+  // has nowhere to render until it's removed.
+  const placeholdersByMembershipId = useMemo(() => {
+    const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+    const byMembership = new Map<string, PlaceholderTicket[]>()
+    for (const placeholder of placeholders) {
+      const membershipId = membershipIdByPersonId.get(placeholder.personId)
+      if (!membershipId) continue
+      if (!byMembership.has(membershipId)) byMembership.set(membershipId, [])
+      byMembership.get(membershipId)!.push(placeholder)
+    }
+    return byMembership
+  }, [memberships, placeholders])
 
   return (
     <div className="flex flex-col gap-5">
@@ -1131,6 +1251,7 @@ export function PlanningView({ team }: { team: Team }) {
             onSubmit={handleAdd}
             loading={addingTicket}
             error={addTicketError}
+            onOpenPlaceholder={() => setPlaceholderPopupOpen(true)}
           />
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -1150,15 +1271,21 @@ export function PlanningView({ team }: { team: Team }) {
                 </p>
               ) : (
                 <div>
+                  {removePlaceholderError && (
+                    <span className="text-xs text-red-600 dark:text-red-400">{removePlaceholderError}</span>
+                  )}
                   {memberships.map((membership) => (
                     <PersonRow
                       key={getId(membership)}
                       name={membership.personId.name}
                       placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
+                      placeholders={placeholdersByMembershipId.get(getId(membership) ?? '') ?? []}
                       onOpenPopup={setPopupTicketId}
                       onReorder={reorderEntries}
                       onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                       removingEntryId={removingEntryId}
+                      onRemovePlaceholder={(id) => removePlaceholder(id).catch(() => {})}
+                      removingPlaceholderId={removingPlaceholderId}
                       poppedEntryId={poppedEntryId}
                       onTogglePop={handleTogglePop}
                     />
@@ -1220,6 +1347,16 @@ export function PlanningView({ team }: { team: Team }) {
             onClose={() => setPopupTicketId(null)}
           />
         ))}
+
+      {placeholderPopupOpen && (
+        <AddPlaceholderPopup
+          memberships={memberships}
+          saving={addingPlaceholder}
+          error={addPlaceholderError}
+          onSave={(body: AddPlaceholderBody) => addPlaceholder(body).then(() => {})}
+          onClose={() => setPlaceholderPopupOpen(false)}
+        />
+      )}
     </div>
   )
 }

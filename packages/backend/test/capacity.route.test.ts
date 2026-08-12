@@ -16,6 +16,9 @@ interface MockedCapacityLookupModel {
 interface MockedSprintPlanEntryModel {
   find: Mock
 }
+interface MockedPlaceholderTicketModel {
+  find: Mock
+}
 
 vi.mock('../src/models/TeamSprintPlan.ts', () => ({
   TeamSprintPlan: { findOne: vi.fn() },
@@ -31,6 +34,9 @@ vi.mock('../src/models/CapacityLookup.ts', () => ({
 }))
 vi.mock('../src/models/SprintPlanEntry.ts', () => ({
   SprintPlanEntry: { find: vi.fn() },
+}))
+vi.mock('../src/models/PlaceholderTicket.ts', () => ({
+  PlaceholderTicket: { find: vi.fn() },
 }))
 vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
   TicketAssigneeOverride: { find: vi.fn() },
@@ -62,6 +68,9 @@ const { CapacityLookup } = (await import('../src/models/CapacityLookup.ts')) as 
 }
 const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) as unknown as {
   SprintPlanEntry: MockedSprintPlanEntryModel
+}
+const { PlaceholderTicket } = (await import('../src/models/PlaceholderTicket.ts')) as unknown as {
+  PlaceholderTicket: MockedPlaceholderTicketModel
 }
 interface MockedTicketAssigneeOverrideModel {
   find: Mock
@@ -113,6 +122,9 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
     // Default: no Assignee Override recorded for any ticket - only the
     // Override-specific tests need to override this.
     TicketAssigneeOverride.find.mockResolvedValue([])
+    // Default: no placeholder tickets - only the placeholder-specific tests
+    // below need to override this.
+    PlaceholderTicket.find.mockResolvedValue([])
   })
 
   it('returns 404 when no TeamSprintPlan (working days) has been entered for this sprint', async () => {
@@ -591,6 +603,68 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
       expect(res.status).toBe(200)
       const byPerson = Object.fromEntries(res.body.map((c: { personId: string; planned: number }) => [c.personId, c.planned]))
       expect(byPerson.p1).toBe(24)
+      expect(byPerson.p2).toBe(0)
+    })
+  })
+
+  describe('Placeholder tickets', () => {
+    it("adds a placeholder ticket's estimateHours onto its assignee's Planned, alongside any real tickets", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([{ ticketId: { jiraKey: 'WOSMVP-1', assigneeAccountId: 'acct-a', estimateHours: 5 } }]),
+      )
+      computeEffortHours.mockResolvedValueOnce(5)
+      PlaceholderTicket.find.mockResolvedValue([{ personId: 'p1', estimateHours: 4, text: 'On-call' }])
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(PlaceholderTicket.find).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
+      expect(res.body[0].planned).toBe(9) // 5 (real ticket) + 4 (placeholder)
+      expect(res.body[0].remaining).toBe(res.body[0].available - 9)
+    })
+
+    it('sums multiple placeholder tickets for the same person', async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(withPopulate([]))
+      PlaceholderTicket.find.mockResolvedValue([
+        { personId: 'p1', estimateHours: 4, text: 'On-call' },
+        { personId: 'p1', estimateHours: 2, text: 'Interviews' },
+      ])
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0].planned).toBe(6)
+    })
+
+    it("a placeholder ticket never contributes to another person's Planned", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(
+        withPopulate([
+          membership({ _id: 'm1', personId: { _id: 'p1', jiraAccountId: 'acct-a' } }),
+          membership({ _id: 'm2', personId: { _id: 'p2', jiraAccountId: 'acct-b' } }),
+        ]),
+      )
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(withPopulate([]))
+      PlaceholderTicket.find.mockResolvedValue([{ personId: 'p1', estimateHours: 4, text: 'On-call' }])
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      const byPerson = Object.fromEntries(res.body.map((c: { personId: string; planned: number }) => [c.personId, c.planned]))
+      expect(byPerson.p1).toBe(4)
       expect(byPerson.p2).toBe(0)
     })
   })

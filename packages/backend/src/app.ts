@@ -9,6 +9,7 @@ import { epicsRouter } from './routes/epics.ts'
 import { noteFoldersRouter } from './routes/noteFolders.ts'
 import { notesRouter } from './routes/notes.ts'
 import { peopleRouter } from './routes/people.ts'
+import { placeholderTicketsRouter } from './routes/placeholderTickets.ts'
 import { profilesRouter } from './routes/profiles.ts'
 import { scratchNotesRouter } from './routes/scratchNotes.ts'
 import { settingsRouter } from './routes/settings.ts'
@@ -44,6 +45,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   app.use('/api/note-folders', noteFoldersRouter)
   app.use('/api/notes', notesRouter)
   app.use('/api/people', peopleRouter)
+  app.use('/api/placeholder-tickets', placeholderTicketsRouter)
   app.use('/api/profiles', profilesRouter)
   app.use('/api/sprint-plan-entries', sprintPlanEntriesRouter)
   app.use('/api/sprints', sprintsRouter)

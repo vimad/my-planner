@@ -89,6 +89,7 @@ Base page background: `bg-[#f2f1f5]` light / `dark:bg-[radial-gradient(circle_at
 - **Office-linked badge**: `bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300` — cyan is reserved for this one meaning.
 - **Completed/linked indicators**: `text-emerald-500`/`emerald-600`.
 - **"Needs attention, click to resolve" flag** (introduced by ticket 24, Planning view's "needs dev/qa" badge): `border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/20 dark:text-sky-300`. Sky is reserved for this one meaning — a clickable prompt to fill in missing data, distinct from the amber Unmapped badge (a real-but-off-roster Jira assignee, not actionable via a click) and from destructive red/rose. Reference: `PlanningView.tsx`'s `TicketBadge` (`needsAssignment` variant).
+- **Placeholder ticket badge** (Planning view's non-Jira, manually-created stand-in tickets): `border-violet-300 bg-violet-100 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/20 dark:text-violet-300`. Violet is reserved for this one meaning — "local to Planning, never synced from Jira" — distinct from the bug/story/task/slate family used for a real Ticket's type. Reference: `PlanningView.tsx`'s `PlaceholderBadge`.
 
 ## Component archetypes
 

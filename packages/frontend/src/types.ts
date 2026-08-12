@@ -316,6 +316,27 @@ export interface SprintPlanEntry {
   plannedHours?: number
 }
 
+// A non-Jira, manually-created "ticket" - just a short text description, one
+// assignee, and an estimate, for planning work that doesn't map to any real
+// Jira issue (e.g. "on-call", "interviews") - mirrors backend models/
+// PlaceholderTicket.ts. Counts toward `personId`'s Planned capacity figure
+// exactly like a real Sprint Plan Entry (backend routes/capacity.ts already
+// folds it into that same GET .../capacity response), but is fetched and
+// rendered entirely separately from SprintPlanEntry - never touched by Jira
+// sync, never passed into utils/sprintBreakdown.ts, never returned by the
+// Status view's GET /api/tickets (backend routes/tickets.ts only ever
+// queries the Ticket collection).
+export interface PlaceholderTicket {
+  _id?: string
+  id?: string
+  teamId: string
+  sprintId: string
+  personId: string
+  text: string
+  estimateHours: number
+  createdAt?: string
+}
+
 // The Team x Sprint header - a picked start/end date range plus any
 // individually-marked holidays within it. workingDays is server-derived from
 // those three fields (never client-supplied) - see backend

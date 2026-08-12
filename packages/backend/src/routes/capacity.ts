@@ -4,6 +4,7 @@ import { TeamMembership } from '../models/TeamMembership.ts'
 import { TeamSprintPlan } from '../models/TeamSprintPlan.ts'
 import { CapacityEntry } from '../models/CapacityEntry.ts'
 import { CapacityLookup } from '../models/CapacityLookup.ts'
+import { PlaceholderTicket } from '../models/PlaceholderTicket.ts'
 import { SprintPlanEntry } from '../models/SprintPlanEntry.ts'
 import type { TicketDoc } from '../models/Ticket.ts'
 import type { PersonDoc } from '../models/Person.ts'
@@ -55,6 +56,7 @@ capacityRouter.get(
       const planEntries = await SprintPlanEntry.find({ teamId, sprintId }).populate<{ ticketId: PopulatedTicket }>(
         'ticketId',
       )
+      const placeholders = await PlaceholderTicket.find({ teamId, sprintId })
 
       const membershipsForResolution: MembershipForResolution[] = memberships.map((membership) => ({
         personId: membership.personId._id,
@@ -112,6 +114,17 @@ capacityRouter.get(
         nonSplitPlannedByPersonId.set(key, (nonSplitPlannedByPersonId.get(key) ?? 0) + hours)
       }
 
+      // A Placeholder ticket counts straight toward its assignee's Planned,
+      // the same way a resolved non-split Sprint Plan Entry does - it's a
+      // manually-typed stand-in for one (text + estimate, no Jira issue
+      // behind it), so it never goes through resolveAssignee/
+      // computeEffortHours above, just a flat sum by personId.
+      const placeholderHoursByPersonId = new Map<string, number>()
+      for (const placeholder of placeholders) {
+        const key = String(placeholder.personId)
+        placeholderHoursByPersonId.set(key, (placeholderHoursByPersonId.get(key) ?? 0) + placeholder.estimateHours)
+      }
+
       const capacities = await Promise.all(
         memberships.map(async (membership) => {
           const capacityEntry = await CapacityEntry.findOne({ teamMembershipId: membership._id, sprintId })
@@ -123,7 +136,8 @@ capacityRouter.get(
 
           const person = membership.personId
           const nonSplitPlanned = nonSplitPlannedByPersonId.get(String(person._id)) ?? 0
-          const planned = nonSplitPlanned + (splitPlannedByPersonId.get(String(person._id)) ?? 0)
+          const placeholderHours = placeholderHoursByPersonId.get(String(person._id)) ?? 0
+          const planned = nonSplitPlanned + (splitPlannedByPersonId.get(String(person._id)) ?? 0) + placeholderHours
 
           const { total, available, remaining } = computeCapacity({
             workingDays: teamSprintPlan.workingDays,

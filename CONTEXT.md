@@ -71,6 +71,10 @@ A cached snapshot of a Jira board sprint (name, state, start/end dates). `GET /a
 The record of a Ticket having been manually added to a specific Team's plan for a specific Sprint. Exists separately from the Ticket itself so a ticket that carries over across sprints keeps appearing in every sprint's plan it was ever added to, not only whatever sprint Jira currently reports for it.
 _Avoid_: conflating with a Ticket's own current-sprint field, which only ever reflects Jira's live answer.
 
+**Placeholder ticket**:
+A non-Jira, manually-created stand-in in a Team's Sprint plan: just a short text description, one assignee (always a current Team Membership), and an estimate. Used for planning work that doesn't map to any real Jira issue (e.g. on-call, interviews). Counts toward its assignee's Planned capacity figure exactly like a Sprint Plan Entry resolved to them, but is stored in its own collection, never touched by Full/Lightweight sync, never shown in the Status view, and has no effect on the Sprint Breakdown card.
+_Avoid_: Ticket (a Placeholder ticket has no backing Jira issue at all — it never enters the Ticket cache), Sprint Plan Entry (that's specifically a real Ticket added to a plan).
+
 **Team Sprint Plan**:
 A Team's per-Sprint header settings: a picked start/end date range plus any individually-marked holidays within it, same for every person on the team. The shared working-day count is derived from those three fields (weekends auto-excluded, holidays excluded on top) rather than typed in directly. Editable at any time via the same form used to set it initially — not a one-shot entry. A plan saved before this derivation existed may still carry only a bare working-day count with no stored date range; the Planning view treats that as "period not set" until the plan is next edited.
 

@@ -8,6 +8,7 @@ import type {
   DevQaRoleResolution,
   Epic,
   LeaveEntry,
+  PlaceholderTicket,
   Person,
   Sprint,
   SprintCapacity,
@@ -206,7 +207,9 @@ const capacityRow: SprintCapacity = {
 
 let entriesData: SprintPlanEntry[]
 let capacityData: SprintCapacity[]
+let placeholdersData: PlaceholderTicket[]
 let fetchMock: FetchMock
+let nextPlaceholderId = 0
 
 // Sprint leave grid (`.scratch/sprint-leave-picker/spec.md`) test state:
 // recomputes a capacity row's leaveDays/total/available/remaining from a
@@ -520,6 +523,24 @@ function stubFetch(): FetchMock {
 
     if (href.includes('/capacity')) return jsonResponse(capacityData)
 
+    if (href.includes('/api/placeholder-tickets')) {
+      const deleteMatch = href.match(/\/api\/placeholder-tickets\/([^/?]+)$/)
+      if (deleteMatch && method === 'DELETE') {
+        const id = deleteMatch[1]
+        placeholdersData = placeholdersData.filter((p) => p._id !== id)
+        return jsonResponse(null, 204)
+      }
+      if (method === 'POST') {
+        const body: { teamId: string; sprintId: string; personId: string; text: string; estimateHours: number } = JSON.parse(
+          init?.body ?? '{}',
+        )
+        const created: PlaceholderTicket = { _id: `ph-${nextPlaceholderId++}`, ...body }
+        placeholdersData = [...placeholdersData, created]
+        return jsonResponse(created, 201)
+      }
+      return jsonResponse(placeholdersData)
+    }
+
     return jsonResponse([])
   })
   vi.stubGlobal('fetch', mock)
@@ -530,6 +551,8 @@ describe('PlanningView', () => {
   beforeEach(() => {
     entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0)]
     capacityData = [capacityRow]
+    placeholdersData = []
+    nextPlaceholderId = 0
     teamSprintPlanDoc = null
     fetchMock = stubFetch()
     syncReassign = null
@@ -1986,6 +2009,85 @@ describe('PlanningView', () => {
 
         expect(await screen.findByText('1d 4h')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Placeholder tickets', () => {
+    it('clicking the icon next to Add opens a popup offering every team member as assignee', async () => {
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add placeholder ticket' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'Add placeholder ticket' })
+      const select = within(dialog).getByLabelText('Assignee')
+      expect(within(select).getByText('Ada Lovelace')).toBeInTheDocument()
+      expect(within(select).getByText('Grace Hopper')).toBeInTheDocument()
+    })
+
+    it('creating a placeholder ticket POSTs it and renders it as a badge in the assignee\'s row, showing its text and estimate', async () => {
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add placeholder ticket' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Add placeholder ticket' })
+
+      fireEvent.change(within(dialog).getByLabelText('Assignee'), { target: { value: 'p2' } })
+      fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'On-call support' } })
+      fireEvent.change(within(dialog).getByLabelText('Estimate hours'), { target: { value: '4' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Add' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/placeholder-tickets',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({
+              teamId: 'team-a',
+              sprintId: 'sprint-1',
+              personId: 'p2',
+              text: 'On-call support',
+              estimateHours: 4,
+            }),
+          }),
+        ),
+      )
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+      const graceRow = screen.getByLabelText('Tickets for Grace Hopper')
+      await waitFor(() => expect(within(graceRow).getByText('On-call support')).toBeInTheDocument())
+      expect(within(graceRow).getByText('4h')).toBeInTheDocument()
+      // Never touches the real Jira-ticket add-to-plan path.
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries',
+        expect.anything(),
+      )
+    })
+
+    it('removing a placeholder badge DELETEs it and takes it out of the row', async () => {
+      placeholdersData = [{ _id: 'ph1', teamId: 'team-a', sprintId: 'sprint-1', personId: 'p1', text: 'Interviews', estimateHours: 2 }]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('Interviews')).toBeInTheDocument())
+
+      fireEvent.click(within(adaRow).getByRole('button', { name: 'Remove placeholder Interviews' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith('http://localhost:4100/api/placeholder-tickets/ph1', expect.objectContaining({ method: 'DELETE' })),
+      )
+      await waitFor(() => expect(within(adaRow).queryByText('Interviews')).not.toBeInTheDocument())
+    })
+
+    it('a placeholder ticket never appears under Unmapped or Needs dev/qa, even though it has no Jira ticket behind it', async () => {
+      placeholdersData = [{ _id: 'ph1', teamId: 'team-a', sprintId: 'sprint-1', personId: 'p1', text: 'On-call', estimateHours: 3 }]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('On-call')).toBeInTheDocument())
+
+      const unmappedRow = screen.getByLabelText('Tickets for Unmapped')
+      expect(within(unmappedRow).queryByText('On-call')).not.toBeInTheDocument()
     })
   })
 })

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
-import type { LeaveEntry, Sprint, SprintCapacity, SprintPlanEntry, TeamMembership, TeamSprintPlan } from '../types'
+import type {
+  LeaveEntry,
+  PlaceholderTicket,
+  Sprint,
+  SprintCapacity,
+  SprintPlanEntry,
+  TeamMembership,
+  TeamSprintPlan,
+} from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
 
@@ -29,6 +37,7 @@ interface PlanFetchResult {
   planConfigured: boolean
   capacity: SprintCapacity[]
   entries: SprintPlanEntry[]
+  placeholders: PlaceholderTicket[]
 }
 
 // The picked date range + holidays a saved TeamSprintPlan carries, minus its
@@ -80,11 +89,17 @@ export interface SprintPlanEntryOrderPatch {
 
 // Fetched together since the Planning view always renders them side by side
 // - the capacity strip and the "Tickets by person" table read from entries
-// too (Planned is derived from the same SprintPlanEntry list).
+// too (Planned is derived from the same SprintPlanEntry list). Placeholder
+// tickets are fetched in the same batch since they render inline in the same
+// "Tickets by person" table (as their own badge, alongside SprintPlanEntry
+// placements) - their Planned contribution is already folded into `capacity`
+// server-side (routes/capacity.ts), so no extra client-side math is needed
+// for that part, just the list to render.
 async function fetchCapacityAndEntries(teamId: string, sprintId: string): Promise<PlanFetchResult> {
-  const [capacityRes, entriesRes] = await Promise.all([
+  const [capacityRes, entriesRes, placeholdersRes] = await Promise.all([
     fetch(`${API_URL}/api/teams/${teamId}/sprints/${sprintId}/capacity`),
     fetch(`${API_URL}/api/sprint-plan-entries?teamId=${teamId}&sprintId=${sprintId}`),
+    fetch(`${API_URL}/api/placeholder-tickets?teamId=${teamId}&sprintId=${sprintId}`),
   ])
 
   let planConfigured = true
@@ -102,7 +117,10 @@ async function fetchCapacityAndEntries(teamId: string, sprintId: string): Promis
   if (!entriesRes.ok) throw new Error(await parseErrorMessage(entriesRes))
   const entries: SprintPlanEntry[] = await entriesRes.json()
 
-  return { planConfigured, capacity, entries }
+  if (!placeholdersRes.ok) throw new Error(await parseErrorMessage(placeholdersRes))
+  const placeholders: PlaceholderTicket[] = await placeholdersRes.json()
+
+  return { planConfigured, capacity, entries, placeholders }
 }
 
 export interface UseSprintPlanResult {
@@ -173,6 +191,25 @@ export interface UseSprintPlanResult {
   // post-add refreshPlan(), to decide whether to auto-open the Dev/QA
   // assignment popup.
   addTicket: (rawInput: string) => Promise<SprintPlanEntry | null>
+
+  // Placeholder tickets (non-Jira, manually-created - see types.ts) - fetched
+  // alongside entries above, so they render in the same "Tickets by person"
+  // table pass. `placeholders` is always in sync with `capacity` (both come
+  // off the same refreshPlan() trigger), so the badge shown here and the
+  // Planned figure the capacity card already accounts for never disagree.
+  placeholders: PlaceholderTicket[]
+  addingPlaceholder: boolean
+  addPlaceholderError: string | null
+  // POST /api/placeholder-tickets. Returns the created placeholder, mirroring
+  // addTicket's return shape, though nothing currently needs to key off it
+  // the way addTicket's auto-open-popup flow does.
+  addPlaceholder: (body: { personId: string; text: string; estimateHours: number }) => Promise<PlaceholderTicket | null>
+
+  removingPlaceholderId: string | null
+  removePlaceholderError: string | null
+  // DELETE /api/placeholder-tickets/:id - optimistic like removeEntry, rolls
+  // back the local `placeholders` list on failure.
+  removePlaceholder: (id: string) => Promise<void>
 
   savingDevQaOverride: boolean
   devQaOverrideError: string | null
@@ -258,6 +295,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [planConfigured, setPlanConfigured] = useState(false)
   const [capacity, setCapacity] = useState<SprintCapacity[]>([])
   const [entries, setEntries] = useState<SprintPlanEntry[]>([])
+  const [placeholders, setPlaceholders] = useState<PlaceholderTicket[]>([])
   const [loadingPlan, setLoadingPlan] = useState(true)
   const [planError, setPlanError] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
@@ -278,6 +316,10 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [capacityEntryError, setCapacityEntryError] = useState<string | null>(null)
   const [addingTicket, setAddingTicket] = useState(false)
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
+  const [addingPlaceholder, setAddingPlaceholder] = useState(false)
+  const [addPlaceholderError, setAddPlaceholderError] = useState<string | null>(null)
+  const [removingPlaceholderId, setRemovingPlaceholderId] = useState<string | null>(null)
+  const [removePlaceholderError, setRemovePlaceholderError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
   const [savingAssigneeOverride, setSavingAssigneeOverride] = useState(false)
@@ -375,6 +417,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       setPlanConfigured(false)
       setCapacity([])
       setEntries([])
+      setPlaceholders([])
       setLoadingPlan(false)
       return
     }
@@ -389,6 +432,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         setPlanConfigured(result.planConfigured)
         setCapacity(result.capacity)
         setEntries(result.entries)
+        setPlaceholders(result.placeholders)
       })
       .catch((err) => {
         if (!ignore) setPlanError((err as Error).message)
@@ -563,6 +607,52 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       }
     },
     [teamId, selectedSprintId, refreshPlan],
+  )
+
+  const addPlaceholder = useCallback(
+    async (body: { personId: string; text: string; estimateHours: number }): Promise<PlaceholderTicket | null> => {
+      if (!teamId || !selectedSprintId) return null
+
+      setAddingPlaceholder(true)
+      setAddPlaceholderError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/placeholder-tickets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId, sprintId: selectedSprintId, ...body }),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        const created: PlaceholderTicket = await res.json()
+        refreshPlan()
+        return created
+      } catch (err) {
+        setAddPlaceholderError((err as Error).message)
+        throw err
+      } finally {
+        setAddingPlaceholder(false)
+      }
+    },
+    [teamId, selectedSprintId, refreshPlan],
+  )
+
+  const removePlaceholder = useCallback(
+    async (id: string) => {
+      const previous = placeholders
+      setRemovingPlaceholderId(id)
+      setRemovePlaceholderError(null)
+      setPlaceholders((prev) => prev.filter((p) => getId(p) !== id))
+      try {
+        const res = await fetch(`${API_URL}/api/placeholder-tickets/${id}`, { method: 'DELETE' })
+        if (!res.ok && res.status !== 404) throw new Error(await parseErrorMessage(res))
+      } catch (err) {
+        setPlaceholders(previous)
+        setRemovePlaceholderError((err as Error).message)
+        throw err
+      } finally {
+        setRemovingPlaceholderId(null)
+      }
+    },
+    [placeholders],
   )
 
   const saveDevQaOverride = useCallback(
@@ -747,6 +837,13 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     addingTicket,
     addTicketError,
     addTicket,
+    placeholders,
+    addingPlaceholder,
+    addPlaceholderError,
+    addPlaceholder,
+    removingPlaceholderId,
+    removePlaceholderError,
+    removePlaceholder,
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
