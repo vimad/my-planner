@@ -30,15 +30,23 @@ A finished **spec** for the Sprint Planning Gantt Chart feature: a "Gantt chart"
 
 **Skills to consult while resolving tickets**: `/grilling` + `/domain-modeling` for the grilling tickets; `/prototype` for the prototype ticket. Check `docs/ui-conventions.md` before deciding any visual styling (bar colors, modal chrome, etc.) — copy the existing dropdown/modal/card convention rather than inventing new values.
 
+**Map status: ready for handoff.** All six tickets are resolved; the frontier is empty. The four items still in Not yet specified below were deliberately left unticketed — the user chose to hand this off as-is rather than keep charting, treating them as implementation/prototyping-time judgment calls rather than pre-decided answers.
+
 ## Decisions so far
 
-*(none yet — no tickets resolved)*
+- [01 — SVAR Gantt feasibility prototype](issues/01-svar-feasibility-prototype.md) — SVAR React Gantt (open-source) confirmed viable on all four fronts: per-row leave shading via sibling tasks (not the PRO calendar), Dev/QA bar linking via a native dependency link *and* `data-id`-keyed CSS (no fallback library needed), drag read-back via `update-task`/`api.getTask`, and a widened Archetype-B modal (`max-w-6xl`, capped height). Key new finding: SVAR's "resource planning"/"task grouping" are PRO-gated too (not just the calendar) — rows-per-person must be built as a synthetic parent/child task tree, not SVAR resources.
+- [02 — Row structure: mixed or split Dev/QA sub-rows](issues/02-row-structure.md) — Single row per person, mixing Dev/QA placements sorted by computed start date (matches the Planning sheet's existing merged-order precedent and the single-capacity-pool-per-person model). Ticket 04's placement algorithm uses one walk-forward cursor per person, not per person-per-role.
+- [03 — Unassigned / unresolved-role ticket handling](issues/03-unassigned-handling.md) — Excluded entirely from the Gantt's initial render (no pseudo-row, no bar) — stays visible only via the Planning sheet's existing Unmapped/Needs-dev/qa rows. Ticket 04's placement algorithm never needs a "no capacity data" branch.
+- [04 — Bar placement algorithm spec](issues/04-bar-placement-algorithm.md) — One walk-forward cursor per person, sized by `plannedHours` (not raw estimate); flat per-day rate `8 × effectivePercentage/100`, zeroed on leave/holiday, halved on half-leave (CapacityLookup exceptions not decomposed per day); an existing override makes the cursor jump to `max(cursor, override.end)` before continuing later auto-placements; computed entirely frontend-side.
+- [05 — Persistence data model & API contract](issues/05-persistence-data-model.md) — Embed on `SprintPlanEntry` (mirrors its existing Plan/Spill nullable-field pattern): new `ganttStartDate`/`devGanttStartDate`/`qaGanttStartDate` fields, `'YYYY-MM-DD'` string or `null`. Extends the existing `PATCH /api/sprint-plan-entries/:id` (no new/bulk endpoint), accepts explicit `null` to clear an override; a drag emits one PATCH per changed placement, mirroring `computeReorderPatches`.
+- [06 — Sprint date-range-change reconciliation](issues/06-sprint-date-change-reconciliation.md) — An override on a now-invalid day (before the new `startDate`, or a newly-added holiday) clamps forward to the next valid working day on read, silently — deliberately not mirroring `leaveEntries`' drop precedent. An override past a narrowed `endDate` is left as-is (already a supported spillover state).
 
 ## Not yet specified
 
 - Exact visual styling for bars (color by ticket type/status/stream?) and leave/holiday shading placement relative to bars, beyond "reuse the Leave grid's color vocabulary" — will sharpen once the prototype ticket (Ticket 01) has something concrete to react to.
 - Time-axis scale/zoom for longer or shorter sprints (fixed day-column width vs a horizontal-scroll/zoom control) — deferred until the prototype has rendered real sprint data.
 - Error/retry UX when an autosaved drag fails to persist (network failure, stale entry, etc.) — not yet sharp enough to ticket.
+- UI affordance for clearing a start-date override back to auto-placement (right-click? a reset icon on the bar? something else?) — the API contract already supports it (Ticket 05: `PATCH` accepts explicit `null`), but the trigger itself is a UI-implementation detail, not yet sharp enough to ticket.
 
 ## Out of scope
 
