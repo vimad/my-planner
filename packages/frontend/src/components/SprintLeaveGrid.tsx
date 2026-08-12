@@ -82,7 +82,7 @@ function ExtraHoursCell({
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
       aria-label={`Extra allocation hours for ${personName}`}
-      className="w-14 rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-right text-xs text-slate-700 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+      className="w-14 [appearance:textfield] rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-left text-xs text-slate-700 focus:border-fuchsia-400/60 focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
     />
   )
 }
@@ -138,7 +138,7 @@ export function SprintLeaveGrid({
               <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 text-left font-semibold text-slate-500 dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-300">
                 Person
               </th>
-              <th className="border-b border-slate-200 px-1.5 py-1.5 text-right font-semibold text-slate-500 dark:border-white/10 dark:text-slate-300">
+              <th className="border-b border-slate-200 py-1.5 pl-1.5 pr-4 text-left font-semibold text-slate-500 dark:border-white/10 dark:text-slate-300">
                 Extra hrs
               </th>
               {columns.map(({ date }) => (
@@ -162,7 +162,7 @@ export function SprintLeaveGrid({
                   <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-2 py-1 font-medium text-slate-800 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
                     {c.personName}
                   </td>
-                  <td className="px-1.5 py-1 text-right">
+                  <td className="py-1 pl-1.5 pr-4 text-left">
                     <ExtraHoursCell
                       teamMembershipId={c.teamMembershipId}
                       personName={c.personName}
