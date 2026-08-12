@@ -60,6 +60,14 @@ vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
   TicketAssigneeOverride: { find: vi.fn() },
 }))
 
+interface MockedTicketFeatureOverrideModel {
+  find: Mock
+}
+
+vi.mock('../src/models/TicketFeatureOverride.ts', () => ({
+  TicketFeatureOverride: { find: vi.fn() },
+}))
+
 // isSplitTicket is real (a trivial pure predicate) — only resolveDevQa (the
 // DB-touching part) is mocked, same posture as capacity.route.test.ts. Its
 // own resolution logic gets its own coverage in devQaResolution.test.ts;
@@ -89,6 +97,9 @@ const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride
 }
 const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOverride.ts')) as unknown as {
   TicketAssigneeOverride: MockedTicketAssigneeOverrideModel
+}
+const { TicketFeatureOverride } = (await import('../src/models/TicketFeatureOverride.ts')) as unknown as {
+  TicketFeatureOverride: MockedTicketFeatureOverrideModel
 }
 const { resolveDevQa, roleSubtaskEstimateHours } = (await import('../src/services/devQaResolution.ts')) as unknown as {
   resolveDevQa: Mock
@@ -133,6 +144,9 @@ describe('SprintPlanEntry routes', () => {
     // Default: no Assignee Override recorded for any ticket - only the GET
     // tests that specifically exercise the Override need to override this.
     TicketAssigneeOverride.find.mockResolvedValue([])
+    // Default: no Feature Override recorded for any ticket - only the GET
+    // tests that specifically exercise it need to override this.
+    TicketFeatureOverride.find.mockResolvedValue([])
     // Default: no Sub-tasks - GET's non-split branch now always calls the
     // real computeEffortHours (Original for Plan/Spill, spec ".scratch/
     // sprint-plan-spill-estimate/spec.md") which queries Ticket.find itself;
@@ -341,7 +355,7 @@ describe('SprintPlanEntry routes', () => {
       expect(res.status).toBe(200)
       expect(SprintPlanEntry.find).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
       expect(res.body).toEqual([
-        { ...doc.toObject(), assigneeOverridePersonId: null, estimateHours: 0, plannedHours: 0 },
+        { ...doc.toObject(), assigneeOverridePersonId: null, isFeature: false, estimateHours: 0, plannedHours: 0 },
       ])
     })
 
@@ -369,18 +383,20 @@ describe('SprintPlanEntry routes', () => {
       resolveDevQa.mockResolvedValue(devQa)
       roleSubtaskEstimateHours.mockImplementation((_jiraKey: string, kind: string) => Promise.resolve(kind === 'Dev' ? 6 : 2))
       TicketAssigneeOverride.find.mockResolvedValue([{ ticketId: 'tk-1', personId: 'p9' }])
+      TicketFeatureOverride.find.mockResolvedValue([{ ticketId: 'tk-1', isFeature: true }])
 
       const app = createApp()
       const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
 
       expect(res.status).toBe(200)
       expect(TicketAssigneeOverride.find).toHaveBeenCalledWith({ ticketId: { $in: ['tk-1'] } })
+      expect(TicketFeatureOverride.find).toHaveBeenCalledWith({ ticketId: { $in: ['tk-1'] } })
       expect(TeamMembership.find).toHaveBeenCalledWith({ teamId: 't1' })
       expect(resolveDevQa).toHaveBeenCalledWith(splitEntry.ticketId, [{ personId: 'p1', jiraAccountId: 'acct-a' }])
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Dev')
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Test')
       expect(res.body).toEqual([
-        { ...nonSplitEntry.toObject(), assigneeOverridePersonId: 'p9', estimateHours: 0, plannedHours: 0 },
+        { ...nonSplitEntry.toObject(), assigneeOverridePersonId: 'p9', isFeature: true, estimateHours: 0, plannedHours: 0 },
         {
           _id: 'e2',
           order: 0,

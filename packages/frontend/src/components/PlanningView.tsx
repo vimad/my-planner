@@ -8,12 +8,14 @@ import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPl
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
+import { SprintBreakdownCard } from './SprintBreakdownCard'
 import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
 import { TicketInfoPopup } from './TicketInfoPopup'
 import { parseLocalDate } from '../utils/dateAgenda'
 import { formatDaysHours } from '../utils/formatDuration'
 import { getId } from '../utils/getId'
+import { computeSprintBreakdown } from '../utils/sprintBreakdown'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import { ticketTypeAccent } from '../utils/ticketType'
 import type { LeaveEntry, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
@@ -887,6 +889,9 @@ export function PlanningView({ team }: { team: Team }) {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingFeatureOverride,
+    featureOverrideError,
+    saveFeatureOverride,
     savingPlanSpill,
     planSpillError,
     savePlanSpill,
@@ -1043,6 +1048,11 @@ export function PlanningView({ team }: { team: Team }) {
     return { ticketsByMembershipId: byMembership, unmappedPlacements: unmapped, needsAssignmentPlacements: needsAssignment }
   }, [memberships, entries])
 
+  // Sprint Breakdown card's Features/Technical items/Bugs totals (map's
+  // Notes) - recomputed whenever entries or memberships change, same
+  // reactivity as ticketsByMembershipId above.
+  const breakdown = useMemo(() => computeSprintBreakdown(entries, memberships), [entries, memberships])
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -1123,57 +1133,60 @@ export function PlanningView({ team }: { team: Team }) {
             error={addTicketError}
           />
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
-              <div className="flex items-center gap-2">
-                {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
-                <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md lg:flex-1">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
+                <div className="flex items-center gap-2">
+                  {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
+                  <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
+                </div>
               </div>
-            </div>
-            {loadingMemberships ? (
-              <p className="text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
-            ) : memberships.length === 0 ? (
-              <p className="text-sm text-slate-400 dark:text-slate-500">
-                No one on this team yet — use &quot;Manage teams&quot; to add people.
-              </p>
-            ) : (
-              <div>
-                {memberships.map((membership) => (
+              {loadingMemberships ? (
+                <p className="text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
+              ) : memberships.length === 0 ? (
+                <p className="text-sm text-slate-400 dark:text-slate-500">
+                  No one on this team yet — use &quot;Manage teams&quot; to add people.
+                </p>
+              ) : (
+                <div>
+                  {memberships.map((membership) => (
+                    <PersonRow
+                      key={getId(membership)}
+                      name={membership.personId.name}
+                      placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
+                      onOpenPopup={setPopupTicketId}
+                      onReorder={reorderEntries}
+                      onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
+                      removingEntryId={removingEntryId}
+                      poppedEntryId={poppedEntryId}
+                      onTogglePop={handleTogglePop}
+                    />
+                  ))}
                   <PersonRow
-                    key={getId(membership)}
-                    name={membership.personId.name}
-                    placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
+                    name="Unmapped"
+                    placements={unmappedPlacements}
+                    variant="unmapped"
                     onOpenPopup={setPopupTicketId}
-                    onReorder={reorderEntries}
                     onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                     removingEntryId={removingEntryId}
                     poppedEntryId={poppedEntryId}
                     onTogglePop={handleTogglePop}
                   />
-                ))}
-                <PersonRow
-                  name="Unmapped"
-                  placements={unmappedPlacements}
-                  variant="unmapped"
-                  onOpenPopup={setPopupTicketId}
-                  onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
-                  removingEntryId={removingEntryId}
-                  poppedEntryId={poppedEntryId}
-                  onTogglePop={handleTogglePop}
-                />
-                <PersonRow
-                  name="Needs dev/qa"
-                  placements={needsAssignmentPlacements}
-                  variant="needsAssignment"
-                  onOpenPopup={setPopupTicketId}
-                  onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
-                  removingEntryId={removingEntryId}
-                  poppedEntryId={poppedEntryId}
-                  onTogglePop={handleTogglePop}
-                />
-              </div>
-            )}
+                  <PersonRow
+                    name="Needs dev/qa"
+                    placements={needsAssignmentPlacements}
+                    variant="needsAssignment"
+                    onOpenPopup={setPopupTicketId}
+                    onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
+                    removingEntryId={removingEntryId}
+                    poppedEntryId={poppedEntryId}
+                    onTogglePop={handleTogglePop}
+                  />
+                </div>
+              )}
+            </div>
+            <SprintBreakdownCard breakdown={breakdown} />
           </div>
         </>
       )}
@@ -1201,6 +1214,9 @@ export function PlanningView({ team }: { team: Team }) {
             savingPlanSpill={savingPlanSpill}
             planSpillError={planSpillError}
             onSavePlanSpill={(pair) => savePlanSpill(getId(popupEntry) ?? '', 'single', pair)}
+            savingFeatureOverride={savingFeatureOverride}
+            featureOverrideError={featureOverrideError}
+            onSaveFeature={(isFeature) => saveFeatureOverride(getId(popupEntry.ticketId) ?? '', isFeature)}
             onClose={() => setPopupTicketId(null)}
           />
         ))}

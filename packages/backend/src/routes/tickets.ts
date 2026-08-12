@@ -4,6 +4,7 @@ import { Team } from '../models/Team.ts'
 import { Ticket } from '../models/Ticket.ts'
 import { TicketAssigneeOverride } from '../models/TicketAssigneeOverride.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
+import { TicketFeatureOverride } from '../models/TicketFeatureOverride.ts'
 
 export const ticketsRouter = Router()
 
@@ -14,6 +15,10 @@ interface DevQaOverrideBody {
 
 interface AssigneeOverrideBody {
   personId?: string | null
+}
+
+interface FeatureOverrideBody {
+  isFeature?: unknown
 }
 
 // GET /api/tickets?teamId=&sprintId= -> every cached Ticket currently in
@@ -96,6 +101,33 @@ ticketsRouter.put(
       const override = await TicketAssigneeOverride.findOneAndUpdate(
         { ticketId: req.params.ticketId },
         { $set: { personId: req.body.personId ?? null }, $setOnInsert: { ticketId: req.params.ticketId } },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      )
+
+      res.json(override)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// PATCH /api/tickets/:ticketId/feature -> body { isFeature }. Upserts the
+// (non-split) ticket's TicketFeatureOverride - the Sprint Breakdown card's
+// Feature-vs-Technical-item classification (map's Notes), mirroring the
+// assignee-override route above but with no "clear" state: `isFeature` is
+// always a plain boolean (true or false), never null, so there's no
+// "follow Jira" default to fall back to the way personId has one.
+ticketsRouter.patch(
+  '/:ticketId/feature',
+  async (req: Request<{ ticketId: string }, unknown, FeatureOverrideBody>, res: Response, next: NextFunction) => {
+    try {
+      if (!('isFeature' in req.body) || typeof req.body.isFeature !== 'boolean') {
+        return res.status(400).json({ error: 'isFeature is required and must be a boolean' })
+      }
+
+      const override = await TicketFeatureOverride.findOneAndUpdate(
+        { ticketId: req.params.ticketId },
+        { $set: { isFeature: req.body.isFeature }, $setOnInsert: { ticketId: req.params.ticketId } },
         { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
 

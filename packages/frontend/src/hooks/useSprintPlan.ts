@@ -189,6 +189,14 @@ export interface UseSprintPlanResult {
   // so the badge moves into the newly-picked person's row.
   saveAssigneeOverride: (ticketId: string, body: { personId: string | null }) => Promise<void>
 
+  savingFeatureOverride: boolean
+  featureOverrideError: string | null
+  // PATCH /api/tickets/:ticketId/feature (map's Notes) - TicketInfoPopup's
+  // "Counts as a Feature" checkbox save action. Refreshes the plan on
+  // success, same as saveAssigneeOverride above, so the Sprint Breakdown
+  // card's totals reflect the new classification immediately.
+  saveFeatureOverride: (ticketId: string, isFeature: boolean) => Promise<void>
+
   savingPlanSpill: boolean
   planSpillError: string | null
   // PATCH /api/sprint-plan-entries/:id (spec ".scratch/
@@ -274,6 +282,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
   const [savingAssigneeOverride, setSavingAssigneeOverride] = useState(false)
   const [assigneeOverrideError, setAssigneeOverrideError] = useState<string | null>(null)
+  const [savingFeatureOverride, setSavingFeatureOverride] = useState(false)
+  const [featureOverrideError, setFeatureOverrideError] = useState<string | null>(null)
   const [savingPlanSpill, setSavingPlanSpill] = useState(false)
   const [planSpillError, setPlanSpillError] = useState<string | null>(null)
   const [syncingPlan, setSyncingPlan] = useState(false)
@@ -599,6 +609,28 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [refreshPlan],
   )
 
+  const saveFeatureOverride = useCallback(
+    async (ticketId: string, isFeature: boolean) => {
+      setSavingFeatureOverride(true)
+      setFeatureOverrideError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/tickets/${ticketId}/feature`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isFeature }),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setFeatureOverrideError((err as Error).message)
+        throw err
+      } finally {
+        setSavingFeatureOverride(false)
+      }
+    },
+    [refreshPlan],
+  )
+
   const savePlanSpill = useCallback(
     async (entryId: string, role: 'dev' | 'qa' | 'single', pair: { planHours: number; spillHours: number }) => {
       setSavingPlanSpill(true)
@@ -721,6 +753,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingFeatureOverride,
+    featureOverrideError,
+    saveFeatureOverride,
     savingPlanSpill,
     planSpillError,
     savePlanSpill,

@@ -285,6 +285,13 @@ export interface SprintPlanEntry {
   // entry, mirroring devQa's "present only for a Split entry" convention -
   // the two never coexist on the same entry.
   assigneeOverridePersonId?: string | null
+  // A non-split entry's Feature classification (map's Notes) - whether it
+  // counts toward the Sprint Breakdown card's Features slice instead of
+  // Technical items (utils/sprintBreakdown.ts). Present (always a plain
+  // boolean, defaulting `false`) only for a non-split entry, mirroring
+  // assigneeOverridePersonId's "present only for a non-split entry"
+  // convention above - a Split entry's bucket is fixed by type instead.
+  isFeature?: boolean
   // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md", ADR
   // 0006) - a per-sprint, per-role adjustment to Original (Effort) for
   // capacity purposes: Plan (defaults to Original) minus Spill (defaults to

@@ -7,6 +7,9 @@ interface MockedTicketDevQaOverrideModel {
 interface MockedTicketAssigneeOverrideModel {
   findOneAndUpdate: Mock
 }
+interface MockedTicketFeatureOverrideModel {
+  findOneAndUpdate: Mock
+}
 interface MockedTeamModel {
   findById: Mock
 }
@@ -23,6 +26,9 @@ vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
 vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
   TicketAssigneeOverride: { findOneAndUpdate: vi.fn() },
 }))
+vi.mock('../src/models/TicketFeatureOverride.ts', () => ({
+  TicketFeatureOverride: { findOneAndUpdate: vi.fn() },
+}))
 vi.mock('../src/models/Team.ts', () => ({ Team: { findById: vi.fn() } }))
 vi.mock('../src/models/Sprint.ts', () => ({ Sprint: { findById: vi.fn() } }))
 vi.mock('../src/models/Ticket.ts', () => ({ Ticket: { find: vi.fn() } }))
@@ -32,6 +38,9 @@ const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride
 }
 const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOverride.ts')) as unknown as {
   TicketAssigneeOverride: MockedTicketAssigneeOverrideModel
+}
+const { TicketFeatureOverride } = (await import('../src/models/TicketFeatureOverride.ts')) as unknown as {
+  TicketFeatureOverride: MockedTicketFeatureOverrideModel
 }
 const { Team } = (await import('../src/models/Team.ts')) as unknown as { Team: MockedTeamModel }
 const { Sprint } = (await import('../src/models/Sprint.ts')) as unknown as { Sprint: MockedSprintModel }
@@ -196,6 +205,56 @@ describe('PUT /api/tickets/:ticketId/assignee-override', () => {
     expect(TicketAssigneeOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: { personId: null }, $setOnInsert: { ticketId: 'ticket-1' } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    )
+  })
+})
+
+describe('PATCH /api/tickets/:ticketId/feature', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects a body with no isFeature key at all', async () => {
+    const app = createApp()
+    const res = await request(app).patch('/api/tickets/ticket-1/feature').send({})
+
+    expect(res.status).toBe(400)
+    expect(TicketFeatureOverride.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-boolean isFeature', async () => {
+    const app = createApp()
+    const res = await request(app).patch('/api/tickets/ticket-1/feature').send({ isFeature: 'true' })
+
+    expect(res.status).toBe(400)
+    expect(TicketFeatureOverride.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('upserts isFeature: true', async () => {
+    TicketFeatureOverride.findOneAndUpdate.mockResolvedValue({ ticketId: 'ticket-1', isFeature: true })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/tickets/ticket-1/feature').send({ isFeature: true })
+
+    expect(res.status).toBe(200)
+    expect(TicketFeatureOverride.findOneAndUpdate).toHaveBeenCalledWith(
+      { ticketId: 'ticket-1' },
+      { $set: { isFeature: true }, $setOnInsert: { ticketId: 'ticket-1' } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    )
+  })
+
+  it('upserts isFeature: false', async () => {
+    TicketFeatureOverride.findOneAndUpdate.mockResolvedValue({ ticketId: 'ticket-1', isFeature: false })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/tickets/ticket-1/feature').send({ isFeature: false })
+
+    expect(res.status).toBe(200)
+    expect(TicketFeatureOverride.findOneAndUpdate).toHaveBeenCalledWith(
+      { ticketId: 'ticket-1' },
+      { $set: { isFeature: false }, $setOnInsert: { ticketId: 'ticket-1' } },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })

@@ -20,9 +20,9 @@ An implementation-ready spec for a new **Sprint Breakdown** card in the Sprint P
 
 ## Decisions so far
 
-## Not yet specified
+- [Visual design prototype](issues/01-visual-design-prototype.md) — Variant A ("Stacked sidebar") won: fixed `lg:w-80` card right of the table (stacks below on narrow), header → headline → donut → vertical legend list top to bottom, largest-remainder percentage rounding, dashed-placeholder empty state, and the "Counts as a Feature" checkbox as its own block right after the ticket title in `TicketInfoPopup.tsx`. Full three-variant comparison lives on branch `prototype/sprint-breakdown-card`.
 
-- Whatever the prototype session's visual exploration surfaces beyond layout — empty-state treatment when no dev tickets are planned yet, exact checkbox copy/placement within `TicketInfoPopup`, percentage rounding behavior, exact table/card width split and responsive behavior. Deferred to the prototype ticket itself rather than pre-specified.
+## Not yet specified
 
 ## Out of scope
 

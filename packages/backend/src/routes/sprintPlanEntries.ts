@@ -8,6 +8,7 @@ import type { PersonDoc } from '../models/Person.ts'
 import { refreshStatusSet } from '../services/statusSync.ts'
 import { computeEffortHours, fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
 import { loadAssigneeOverrides } from '../services/assigneeResolution.ts'
+import { loadFeatureOverrides } from '../services/featureResolution.ts'
 import {
   isSplitTicket,
   resolveDevQa,
@@ -265,7 +266,12 @@ sprintPlanEntriesRouter.post(
 // carries `assigneeOverridePersonId` — its Assignee Override's personId
 // (docs/adr/0005), or null when none is set — so the frontend can place the
 // badge under the Override's row instead of Jira's own assigneeAccountId
-// without redoing the Override lookup itself.
+// without redoing the Override lookup itself. A non-split entry also carries
+// `isFeature` — its TicketFeatureOverride's flag (default `false`), so the
+// Sprint Breakdown card's Features-vs-Technical-items bucketing
+// (utils/sprintBreakdown.ts on the frontend) doesn't redo the lookup itself.
+// A Split entry never carries `isFeature` — its bucket is fixed by type
+// (Story -> Features, Bug -> Bugs), no classification to load.
 //
 // Every entry also gains its Plan/Spill figures (spec ".scratch/
 // sprint-plan-spill-estimate/spec.md", ADR 0006): the resolved figures
@@ -291,15 +297,17 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
 
     const nonSplitTicketIds = entries.filter((entry) => !isSplitTicket(entry.ticketId.type)).map((entry) => entry.ticketId._id)
     const assigneeOverrideByTicketId = await loadAssigneeOverrides(nonSplitTicketIds)
+    const featureOverrideByTicketId = await loadFeatureOverrides(nonSplitTicketIds)
 
     const withDevQa = await Promise.all(
       entries.map(async (entry): Promise<unknown> => {
         const ticket = entry.ticketId
         if (!isSplitTicket(ticket.type)) {
           const assigneeOverridePersonId = assigneeOverrideByTicketId.get(String(ticket._id)) ?? null
+          const isFeature = featureOverrideByTicketId.get(String(ticket._id)) ?? false
           const estimateHours = (await computeEffortHours(ticket)) ?? 0
           const planned = plannedHours(estimateHours, { planHours: entry.planHours, spillHours: entry.spillHours })
-          return { ...entry.toObject(), assigneeOverridePersonId, estimateHours, plannedHours: planned }
+          return { ...entry.toObject(), assigneeOverridePersonId, isFeature, estimateHours, plannedHours: planned }
         }
 
         const [devQa, devEstimateHours, qaEstimateHours]: [DevQaResolution, number, number] = await Promise.all([

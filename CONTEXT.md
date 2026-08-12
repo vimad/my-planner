@@ -54,6 +54,10 @@ _Avoid_: Reassignment (this is a Planning-only annotation, never written back to
 The non-split-ticket equivalent of a Dev/QA Override: a manually-picked Planning-only owner for a Task or Sub-task, recorded when the team wants to plan around someone other than Jira's own assignee. Stored independently of Ticket, never written back to Jira, and once set always wins over the ticket's own `assigneeAccountId` for both Planning-table placement and the Planned capacity figure — see [ADR 0005](docs/adr/0005-assignee-override-wins-over-jira-resync.md). Jira's own assignee stays visible (read-only) in the Planning table's ticket popup regardless.
 _Avoid_: Reassignment (same reasoning as Dev/QA Override — a local annotation, not a Jira mutation).
 
+**Feature classification**:
+A manually-picked Feature/Technical-item bucket for a Task or Sub-task, recorded so the Sprint Breakdown card can count it toward its Features slice instead of the Technical items default. A Story always counts as a Feature and a Bug always counts as Bugs — this classification only applies to non-split tickets, which have no type-driven bucket of their own. Stored independently of Ticket, never written back to Jira, and once set always wins over resync the same way a Dev/QA Override or Assignee Override does — see [ADR 0004](docs/adr/0004-dev-qa-override-wins-over-jira-resync.md)/[ADR 0005](docs/adr/0005-assignee-override-wins-over-jira-resync.md).
+_Avoid_: Reassignment (same reasoning as Dev/QA Override/Assignee Override — a local annotation, not a Jira mutation).
+
 **Epic**:
 A cached snapshot of a Jira epic (key, title, status). Its set of child Tickets and their progress are never stored on the Epic itself — always computed by looking up Tickets that reference it.
 

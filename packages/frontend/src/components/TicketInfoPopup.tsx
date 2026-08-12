@@ -25,6 +25,12 @@ interface TicketInfoPopupProps {
   savingPlanSpill: boolean
   planSpillError: string | null
   onSavePlanSpill: (pair: PlanSpillPair) => Promise<void>
+  // PATCH /api/tickets/:ticketId/feature (map's Notes) - the "Counts as a
+  // Feature" checkbox's save action, batched with the other saves the same
+  // way onSave/onSavePlanSpill are.
+  savingFeatureOverride: boolean
+  featureOverrideError: string | null
+  onSaveFeature: (isFeature: boolean) => Promise<void>
   onClose: () => void
 }
 
@@ -46,6 +52,9 @@ export function TicketInfoPopup({
   savingPlanSpill,
   planSpillError,
   onSavePlanSpill,
+  savingFeatureOverride,
+  featureOverrideError,
+  onSaveFeature,
   onClose,
 }: TicketInfoPopupProps) {
   const ticket = entry.ticketId
@@ -56,15 +65,20 @@ export function TicketInfoPopup({
   const initialPair = initialPlanSpillPair(entry.planHours ?? undefined, entry.spillHours ?? undefined, original)
   const [pair, setPair] = useState(initialPair)
 
+  const initialIsFeature = entry.isFeature ?? false
+  const [isFeature, setIsFeature] = useState(initialIsFeature)
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
 
     const personChanged = personId !== initialPersonId
     const pairChanged = pair.planHours !== initialPair.planHours || pair.spillHours !== initialPair.spillHours
+    const isFeatureChanged = isFeature !== initialIsFeature
 
     const saves: Promise<unknown>[] = []
     if (personChanged) saves.push(onSave({ personId: personId || null }))
     if (pairChanged) saves.push(onSavePlanSpill(pair))
+    if (isFeatureChanged) saves.push(onSaveFeature(isFeature))
 
     if (saves.length === 0) {
       onClose()
@@ -102,6 +116,15 @@ export function TicketInfoPopup({
           </a>
         </div>
         <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">{ticket.title}</p>
+        <div className="mb-4 flex flex-col gap-1 rounded-lg border border-slate-200 p-3 dark:border-white/10">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <input type="checkbox" checked={isFeature} onChange={(e) => setIsFeature(e.target.checked)} />
+            Counts as a Feature
+          </label>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Included in the Features slice of the Sprint breakdown card, instead of Technical items.
+          </p>
+        </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-300">Planning assignee</span>
@@ -131,6 +154,7 @@ export function TicketInfoPopup({
             error={planSpillError}
           />
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {featureOverrideError && <p className="text-xs text-red-600 dark:text-red-400">{featureOverrideError}</p>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -141,10 +165,10 @@ export function TicketInfoPopup({
             </button>
             <button
               type="submit"
-              disabled={saving || savingPlanSpill}
+              disabled={saving || savingPlanSpill || savingFeatureOverride}
               className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving || savingPlanSpill ? 'Saving…' : 'Save'}
+              {saving || savingPlanSpill || savingFeatureOverride ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>
