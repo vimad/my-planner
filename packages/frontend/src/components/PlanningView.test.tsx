@@ -226,6 +226,7 @@ function entry(
     devQa?: { dev: DevQaRoleResolution; qa: DevQaRoleResolution }
     devEstimateHours?: number
     qaEstimateHours?: number
+    assigneeOverridePersonId?: string | null
   },
 ): SprintPlanEntry {
   return {
@@ -242,6 +243,10 @@ function entry(
     ...(extra?.devQa ? { devQa: extra.devQa } : {}),
     ...(extra?.devEstimateHours != null ? { devEstimateHours: extra.devEstimateHours } : {}),
     ...(extra?.qaEstimateHours != null ? { qaEstimateHours: extra.qaEstimateHours } : {}),
+    // Present (possibly null) only for a non-split entry (docs/adr/0005) -
+    // omitted here when unset so it doesn't spuriously appear on a Split
+    // fixture, matching the real GET contract's "the two never coexist".
+    ...(extra && 'assigneeOverridePersonId' in extra ? { assigneeOverridePersonId: extra.assigneeOverridePersonId } : {}),
   }
 }
 
@@ -316,6 +321,16 @@ function stubFetch(): FetchMock {
         }
         return { ...e, devQa: nextDevQa }
       })
+      return jsonResponse({ ticketId, ...body })
+    }
+
+    if (href.includes('/assignee-override') && method === 'PUT') {
+      const match = href.match(/\/api\/tickets\/([^/]+)\/assignee-override/)
+      const ticketId = match?.[1]
+      const body: { personId: string | null } = JSON.parse(init?.body ?? '{}')
+      entriesData = entriesData.map((e) =>
+        e.ticketId._id === ticketId ? { ...e, assigneeOverridePersonId: body.personId } : e,
+      )
       return jsonResponse({ ticketId, ...body })
     }
 
@@ -474,7 +489,7 @@ describe('PlanningView', () => {
     expect(within(adaRow).getByText(/Fix login — To Do, synced/)).toBeInTheDocument()
   })
 
-  it('clicking a non-split ticket badge opens a read-only info popup with title, Jira link, and assignee - not the dev/qa reassignment popup', async () => {
+  it('clicking a non-split ticket badge opens an info popup with title, Jira link, and a Planning-assignee picker - not the dev/qa reassignment popup', async () => {
     render(<PlanningView team={team} />)
 
     const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
@@ -487,9 +502,90 @@ describe('PlanningView', () => {
     expect(jiraLink).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-100')
     expect(within(dialog).queryByLabelText('Dev assignee')).not.toBeInTheDocument()
     expect(within(dialog).queryByLabelText('QA assignee')).not.toBeInTheDocument()
+    // Jira's own assignee is still shown, read-only, current behavior kept.
+    expect(within(dialog).getByText('Jira assignee: Unassigned')).toBeInTheDocument()
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('offers every team member (unrestricted by role) as a Planning assignee, defaulting to "Follow Jira" when no Override is set yet', async () => {
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-100' })
+    fireEvent.click(badge)
+
+    const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-100' })
+    const select = within(dialog).getByLabelText('Planning assignee')
+    expect(select).toHaveValue('')
+    expect(within(select).getByText('Ada Lovelace')).toBeInTheDocument()
+    expect(within(select).getByText('Grace Hopper')).toBeInTheDocument()
+  })
+
+  it("saving a Planning-assignee pick PUTs the Assignee Override and moves the badge into the picked person's row, leaving Jira's own assignee untouched", async () => {
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-100' })
+    fireEvent.click(badge)
+
+    const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-100' })
+    fireEvent.change(within(dialog).getByLabelText('Planning assignee'), { target: { value: 'p2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:4100/api/tickets/WOSMVP-100/assignee-override',
+        expect.objectContaining({ method: 'PUT', body: JSON.stringify({ personId: 'p2' }) }),
+      ),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    const graceRow = screen.getByLabelText('Tickets for Grace Hopper')
+    await waitFor(() => expect(within(graceRow).getByText('100')).toBeInTheDocument())
+    expect(within(adaRow).queryByText('100')).not.toBeInTheDocument()
+  })
+
+  it('pre-selects an already-set Override, and picking "Follow Jira" clears it (sends personId: null)', async () => {
+    entriesData = entriesData.map((e) =>
+      e.ticketId._id === 'WOSMVP-100' ? { ...e, assigneeOverridePersonId: 'p2' } : e,
+    )
+    render(<PlanningView team={team} />)
+
+    const graceRow = await screen.findByLabelText('Tickets for Grace Hopper')
+    const badge = await within(graceRow).findByRole('button', { name: 'Open WOSMVP-100' })
+    fireEvent.click(badge)
+
+    const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-100' })
+    const select = within(dialog).getByLabelText('Planning assignee')
+    expect(select).toHaveValue('p2')
+
+    fireEvent.change(select, { target: { value: '' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:4100/api/tickets/WOSMVP-100/assignee-override',
+        expect.objectContaining({ method: 'PUT', body: JSON.stringify({ personId: null }) }),
+      ),
+    )
+  })
+
+  it('closing without changing the Planning-assignee pick does not save anything', async () => {
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-100' })
+    fireEvent.click(badge)
+
+    const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-100' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/assignee-override'),
+      expect.anything(),
+    )
   })
 
   it("shows an estimate sub-label (e.g. '1d 4h') instead of the raw type text, and colors the badge by issue type", async () => {

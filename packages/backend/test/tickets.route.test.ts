@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 interface MockedTicketDevQaOverrideModel {
   findOneAndUpdate: Mock
 }
+interface MockedTicketAssigneeOverrideModel {
+  findOneAndUpdate: Mock
+}
 interface MockedTeamModel {
   findById: Mock
 }
@@ -17,12 +20,18 @@ interface MockedTicketModel {
 vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
   TicketDevQaOverride: { findOneAndUpdate: vi.fn() },
 }))
+vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
+  TicketAssigneeOverride: { findOneAndUpdate: vi.fn() },
+}))
 vi.mock('../src/models/Team.ts', () => ({ Team: { findById: vi.fn() } }))
 vi.mock('../src/models/Sprint.ts', () => ({ Sprint: { findById: vi.fn() } }))
 vi.mock('../src/models/Ticket.ts', () => ({ Ticket: { find: vi.fn() } }))
 
 const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
   TicketDevQaOverride: MockedTicketDevQaOverrideModel
+}
+const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOverride.ts')) as unknown as {
+  TicketAssigneeOverride: MockedTicketAssigneeOverrideModel
 }
 const { Team } = (await import('../src/models/Team.ts')) as unknown as { Team: MockedTeamModel }
 const { Sprint } = (await import('../src/models/Sprint.ts')) as unknown as { Sprint: MockedSprintModel }
@@ -145,6 +154,48 @@ describe('PUT /api/tickets/:ticketId/dev-qa-override', () => {
     expect(TicketDevQaOverride.findOneAndUpdate).toHaveBeenCalledWith(
       { ticketId: 'ticket-1' },
       { $set: {}, $setOnInsert: { ticketId: 'ticket-1' } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    )
+  })
+})
+
+describe('PUT /api/tickets/:ticketId/assignee-override', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects a body with no personId key at all', async () => {
+    const app = createApp()
+    const res = await request(app).put('/api/tickets/ticket-1/assignee-override').send({})
+
+    expect(res.status).toBe(400)
+    expect(TicketAssigneeOverride.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('upserts the Override with the given personId', async () => {
+    TicketAssigneeOverride.findOneAndUpdate.mockResolvedValue({ ticketId: 'ticket-1', personId: 'person-ada' })
+
+    const app = createApp()
+    const res = await request(app).put('/api/tickets/ticket-1/assignee-override').send({ personId: 'person-ada' })
+
+    expect(res.status).toBe(200)
+    expect(TicketAssigneeOverride.findOneAndUpdate).toHaveBeenCalledWith(
+      { ticketId: 'ticket-1' },
+      { $set: { personId: 'person-ada' }, $setOnInsert: { ticketId: 'ticket-1' } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    )
+  })
+
+  it('an explicit null clears the Override back to following Jira', async () => {
+    TicketAssigneeOverride.findOneAndUpdate.mockResolvedValue({ ticketId: 'ticket-1', personId: null })
+
+    const app = createApp()
+    const res = await request(app).put('/api/tickets/ticket-1/assignee-override').send({ personId: null })
+
+    expect(res.status).toBe(200)
+    expect(TicketAssigneeOverride.findOneAndUpdate).toHaveBeenCalledWith(
+      { ticketId: 'ticket-1' },
+      { $set: { personId: null }, $setOnInsert: { ticketId: 'ticket-1' } },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     )
   })

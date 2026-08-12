@@ -50,6 +50,14 @@ vi.mock('../src/models/TicketDevQaOverride.ts', () => ({
   TicketDevQaOverride: { findOne: vi.fn() },
 }))
 
+interface MockedTicketAssigneeOverrideModel {
+  find: Mock
+}
+
+vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
+  TicketAssigneeOverride: { find: vi.fn() },
+}))
+
 // isSplitTicket is real (a trivial pure predicate) — only resolveDevQa (the
 // DB-touching part) is mocked, same posture as capacity.route.test.ts. Its
 // own resolution logic gets its own coverage in devQaResolution.test.ts;
@@ -76,6 +84,9 @@ const { TeamMembership } = (await import('../src/models/TeamMembership.ts')) as 
 }
 const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
   TicketDevQaOverride: MockedTicketDevQaOverrideModel
+}
+const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOverride.ts')) as unknown as {
+  TicketAssigneeOverride: MockedTicketAssigneeOverrideModel
 }
 const { resolveDevQa, roleSubtaskEstimateHours } = (await import('../src/services/devQaResolution.ts')) as unknown as {
   resolveDevQa: Mock
@@ -117,6 +128,9 @@ function findWithPopulate(result: unknown) {
 describe('SprintPlanEntry routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: no Assignee Override recorded for any ticket - only the GET
+    // tests that specifically exercise the Override need to override this.
+    TicketAssigneeOverride.find.mockResolvedValue([])
   })
 
   describe('POST /api/sprint-plan-entries', () => {
@@ -302,20 +316,28 @@ describe('SprintPlanEntry routes', () => {
       expect(res.status).toBe(400)
     })
 
+    // A non-split entry now always calls `.toObject()` too (to attach
+    // assigneeOverridePersonId, docs/adr/0005) - a real Mongoose document
+    // always has this method; only these test doubles need it spelled out.
+    function nonSplitDoc(overrides: Record<string, unknown> = {}) {
+      const base = { _id: 'e1', order: 0, ticketId: { _id: 'tk-1', jiraKey: 'WOSMVP-1' }, ...overrides }
+      return { ...base, toObject: () => base }
+    }
+
     it('lists the plan with Ticket populated, sorted by order', async () => {
-      const docs = [{ _id: 'e1', order: 0, ticketId: { jiraKey: 'WOSMVP-1' } }]
-      SprintPlanEntry.find.mockReturnValue(findWithPopulate(docs))
+      const doc = nonSplitDoc()
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
 
       const app = createApp()
       const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
 
       expect(res.status).toBe(200)
       expect(SprintPlanEntry.find).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
-      expect(res.body).toEqual(docs)
+      expect(res.body).toEqual([{ ...doc.toObject(), assigneeOverridePersonId: null }])
     })
 
-    it("inlines a Split entry's resolved dev/qa Role assignment as devQa, leaving a non-split entry's shape completely unchanged", async () => {
-      const nonSplitEntry = { _id: 'e1', order: 0, ticketId: { _id: 'tk-1', jiraKey: 'WOSMVP-1' } }
+    it("inlines a Split entry's resolved dev/qa Role assignment as devQa, and a non-split entry's Assignee Override (or null) as assigneeOverridePersonId", async () => {
+      const nonSplitEntry = nonSplitDoc()
       const splitEntry = {
         _id: 'e2',
         order: 0,
@@ -337,17 +359,19 @@ describe('SprintPlanEntry routes', () => {
       const devQa = { dev: { status: 'resolved', source: 'subtask', personId: 'p1' }, qa: { status: 'needs-assignment' } }
       resolveDevQa.mockResolvedValue(devQa)
       roleSubtaskEstimateHours.mockImplementation((_jiraKey: string, kind: string) => Promise.resolve(kind === 'Dev' ? 6 : 2))
+      TicketAssigneeOverride.find.mockResolvedValue([{ ticketId: 'tk-1', personId: 'p9' }])
 
       const app = createApp()
       const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
 
       expect(res.status).toBe(200)
+      expect(TicketAssigneeOverride.find).toHaveBeenCalledWith({ ticketId: { $in: ['tk-1'] } })
       expect(TeamMembership.find).toHaveBeenCalledWith({ teamId: 't1' })
       expect(resolveDevQa).toHaveBeenCalledWith(splitEntry.ticketId, [{ personId: 'p1', jiraAccountId: 'acct-a' }])
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Dev')
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Test')
       expect(res.body).toEqual([
-        nonSplitEntry,
+        { ...nonSplitEntry.toObject(), assigneeOverridePersonId: 'p9' },
         {
           _id: 'e2',
           order: 0,
@@ -362,14 +386,34 @@ describe('SprintPlanEntry routes', () => {
     })
 
     it('skips the TeamMembership lookup entirely when the plan has no Split entries at all', async () => {
-      const docs = [{ _id: 'e1', order: 0, ticketId: { jiraKey: 'WOSMVP-1' } }]
-      SprintPlanEntry.find.mockReturnValue(findWithPopulate(docs))
+      const doc = nonSplitDoc()
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
 
       const app = createApp()
       await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
 
       expect(TeamMembership.find).not.toHaveBeenCalled()
       expect(resolveDevQa).not.toHaveBeenCalled()
+    })
+
+    it('skips the TicketAssigneeOverride lookup entirely when the plan has no non-split entries at all', async () => {
+      const splitEntry = {
+        _id: 'e2',
+        order: 0,
+        ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+        toObject() {
+          return this
+        },
+      }
+      SprintPlanEntry.find.mockReturnValue(findWithPopulate([splitEntry]))
+      TeamMembership.find.mockReturnValue(withMembershipPopulate([]))
+      resolveDevQa.mockResolvedValue({ dev: { status: 'needs-assignment' }, qa: { status: 'needs-assignment' } })
+      roleSubtaskEstimateHours.mockResolvedValue(0)
+
+      const app = createApp()
+      await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+      expect(TicketAssigneeOverride.find).not.toHaveBeenCalled()
     })
   })
 

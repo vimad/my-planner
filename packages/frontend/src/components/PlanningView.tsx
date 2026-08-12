@@ -856,6 +856,9 @@ export function PlanningView({ team }: { team: Team }) {
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
+    savingAssigneeOverride,
+    assigneeOverrideError,
+    saveAssigneeOverride,
     reorderEntries,
     removingEntryId,
     removeEntryError,
@@ -976,11 +979,19 @@ export function PlanningView({ team }: { team: Team }) {
           }
         }
       } else {
-        const accountId = entry.ticketId.assigneeAccountId
-        const membershipId = accountId ? membershipIdByAccountId.get(accountId) : undefined
         const placed: PlacedEntry = { entry }
-        if (membershipId) byMembership.get(membershipId)!.push(placed)
-        else unmapped.push(placed)
+        // An Assignee Override (docs/adr/0005), if set, wins over Jira's own
+        // assigneeAccountId for where the badge lands - same
+        // Override-wins-over-Jira precedence as a Split entry's devQa above,
+        // reusing placeResolved's "stale Override -> Unmapped" fallback.
+        if (entry.assigneeOverridePersonId) {
+          placeResolved(membershipIdByPersonId.get(entry.assigneeOverridePersonId), placed)
+        } else {
+          const accountId = entry.ticketId.assigneeAccountId
+          const membershipId = accountId ? membershipIdByAccountId.get(accountId) : undefined
+          if (membershipId) byMembership.get(membershipId)!.push(placed)
+          else unmapped.push(placed)
+        }
       }
     }
 
@@ -1147,7 +1158,14 @@ export function PlanningView({ team }: { team: Team }) {
             onClose={() => setPopupTicketId(null)}
           />
         ) : (
-          <TicketInfoPopup ticket={popupEntry.ticketId} onClose={() => setPopupTicketId(null)} />
+          <TicketInfoPopup
+            entry={popupEntry}
+            memberships={memberships}
+            saving={savingAssigneeOverride}
+            error={assigneeOverrideError}
+            onSave={(body) => saveAssigneeOverride(getId(popupEntry.ticketId) ?? '', body)}
+            onClose={() => setPopupTicketId(null)}
+          />
         ))}
     </div>
   )

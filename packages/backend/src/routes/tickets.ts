@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { Sprint } from '../models/Sprint.ts'
 import { Team } from '../models/Team.ts'
 import { Ticket } from '../models/Ticket.ts'
+import { TicketAssigneeOverride } from '../models/TicketAssigneeOverride.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 
 export const ticketsRouter = Router()
@@ -9,6 +10,10 @@ export const ticketsRouter = Router()
 interface DevQaOverrideBody {
   devPersonId?: string | null
   qaPersonId?: string | null
+}
+
+interface AssigneeOverrideBody {
+  personId?: string | null
 }
 
 // GET /api/tickets?teamId=&sprintId= -> every cached Ticket currently in
@@ -63,6 +68,34 @@ ticketsRouter.put(
       const override = await TicketDevQaOverride.findOneAndUpdate(
         { ticketId: req.params.ticketId },
         { $set: update, $setOnInsert: { ticketId: req.params.ticketId } },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      )
+
+      res.json(override)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// PUT /api/tickets/:ticketId/assignee-override -> body { personId }. Upserts
+// the (non-split) ticket's TicketAssigneeOverride - a Planning-only owner
+// that never touches Jira, mirroring the dev-qa-override route above but for
+// a single slot instead of a dev/qa pair (docs/adr/0005). `personId` is
+// required (unlike dev-qa-override's two optional roles, there's only one
+// field here): an explicit `null` clears the Override back to following
+// Jira's own assignee.
+ticketsRouter.put(
+  '/:ticketId/assignee-override',
+  async (req: Request<{ ticketId: string }, unknown, AssigneeOverrideBody>, res: Response, next: NextFunction) => {
+    try {
+      if (!('personId' in req.body)) {
+        return res.status(400).json({ error: 'personId is required' })
+      }
+
+      const override = await TicketAssigneeOverride.findOneAndUpdate(
+        { ticketId: req.params.ticketId },
+        { $set: { personId: req.body.personId ?? null }, $setOnInsert: { ticketId: req.params.ticketId } },
         { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       )
 

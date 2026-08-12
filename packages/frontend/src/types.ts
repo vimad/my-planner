@@ -274,6 +274,12 @@ export interface SprintPlanEntry {
   // on the backend) - present only alongside devQa, i.e. for a Split entry.
   devEstimateHours?: number
   qaEstimateHours?: number
+  // A non-split entry's Assignee Override (docs/adr/0005) - the
+  // Planning-only owner picked from TicketInfoPopup, independent of Jira's
+  // own assigneeAccountId. Present (possibly null) only for a non-split
+  // entry, mirroring devQa's "present only for a Split entry" convention -
+  // the two never coexist on the same entry.
+  assigneeOverridePersonId?: string | null
 }
 
 // The Team x Sprint header - a picked start/end date range plus any

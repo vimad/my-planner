@@ -32,6 +32,9 @@ vi.mock('../src/models/CapacityLookup.ts', () => ({
 vi.mock('../src/models/SprintPlanEntry.ts', () => ({
   SprintPlanEntry: { find: vi.fn() },
 }))
+vi.mock('../src/models/TicketAssigneeOverride.ts', () => ({
+  TicketAssigneeOverride: { find: vi.fn() },
+}))
 vi.mock('../src/services/ticketSync.ts', () => ({
   computeEffortHours: vi.fn(),
 }))
@@ -59,6 +62,12 @@ const { CapacityLookup } = (await import('../src/models/CapacityLookup.ts')) as 
 }
 const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) as unknown as {
   SprintPlanEntry: MockedSprintPlanEntryModel
+}
+interface MockedTicketAssigneeOverrideModel {
+  find: Mock
+}
+const { TicketAssigneeOverride } = (await import('../src/models/TicketAssigneeOverride.ts')) as unknown as {
+  TicketAssigneeOverride: MockedTicketAssigneeOverrideModel
 }
 const { computeEffortHours } = (await import('../src/services/ticketSync.ts')) as unknown as {
   computeEffortHours: Mock
@@ -101,6 +110,9 @@ function eightDayPlan(overrides: Record<string, unknown> = {}) {
 describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: no Assignee Override recorded for any ticket - only the
+    // Override-specific tests need to override this.
+    TicketAssigneeOverride.find.mockResolvedValue([])
   })
 
   it('returns 404 when no TeamSprintPlan (working days) has been entered for this sprint', async () => {
@@ -226,6 +238,54 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
 
     expect(res.status).toBe(200)
     expect(res.body[0].planned).toBe(0)
+  })
+
+  describe('Assignee Override (docs/adr/0005) — non-split Planned', () => {
+    it("moves a non-split ticket's Effort into the Override's pick instead of Jira's own assigneeAccountId", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(
+        withPopulate([
+          membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } }),
+          membership({ _id: 'm2', personId: { _id: 'p2', jiraAccountId: 'acct-b' } }),
+        ]),
+      )
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      // Jira says Ada (acct-a) - the Override reassigns it to Bob (p2).
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([{ ticketId: { _id: 'tk-1', jiraKey: 'WOSMVP-1', assigneeAccountId: 'acct-a', estimateHours: 5 } }]),
+      )
+      TicketAssigneeOverride.find.mockResolvedValue([{ ticketId: 'tk-1', personId: 'p2' }])
+      computeEffortHours.mockResolvedValueOnce(5)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(TicketAssigneeOverride.find).toHaveBeenCalledWith({ ticketId: { $in: ['tk-1'] } })
+      const ada = res.body.find((c: { personId: string }) => c.personId === 'p1')
+      const bob = res.body.find((c: { personId: string }) => c.personId === 'p2')
+      expect(ada.planned).toBe(0)
+      expect(bob.planned).toBe(5)
+    })
+
+    it("contributes to no *current* member's Planned when the Override's pick isn't a current TeamMembership - same blind-trust-the-Override precedent as resolveDevQa, the frontend's placement is what buckets it into Unmapped", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([{ ticketId: { _id: 'tk-1', jiraKey: 'WOSMVP-1', assigneeAccountId: 'acct-a', estimateHours: 5 } }]),
+      )
+      TicketAssigneeOverride.find.mockResolvedValue([{ ticketId: 'tk-1', personId: 'p-gone' }])
+      computeEffortHours.mockResolvedValueOnce(5)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0].planned).toBe(0)
+    })
   })
 
   describe('Leave entries (.scratch/sprint-leave-picker/spec.md)', () => {

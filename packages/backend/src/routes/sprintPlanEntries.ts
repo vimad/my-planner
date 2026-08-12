@@ -7,6 +7,7 @@ import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import type { PersonDoc } from '../models/Person.ts'
 import { refreshStatusSet } from '../services/statusSync.ts'
 import { fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
+import { loadAssigneeOverrides } from '../services/assigneeResolution.ts'
 import {
   isSplitTicket,
   resolveDevQa,
@@ -251,8 +252,11 @@ sprintPlanEntriesRouter.post(
 // plus `devEstimateHours`/`qaEstimateHours`, each role's own [Dev]/[Test]
 // Sub-task estimate (roleSubtaskEstimateHours, same figure capacity.ts sums
 // into Planned) so the planning table's badge can show a role placement's
-// own estimate instead of the parent Story/Bug's. A non-split entry's shape
-// is completely unchanged.
+// own estimate instead of the parent Story/Bug's. A non-split entry instead
+// carries `assigneeOverridePersonId` — its Assignee Override's personId
+// (docs/adr/0005), or null when none is set — so the frontend can place the
+// badge under the Override's row instead of Jira's own assigneeAccountId
+// without redoing the Override lookup itself.
 sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, sprintId } = req.query
@@ -268,10 +272,16 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
     const hasSplitEntry = entries.some((entry) => isSplitTicket(entry.ticketId.type))
     const memberships = hasSplitEntry ? await loadMembershipsForResolution(teamId) : []
 
+    const nonSplitTicketIds = entries.filter((entry) => !isSplitTicket(entry.ticketId.type)).map((entry) => entry.ticketId._id)
+    const assigneeOverrideByTicketId = await loadAssigneeOverrides(nonSplitTicketIds)
+
     const withDevQa = await Promise.all(
       entries.map(async (entry): Promise<unknown> => {
         const ticket = entry.ticketId
-        if (!isSplitTicket(ticket.type)) return entry
+        if (!isSplitTicket(ticket.type)) {
+          const assigneeOverridePersonId = assigneeOverrideByTicketId.get(String(ticket._id)) ?? null
+          return { ...entry.toObject(), assigneeOverridePersonId }
+        }
 
         const [devQa, devEstimateHours, qaEstimateHours]: [DevQaResolution, number, number] = await Promise.all([
           resolveDevQa(ticket, memberships),

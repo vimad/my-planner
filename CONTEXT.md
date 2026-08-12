@@ -50,6 +50,10 @@ _Avoid_: Assignee (Jira's own single field on a Ticket — Role assignment is th
 A manually-picked dev and/or qa Person for a Split ticket, recorded locally when Jira doesn't supply a resolvable Sub-task assignee for that role. Stored independently of Ticket so a resync never touches it, and once set for a role it always wins over any Sub-task assignee Jira later supplies — see [ADR 0004](docs/adr/0004-dev-qa-override-wins-over-jira-resync.md).
 _Avoid_: Reassignment (this is a Planning-only annotation, never written back to Jira).
 
+**Assignee Override**:
+The non-split-ticket equivalent of a Dev/QA Override: a manually-picked Planning-only owner for a Task or Sub-task, recorded when the team wants to plan around someone other than Jira's own assignee. Stored independently of Ticket, never written back to Jira, and once set always wins over the ticket's own `assigneeAccountId` for both Planning-table placement and the Planned capacity figure — see [ADR 0005](docs/adr/0005-assignee-override-wins-over-jira-resync.md). Jira's own assignee stays visible (read-only) in the Planning table's ticket popup regardless.
+_Avoid_: Reassignment (same reasoning as Dev/QA Override — a local annotation, not a Jira mutation).
+
 **Epic**:
 A cached snapshot of a Jira epic (key, title, status). Its set of child Tickets and their progress are never stored on the Epic itself — always computed by looking up Tickets that reference it.
 
@@ -73,7 +77,7 @@ A Team Membership's leave for one Sprint (in days, down to half-day granularity)
 An editable, admin-maintained table of hours for a given (capacity percentage, effective working days) pair, used as a shortcut for common combinations instead of always computing from the plain formula. Falls back to the plain calculation whenever no matching row exists.
 
 **Total / Available / Planned / Remaining** (capacity figures):
-The four figures shown per person in the Planning view for a given Team+Sprint. *Total* = the person's leave-adjusted working hours for the sprint (working days minus leave days, x 8). *Available* = the sprint's raw (leave-unadjusted) working hours scaled by their effective capacity percentage (via Capacity Lookup or the plain formula), minus leave hours subtracted afterward at their full, unscaled value (a full leave day always costs 8h of Available, a half day 4h, regardless of capacity percentage — a leave day removes real calendar time, not a percentage-scaled sliver of it). *Planned* = summed Effort of non-split tickets in that Sprint Plan currently assigned to them in Jira, plus — for Split tickets where a Role assignment resolves to them — that role's own Sub-task estimate only (never a share of the parent ticket's Effort). *Remaining* = Available minus Planned.
+The four figures shown per person in the Planning view for a given Team+Sprint. *Total* = the person's leave-adjusted working hours for the sprint (working days minus leave days, x 8). *Available* = the sprint's raw (leave-unadjusted) working hours scaled by their effective capacity percentage (via Capacity Lookup or the plain formula), minus leave hours subtracted afterward at their full, unscaled value (a full leave day always costs 8h of Available, a half day 4h, regardless of capacity percentage — a leave day removes real calendar time, not a percentage-scaled sliver of it). *Planned* = summed Effort of non-split tickets in that Sprint Plan resolved to them (their own Assignee Override if one is set, otherwise whoever Jira currently lists as assignee), plus — for Split tickets where a Role assignment resolves to them — that role's own Sub-task estimate only (never a share of the parent ticket's Effort). *Remaining* = Available minus Planned.
 
 **Full sync**:
 A sync that fetches a Ticket's complete field set (status, estimate, labels, stream, epic/parent links). Used by Planning, which needs every field to compute Effort and the capacity figures.

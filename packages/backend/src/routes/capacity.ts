@@ -11,6 +11,7 @@ import { ROLE_DEFAULT_CAPACITY_PERCENT } from '../models/Role.ts'
 import { computeEffortHours } from '../services/ticketSync.ts'
 import { computeCapacity } from '../services/capacityFormula.ts'
 import { isSplitTicket, resolveDevQa, roleSubtaskEstimateHours, type MembershipForResolution } from '../services/devQaResolution.ts'
+import { loadAssigneeOverrides, resolveAssignee } from '../services/assigneeResolution.ts'
 import { computeWorkingDates } from '../services/sprintWorkingDays.ts'
 import { reconcileWithWorkingDates, totalLeaveDays } from '../services/leaveEntries.ts'
 
@@ -84,6 +85,29 @@ capacityRouter.get(
         }
       }
 
+      // Non-split tickets' Planned (docs/adr/0005): an Assignee Override, if
+      // set, wins over the ticket's own assigneeAccountId — resolved once
+      // per ticket here (not once per person below), same batched-upfront
+      // shape as splitPlannedByPersonId above, so the Planning table's
+      // placement and this sum can never disagree about who owns a ticket. A
+      // ticket that resolves to nobody currently on the team (no Override
+      // and an unmapped/absent assigneeAccountId) contributes to no one's
+      // Planned, same as before this Override existed.
+      const personIdByAccountId = new Map(membershipsForResolution.map((m) => [m.jiraAccountId, m.personId]))
+      const nonSplitEntries = planEntries.filter((entry) => !isSplitTicket(entry.ticketId.type))
+      const assigneeOverrideByTicketId = await loadAssigneeOverrides(nonSplitEntries.map((entry) => entry.ticketId._id))
+
+      const nonSplitPlannedByPersonId = new Map<string, number>()
+      for (const entry of nonSplitEntries) {
+        const ticket = entry.ticketId
+        const resolvedPersonId = resolveAssignee(ticket, assigneeOverrideByTicketId, personIdByAccountId)
+        if (!resolvedPersonId) continue
+
+        const hours = (await computeEffortHours(ticket)) ?? 0
+        const key = String(resolvedPersonId)
+        nonSplitPlannedByPersonId.set(key, (nonSplitPlannedByPersonId.get(key) ?? 0) + hours)
+      }
+
       const capacities = await Promise.all(
         memberships.map(async (membership) => {
           const capacityEntry = await CapacityEntry.findOne({ teamMembershipId: membership._id, sprintId })
@@ -94,14 +118,7 @@ capacityRouter.get(
             membership.capacityPercentOverride ?? ROLE_DEFAULT_CAPACITY_PERCENT[membership.role]
 
           const person = membership.personId
-          // Non-split tickets only — a Split ticket's own assigneeAccountId
-          // (if Jira even sets one) is irrelevant to Planning-view
-          // placement; see the splitPlannedByPersonId loop above.
-          const assignedTickets = planEntries
-            .filter((entry) => !isSplitTicket(entry.ticketId.type) && entry.ticketId.assigneeAccountId === person.jiraAccountId)
-            .map((entry) => entry.ticketId)
-          const effortValues = await Promise.all(assignedTickets.map((ticket) => computeEffortHours(ticket)))
-          const nonSplitPlanned = effortValues.reduce<number>((sum, hours) => sum + (hours ?? 0), 0)
+          const nonSplitPlanned = nonSplitPlannedByPersonId.get(String(person._id)) ?? 0
           const planned = nonSplitPlanned + (splitPlannedByPersonId.get(String(person._id)) ?? 0)
 
           const { total, available, remaining } = computeCapacity({

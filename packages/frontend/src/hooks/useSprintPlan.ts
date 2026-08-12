@@ -181,6 +181,14 @@ export interface UseSprintPlanResult {
   // badge moves into the newly-picked person's row.
   saveDevQaOverride: (ticketId: string, body: { devPersonId?: string | null; qaPersonId?: string | null }) => Promise<void>
 
+  savingAssigneeOverride: boolean
+  assigneeOverrideError: string | null
+  // PUT /api/tickets/:ticketId/assignee-override (docs/adr/0005) -
+  // TicketInfoPopup's save action for a non-split ticket's Planning-only
+  // owner. Refreshes the plan on success, same as saveDevQaOverride above,
+  // so the badge moves into the newly-picked person's row.
+  saveAssigneeOverride: (ticketId: string, body: { personId: string | null }) => Promise<void>
+
   // PATCH /api/sprint-plan-entries/:id per patch (ticket 19's drag-reorder
   // save-on-drop) - optimistic, patching local `entries` state immediately
   // so the reorder feels instant, then rolling every patch in the drop back
@@ -253,6 +261,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [addTicketError, setAddTicketError] = useState<string | null>(null)
   const [savingDevQaOverride, setSavingDevQaOverride] = useState(false)
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
+  const [savingAssigneeOverride, setSavingAssigneeOverride] = useState(false)
+  const [assigneeOverrideError, setAssigneeOverrideError] = useState<string | null>(null)
   const [syncingPlan, setSyncingPlan] = useState(false)
   const [syncPlanError, setSyncPlanError] = useState<string | null>(null)
   const [removingEntryId, setRemovingEntryId] = useState<string | null>(null)
@@ -554,6 +564,28 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [refreshPlan],
   )
 
+  const saveAssigneeOverride = useCallback(
+    async (ticketId: string, body: { personId: string | null }) => {
+      setSavingAssigneeOverride(true)
+      setAssigneeOverrideError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/tickets/${ticketId}/assignee-override`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setAssigneeOverrideError((err as Error).message)
+        throw err
+      } finally {
+        setSavingAssigneeOverride(false)
+      }
+    },
+    [refreshPlan],
+  )
+
   const reorderEntries = useCallback(
     async (patches: SprintPlanEntryOrderPatch[]) => {
       if (patches.length === 0) return
@@ -651,6 +683,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     savingDevQaOverride,
     devQaOverrideError,
     saveDevQaOverride,
+    savingAssigneeOverride,
+    assigneeOverrideError,
+    saveAssigneeOverride,
     reorderEntries,
     removingEntryId,
     removeEntryError,
