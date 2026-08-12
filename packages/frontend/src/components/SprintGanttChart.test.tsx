@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GanttChartButton } from './SprintGanttChart'
 import type { SprintPeriod } from '../hooks/useSprintPlan'
 import type { DevQaRoleResolution, Person, SprintCapacity, SprintPlanEntry, TeamMembership, Ticket } from '../types'
@@ -13,14 +13,51 @@ import type { DevQaRoleResolution, Person, SprintCapacity, SprintPlanEntry, Team
 // this file's own task-tree building (person rows, ticket-03 exclusion,
 // ticket-04 placement dates feeding through) without depending on SVAR's
 // internal chart/canvas implementation.
+//
+// Ticket 09's drag readback (ticket 01's confirmed `init`/`api.on('update-
+// task', ...)`/`api.getTask` contract) is exercised here by capturing the
+// `init` callback SprintGanttChart passes in and handing it a minimal fake
+// `IApi` - `on('update-task', cb)` stashes `cb` in `updateTaskHandler` so a
+// test can call it directly (simulating SVAR firing the event), and
+// `getTask(id)` looks the id up in the same `tasks` array the mocked
+// `<Gantt>` was rendered with (optionally overridden per-test via
+// `setFakeTaskOverride`, simulating "the user dragged this bar to a new
+// date").
+let updateTaskHandler: ((ev: { id: string | number; inProgress?: boolean }) => void) | null = null
+let lastGanttProps: Record<string, unknown> | null = null
+const fakeTaskOverrides = new Map<string, { start?: Date; parent?: string | number }>()
+
+function setFakeTaskOverride(id: string, override: { start?: Date; parent?: string | number }) {
+  fakeTaskOverrides.set(id, override)
+}
+
 vi.mock('@svar-ui/react-gantt', () => ({
-  Gantt: ({ tasks }: { tasks: { id: string | number; text?: string; parent?: string | number }[] }) => (
-    <ul aria-label="Gantt tasks">
-      {tasks.map((t) => (
-        <li key={String(t.id)}>{t.text}</li>
-      ))}
-    </ul>
-  ),
+  Gantt: (props: {
+    tasks: { id: string | number; text?: string; parent?: string | number; start?: Date }[]
+    init?: (api: unknown) => void
+  }) => {
+    lastGanttProps = props
+    const { tasks, init } = props
+    if (init) {
+      init({
+        on: (event: string, cb: (ev: { id: string | number; inProgress?: boolean }) => void) => {
+          if (event === 'update-task') updateTaskHandler = cb
+        },
+        getTask: (id: string | number) => {
+          const base = tasks.find((t) => String(t.id) === String(id)) ?? {}
+          const override = fakeTaskOverrides.get(String(id))
+          return { ...base, ...override }
+        },
+      })
+    }
+    return (
+      <ul aria-label="Gantt tasks">
+        {tasks.map((t) => (
+          <li key={String(t.id)}>{t.text}</li>
+        ))}
+      </ul>
+    )
+  },
   WillowDark: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
@@ -93,10 +130,17 @@ function capacityFor(membership: TeamMembership): SprintCapacity {
 }
 
 const sprintPeriod: SprintPeriod = { startDate: '2026-08-10', endDate: '2026-08-21', holidays: [], workingDays: 10 }
+const noop = () => {}
+
+beforeEach(() => {
+  updateTaskHandler = null
+  lastGanttProps = null
+  fakeTaskOverrides.clear()
+})
 
 describe('GanttChartButton', () => {
   it('renders a "Gantt chart" trigger button, closed by default', () => {
-    render(<GanttChartButton memberships={[]} entries={[]} capacity={[]} sprintPeriod={sprintPeriod} />)
+    render(<GanttChartButton memberships={[]} entries={[]} capacity={[]} sprintPeriod={sprintPeriod} onDragReschedule={noop} />)
     expect(screen.getByRole('button', { name: 'Gantt chart' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Sprint Gantt chart' })).not.toBeInTheDocument()
   })
@@ -109,6 +153,7 @@ describe('GanttChartButton', () => {
         entries={[entry]}
         capacity={[capacityFor(adaMembership), capacityFor(bobMembership)]}
         sprintPeriod={sprintPeriod}
+        onDragReschedule={noop}
       />,
     )
 
@@ -124,7 +169,7 @@ describe('GanttChartButton', () => {
   })
 
   it('shows a "set the sprint period" message instead of the chart when no period is configured', async () => {
-    render(<GanttChartButton memberships={[adaMembership]} entries={[]} capacity={[]} sprintPeriod={null} />)
+    render(<GanttChartButton memberships={[adaMembership]} entries={[]} capacity={[]} sprintPeriod={null} onDragReschedule={noop} />)
     fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
     expect(await screen.findByText(/Set this sprint's period/)).toBeInTheDocument()
   })
@@ -155,6 +200,7 @@ describe('GanttChartButton', () => {
         entries={[splitEntry]}
         capacity={[capacityFor(adaMembership)]}
         sprintPeriod={sprintPeriod}
+        onDragReschedule={noop}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
@@ -163,5 +209,90 @@ describe('GanttChartButton', () => {
     // never appears anywhere on the chart.
     expect(screen.getAllByText(/PROJ-9/)).toHaveLength(1)
     expect(screen.getByText(/PROJ-9 \[DEV\]/)).toBeInTheDocument()
+  })
+
+  describe('drag-to-reschedule (ticket 09)', () => {
+    it('is not readonly, and wires an init callback for SVAR\'s update-task readback', async () => {
+      render(
+        <GanttChartButton
+          memberships={[adaMembership]}
+          entries={[]}
+          capacity={[capacityFor(adaMembership)]}
+          sprintPeriod={sprintPeriod}
+          onDragReschedule={noop}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+      await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+      expect(lastGanttProps?.readonly).toBeUndefined()
+      expect(typeof lastGanttProps?.init).toBe('function')
+    })
+
+    it('on drop, persists the recomputed order + start-date override in one patch (Ticket 05 write-back composition)', async () => {
+      const onDragReschedule = vi.fn()
+      const entry = nonSplitEntry('e1', ticket({ jiraKey: 'PROJ-1' }), 16, 'acc-ada')
+      render(
+        <GanttChartButton
+          memberships={[adaMembership]}
+          entries={[entry]}
+          capacity={[capacityFor(adaMembership)]}
+          sprintPeriod={sprintPeriod}
+          onDragReschedule={onDragReschedule}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+      await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+      // Simulate the user dragging PROJ-1's bar to start Thursday 8/13
+      // instead of its auto-placed Monday 8/10 - month is 0-indexed, so
+      // August is 7.
+      setFakeTaskOverride('e1-main', { start: new Date(2026, 7, 13) })
+      updateTaskHandler?.({ id: 'e1-main', inProgress: false })
+
+      expect(onDragReschedule).toHaveBeenCalledTimes(1)
+      expect(onDragReschedule).toHaveBeenCalledWith([{ entryId: 'e1', body: { order: 0, ganttStartDate: '2026-08-13' } }])
+    })
+
+    it('ignores an in-progress drag frame - only the final drop autosaves (no separate Save button/state)', async () => {
+      const onDragReschedule = vi.fn()
+      const entry = nonSplitEntry('e1', ticket({ jiraKey: 'PROJ-1' }), 16, 'acc-ada')
+      render(
+        <GanttChartButton
+          memberships={[adaMembership]}
+          entries={[entry]}
+          capacity={[capacityFor(adaMembership)]}
+          sprintPeriod={sprintPeriod}
+          onDragReschedule={onDragReschedule}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+      await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+      setFakeTaskOverride('e1-main', { start: new Date(2026, 7, 13) })
+      updateTaskHandler?.({ id: 'e1-main', inProgress: true })
+
+      expect(onDragReschedule).not.toHaveBeenCalled()
+    })
+
+    it("never reschedules from the hidden synthetic person-row's own summary bar (no cross-row drag)", async () => {
+      const onDragReschedule = vi.fn()
+      const entry = nonSplitEntry('e1', ticket({ jiraKey: 'PROJ-1' }), 16, 'acc-ada')
+      render(
+        <GanttChartButton
+          memberships={[adaMembership]}
+          entries={[entry]}
+          capacity={[capacityFor(adaMembership)]}
+          sprintPeriod={sprintPeriod}
+          onDragReschedule={onDragReschedule}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+      await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+      updateTaskHandler?.({ id: 'person-m1', inProgress: false })
+
+      expect(onDragReschedule).not.toHaveBeenCalled()
+    })
   })
 })

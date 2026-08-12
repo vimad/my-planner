@@ -17,7 +17,16 @@
 //     row's cursor via placePersonBars - the "entries, capacity, team
 //     sprint plan -> placed bars" shape ticket 07 asks for.
 
-import { groupPlacementsByMembership, placementFieldValue, placementKey, rolePlannedHours } from './ticketPlacements'
+import {
+  groupPlacementsByMembership,
+  overrideStartField,
+  overrideStartValue,
+  placementField,
+  placementFieldValue,
+  placementKey,
+  rolePlannedHours,
+} from './ticketPlacements'
+import { getId } from './getId'
 import type { LeaveEntry, LeavePortion, SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
 
 // Formats a Date's LOCAL fields into "YYYY-MM-DD" - never
@@ -249,4 +258,90 @@ export function computeGanttRows(
   }
 
   return result
+}
+
+// One drag-to-reschedule PATCH request body (wayfinder ticket 05/09's write-
+// back composition) - `body` is sent as-is to PATCH
+// /api/sprint-plan-entries/:entryId, whose only-touch-what's-present
+// convention means each patch carries only the field(s) that actually
+// changed for that placement.
+export interface GanttDragPatch {
+  entryId: string
+  body: {
+    order?: number
+    devOrder?: number
+    qaOrder?: number
+    ganttStartDate?: string | null
+    devGanttStartDate?: string | null
+    qaGanttStartDate?: string | null
+  }
+}
+
+// Ticket 09: after a drag lands `draggedKey`'s bar at `newStart`, re-runs
+// ticket 04's walk-forward for just that placement's row (via the same
+// groupPlacementsByMembership + placePersonBars composition
+// computeGanttRows above uses) with the override now populated, then diffs
+// the resulting row-wide order (the row's placements re-sorted by their
+// newly-computed start date, same tiebreak as computeGanttRows's own final
+// sort) against each placement's currently-stored order/devOrder/qaOrder
+// value - one patch per changed placement, mirroring PlanningView's
+// computeReorderPatches (PlanningView.tsx:101) "row-wide index, only patch
+// what moved" pattern. The dragged placement's own patch always bundles
+// both its new start-date override and its own order-field value in one
+// request (Ticket 05's write-back composition) regardless of whether that
+// value numerically changed; every other patch is order-only, sent only
+// when that placement's row-relative position actually shifted as a side
+// effect. Any placement in the row that already had a saved override before
+// this drag keeps it (read straight off `p.entry` via overrideStartValue) -
+// only `draggedKey`gets the new value.
+export function computeDragPatches(
+  entries: SprintPlanEntry[],
+  memberships: TeamMembership[],
+  capacity: SprintCapacity[],
+  window: GanttSprintWindow,
+  membershipId: string,
+  draggedKey: string,
+  newStart: string,
+): GanttDragPatch[] {
+  const { ticketsByMembershipId } = groupPlacementsByMembership(entries, memberships)
+  const placements = ticketsByMembershipId.get(membershipId) ?? []
+
+  const personCapacity = capacity.find((c) => c.teamMembershipId === membershipId)
+  if (!personCapacity || placements.length === 0) return []
+
+  const items: GanttPlacementItem[] = placements.map((p) => ({
+    key: placementKey(p),
+    hours: rolePlannedHours(p.entry, p.role) ?? 0,
+    order: placementFieldValue(p),
+    overrideStart: placementKey(p) === draggedKey ? newStart : overrideStartValue(p),
+  }))
+
+  const bars = placePersonBars(
+    items,
+    { effectivePercentage: personCapacity.effectivePercentage, leaveEntries: personCapacity.leaveEntries },
+    window,
+  )
+  const barByKey = new Map(bars.map((b) => [b.key, b]))
+
+  const sorted = [...placements].sort((a, b) => {
+    const barA = barByKey.get(placementKey(a))
+    const barB = barByKey.get(placementKey(b))
+    if (!barA || !barB) return 0
+    return barA.start === barB.start ? barA.end.localeCompare(barB.end) : barA.start.localeCompare(barB.start)
+  })
+
+  const patches: GanttDragPatch[] = []
+  sorted.forEach((p, index) => {
+    const key = placementKey(p)
+    const isDragged = key === draggedKey
+    const orderChanged = placementFieldValue(p) !== index
+    if (!isDragged && !orderChanged) return
+
+    const body: GanttDragPatch['body'] = { [placementField(p)]: index }
+    if (isDragged) body[overrideStartField(p)] = newStart
+
+    patches.push({ entryId: getId(p.entry) ?? '', body })
+  })
+
+  return patches
 }

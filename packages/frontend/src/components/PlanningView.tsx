@@ -954,6 +954,7 @@ export function PlanningView({ team }: { team: Team }) {
     planSpillError,
     savePlanSpill,
     reorderEntries,
+    applyGanttDragPatches,
     removingEntryId,
     removeEntryError,
     removeEntry,
@@ -1167,7 +1168,13 @@ export function PlanningView({ team }: { team: Team }) {
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
                 <div className="flex items-center gap-2">
                   {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
-                  <GanttChartButton memberships={memberships} entries={entries} capacity={capacity} sprintPeriod={sprintPeriod} />
+                  <GanttChartButton
+                    memberships={memberships}
+                    entries={entries}
+                    capacity={capacity}
+                    sprintPeriod={sprintPeriod}
+                    onDragReschedule={applyGanttDragPatches}
+                  />
                   <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
                 </div>
               </div>

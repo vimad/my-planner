@@ -801,6 +801,88 @@ describe('SprintPlanEntry routes', () => {
       expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
     })
 
+    // Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09):
+    // ganttStartDate/devGanttStartDate/qaGanttStartDate, unlike order/
+    // devOrder/qaOrder above, must also accept an explicit `null` (clears
+    // the override, resumes auto-placement).
+    describe('Gantt start-date override (ganttStartDate/devGanttStartDate/qaGanttStartDate)', () => {
+      it('updates ganttStartDate to a valid date string', async () => {
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1', ganttStartDate: '2026-08-13' })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ ganttStartDate: '2026-08-13' })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { ganttStartDate: '2026-08-13' },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('bundles a start-date override with its own order value in one request (Ticket 05 write-back composition)', async () => {
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1', order: 2, ganttStartDate: '2026-08-13' })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ order: 2, ganttStartDate: '2026-08-13' })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { order: 2, ganttStartDate: '2026-08-13' },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('updates devGanttStartDate/qaGanttStartDate independently', async () => {
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1', devGanttStartDate: '2026-08-13' })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ devGanttStartDate: '2026-08-13' })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { devGanttStartDate: '2026-08-13' },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('accepts an explicit null to clear the override', async () => {
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1', ganttStartDate: null })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ ganttStartDate: null })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { ganttStartDate: null },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('rejects a malformed date string (400) without touching the DB', async () => {
+        const app = createApp()
+        const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ ganttStartDate: '08/13/2026' })
+        expect(res.status).toBe(400)
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+
+      it('rejects a non-string, non-null value (400) without touching the DB', async () => {
+        const app = createApp()
+        const res = await request(app).patch('/api/sprint-plan-entries/e1').send({ qaGanttStartDate: 42 })
+        expect(res.status).toBe(400)
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+    })
+
     // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md"):
     // `dev`/`qa`/`single` are always sent as a full { planHours, spillHours }
     // pair, validated against `entry.ticketId.type` (isSplitTicket) before

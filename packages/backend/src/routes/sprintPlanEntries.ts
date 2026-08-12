@@ -47,6 +47,13 @@ interface ReorderBody {
   dev?: PlanSpillPair
   qa?: PlanSpillPair
   single?: PlanSpillPair
+  // Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09) -
+  // a per-placement start-date override. Unlike order/devOrder/qaOrder
+  // above, these three also accept an explicit `null` (clears the override,
+  // resumes auto-placement) - see validateGanttStartDate below.
+  ganttStartDate?: string | null
+  devGanttStartDate?: string | null
+  qaGanttStartDate?: string | null
 }
 
 // A team's current TeamMembership roster, reduced to what
@@ -399,10 +406,27 @@ type ReorderUpdate = Partial<
     'order' | 'devOrder' | 'qaOrder' | 'devPlanHours' | 'devSpillHours' | 'qaPlanHours' | 'qaSpillHours' | 'planHours' | 'spillHours',
     number
   >
->
+> &
+  Partial<Record<'ganttStartDate' | 'devGanttStartDate' | 'qaGanttStartDate', string | null>>
+
+// Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09):
+// a plain 'YYYY-MM-DD' string or an explicit `null` (clears the override,
+// resumes auto-placement) - unlike order/devOrder/qaOrder above, which
+// reject non-numbers outright, these three fields' whole point is to accept
+// `null` as a valid value.
+const GANTT_START_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function validateGanttStartDate(value: string | null, label: string): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || !GANTT_START_DATE_RE.test(value)) {
+    return `${label} must be a 'YYYY-MM-DD' string or null`
+  }
+  return null
+}
 
 // PATCH /api/sprint-plan-entries/:id -> body { order?, devOrder?, qaOrder?,
-// dev?, qa?, single? }, only-touch-what's-present (same convention as PUT
+// dev?, qa?, single?, ganttStartDate?, devGanttStartDate?, qaGanttStartDate?
+// }, only-touch-what's-present (same convention as PUT
 // /api/tickets/:ticketId/dev-qa-override). `order`/`devOrder`/`qaOrder`
 // back ticket 19's drag-reorder save-on-drop: a non-split placement patches
 // `order`; a Split ticket's dev-row or qa-row placement patches only that
@@ -412,12 +436,16 @@ type ReorderUpdate = Partial<
 // `{ planHours, spillHours }` pair, never one field alone - a Split
 // entry only ever accepts `dev`/`qa`, a non-split entry only `single`,
 // checked against `entry.ticketId.type` (isSplitTicket) the same way the
-// route already guards other per-kind fields.
+// route already guards other per-kind fields. `ganttStartDate`/
+// `devGanttStartDate`/`qaGanttStartDate` back the Gantt chart's
+// drag-to-reschedule (wayfinder ticket 05/09) - a dragged bar's own PATCH
+// bundles its new start-date override together with its own order/devOrder/
+// qaOrder value in one request, per Ticket 05's write-back composition.
 sprintPlanEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, ReorderBody>, res: Response, next: NextFunction) => {
     try {
-      const { order, devOrder, qaOrder, dev, qa, single } = req.body
+      const { order, devOrder, qaOrder, dev, qa, single, ganttStartDate, devGanttStartDate, qaGanttStartDate } = req.body
       const update: ReorderUpdate = {}
 
       if (order !== undefined) {
@@ -435,6 +463,22 @@ sprintPlanEntriesRouter.patch(
 
       const pairError = validatePlanSpillPair(dev, 'dev') ?? validatePlanSpillPair(qa, 'qa') ?? validatePlanSpillPair(single, 'single')
       if (pairError) return res.status(400).json({ error: pairError })
+
+      if (ganttStartDate !== undefined) {
+        const err = validateGanttStartDate(ganttStartDate, 'ganttStartDate')
+        if (err) return res.status(400).json({ error: err })
+        update.ganttStartDate = ganttStartDate
+      }
+      if (devGanttStartDate !== undefined) {
+        const err = validateGanttStartDate(devGanttStartDate, 'devGanttStartDate')
+        if (err) return res.status(400).json({ error: err })
+        update.devGanttStartDate = devGanttStartDate
+      }
+      if (qaGanttStartDate !== undefined) {
+        const err = validateGanttStartDate(qaGanttStartDate, 'qaGanttStartDate')
+        if (err) return res.status(400).json({ error: err })
+        update.qaGanttStartDate = qaGanttStartDate
+      }
 
       if (dev || qa || single) {
         const existing = await SprintPlanEntry.findOne({ _id: req.params.id }).populate<{ ticketId: PopulatedTicket }>('ticketId')
@@ -459,7 +503,10 @@ sprintPlanEntriesRouter.patch(
       }
 
       if (Object.keys(update).length === 0) {
-        return res.status(400).json({ error: 'order, devOrder, qaOrder, dev, qa or single is required' })
+        return res.status(400).json({
+          error:
+            'order, devOrder, qaOrder, dev, qa, single, ganttStartDate, devGanttStartDate or qaGanttStartDate is required',
+        })
       }
 
       const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' }).populate(

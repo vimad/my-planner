@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { computeGanttRows, placePersonBars, type GanttPersonCapacity, type GanttPlacementItem, type GanttSprintWindow } from './ganttPlacement'
+import {
+  computeDragPatches,
+  computeGanttRows,
+  placePersonBars,
+  type GanttPersonCapacity,
+  type GanttPlacementItem,
+  type GanttSprintWindow,
+} from './ganttPlacement'
 import type { DevQaRoleResolution, Person, SprintCapacity, SprintPlanEntry, TeamMembership, Ticket } from '../types'
 
 // 2026-08-10 is a Monday, 2026-08-14 is a Friday - same fixture week used by
@@ -306,5 +313,77 @@ describe('computeGanttRows', () => {
     // forward by Ada's placement.
     expect(rows.get('m1')![0].start).toBe('2026-08-10')
     expect(rows.get('m2')![0].start).toBe('2026-08-10')
+  })
+})
+
+// --- computeDragPatches: wayfinder ticket 09's "which placements need a
+// PATCH after a drag" derivation. ------------------------------------------
+
+describe('computeDragPatches', () => {
+  it("bundles the dragged placement's own new order and start-date override in one patch, even when its row position doesn't change", () => {
+    // Single-item row - dragging it later can't shift anything relative to
+    // a sibling, but Ticket 05's write-back composition still bundles both
+    // fields into the one request.
+    const t = ticket({ jiraKey: 'PROJ-1' })
+    const entry = nonSplitEntry('e1', t, 0, 8, 'acc-ada')
+    const patches = computeDragPatches([entry], [adaMembership], [capacityFor(adaMembership)], window, 'm1', 'e1-main', '2026-08-13')
+    expect(patches).toEqual([{ entryId: 'e1', body: { order: 0, ganttStartDate: '2026-08-13' } }])
+  })
+
+  it("re-flows a later not-yet-overridden sibling around the dragged bar's new gap, patching only the placement(s) whose row-relative position actually shifted", () => {
+    // a (order 0, 8h), b (order 1, 8h), c (order 2, 16h) auto-place
+    // back-to-back: a Mon-Tue, b Tue-Wed, c Wed-Fri. Dragging c to start
+    // Monday (tying a's start but running a day longer) reorders the row to
+    // [a, c, b] - a keeps its position (no patch), c (dragged) always gets
+    // its own bundled patch, and b's row-relative position shifted from
+    // index 1 to 2 so it gets an order-only patch.
+    const t1 = ticket({ jiraKey: 'PROJ-1' })
+    const t2 = ticket({ jiraKey: 'PROJ-2' })
+    const t3 = ticket({ jiraKey: 'PROJ-3' })
+    const a = nonSplitEntry('e-a', t1, 0, 8, 'acc-ada')
+    const b = nonSplitEntry('e-b', t2, 1, 8, 'acc-ada')
+    const c = nonSplitEntry('e-c', t3, 2, 16, 'acc-ada')
+
+    const patches = computeDragPatches([a, b, c], [adaMembership], [capacityFor(adaMembership)], window, 'm1', 'e-c-main', '2026-08-10')
+
+    expect(patches).toEqual([
+      { entryId: 'e-c', body: { order: 1, ganttStartDate: '2026-08-10' } },
+      { entryId: 'e-b', body: { order: 2 } },
+    ])
+  })
+
+  it("preserves a sibling's already-saved override (not the just-dragged placement) while recomputing the row", () => {
+    // b already has a saved override fixing it at Monday (order 1, but
+    // pinned to the same start as a). Dragging a (order 0, no prior
+    // override) to start later must not disturb b's own saved override.
+    const t1 = ticket({ jiraKey: 'PROJ-1' })
+    const t2 = ticket({ jiraKey: 'PROJ-2' })
+    const a = nonSplitEntry('e-a', t1, 0, 8, 'acc-ada')
+    const b = { ...nonSplitEntry('e-b', t2, 1, 8, 'acc-ada'), ganttStartDate: '2026-08-10' }
+
+    const patches = computeDragPatches([a, b], [adaMembership], [capacityFor(adaMembership)], window, 'm1', 'e-a-main', '2026-08-13')
+
+    // a (dragged, now starts later than b) moves to index 1; b (unmoved,
+    // still fixed at its own pre-existing override) moves to index 0.
+    expect(patches).toEqual([
+      { entryId: 'e-b', body: { order: 0 } },
+      { entryId: 'e-a', body: { order: 1, ganttStartDate: '2026-08-13' } },
+    ])
+  })
+
+  it("targets a Split ticket's dev-role placement's own devOrder/devGanttStartDate, leaving order/ganttStartDate untouched", () => {
+    const split = ticket({ jiraKey: 'PROJ-4', type: 'Story' })
+    const entry = splitEntry('e4', split, { dev: resolved('p1'), qa: needsAssignment() }, 0, 0, 8, 4)
+
+    const patches = computeDragPatches([entry], [adaMembership], [capacityFor(adaMembership)], window, 'm1', 'e4-dev', '2026-08-13')
+
+    expect(patches).toEqual([{ entryId: 'e4', body: { devOrder: 0, devGanttStartDate: '2026-08-13' } }])
+  })
+
+  it('returns no patches for a membership with no capacity data', () => {
+    const t = ticket({ jiraKey: 'PROJ-1' })
+    const entry = nonSplitEntry('e1', t, 0, 8, 'acc-ada')
+    const patches = computeDragPatches([entry], [adaMembership], [], window, 'm1', 'e1-main', '2026-08-13')
+    expect(patches).toEqual([])
   })
 })
