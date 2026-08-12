@@ -1,31 +1,57 @@
 // Sprint Planning Gantt Chart — button + modal + read-only auto-placed
 // timeline (wayfinder ticket 07,
-// .scratch/sprint-gantt-chart/issues/07-gantt-modal-and-static-timeline.md).
+// .scratch/sprint-gantt-chart/issues/07-gantt-modal-and-static-timeline.md),
+// plus leave/holiday shading and Dev/QA bar linking (wayfinder ticket 08,
+// .scratch/sprint-gantt-chart/issues/08-leave-shading-and-devqa-linking.md).
 // Renders one row per current TeamMembership (a synthetic parent/child task
 // tree, since SVAR's own "resource planning"/"task grouping" are PRO-gated —
 // see ticket 01's API specifics) with each person's Dev-role/QA-role
 // placements merged and walk-forward-placed by utils/ganttPlacement.ts
-// (ticket 04). Intentionally static for this ticket: no drag, no leave/
-// holiday shading, no Dev/QA bar linking, no persistence — those are ticket
-// 08/09's scope, built on top of this same task-tree shape.
+// (ticket 04), plus one sibling child task per leave/holiday day
+// (utils/ganttLeaveDays.ts) styled red/amber via CSS. A Split ticket's
+// rendered Dev/QA pair gets a native SVAR dependency link
+// (utils/ganttDevQaLinks.ts) plus matching `data-id`-keyed CSS. Still no
+// drag, no persistence — that's ticket 09's scope, built on top of this same
+// task-tree shape.
 
 import { Gantt, WillowDark } from '@svar-ui/react-gantt'
 import type { ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
 import { useMemo, useState } from 'react'
 import { computeGanttRows, type GanttPlacedBar } from '../utils/ganttPlacement'
+import { buildLeaveDays } from '../utils/ganttLeaveDays'
+import { computeDevQaLinks } from '../utils/ganttDevQaLinks'
 import { getId } from '../utils/getId'
 import { parseLocalDate } from '../utils/dateAgenda'
 import type { SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
 import type { SprintPeriod } from '../hooks/useSprintPlan'
 
+// Sibling leave/holiday tasks are exclusive-end 1-day bars, same convention
+// as ganttPlacement.ts's own GanttBar.end (the day after the day worked) -
+// this is the local equivalent of that file's own addDays/parseLocalDate
+// pair, not shared across files per this codebase's established
+// duplicated-local-date-helper convention (see ganttPlacement.ts's own
+// header comment on toLocalDateString).
+function nextDay(date: Date): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + 1)
+  return next
+}
+
 // Ticket 01's synthetic row-per-person tree: one hidden parent "task" per
 // TeamMembership (`person-<membershipId>`), spanning the sprint's own
 // startDate/endDate so the tree structure exists even for a person with no
-// placements this sprint, plus one child task per placed bar. The parent's
-// own bar is hidden via the `[data-id^=":person-"] { visibility: hidden }`
-// CSS rule below (ticket 01) — only its row label shows in the grid pane.
-function buildTasks(memberships: TeamMembership[], rowsByMembershipId: Map<string, GanttPlacedBar[]>, sprintPeriod: SprintPeriod): ITask[] {
+// placements this sprint, plus one child task per placed bar and one per
+// leave/holiday day. The parent's own bar is hidden via the
+// `[data-id^=":person-"] { visibility: hidden }` CSS rule below (ticket 01)
+// — only its row label shows in the grid pane.
+function buildTasks(
+  memberships: TeamMembership[],
+  rowsByMembershipId: Map<string, GanttPlacedBar[]>,
+  sprintPeriod: SprintPeriod,
+  capacity: SprintCapacity[],
+  taskIdByBarKey: Map<string, string>,
+): ITask[] {
   const tasks: ITask[] = []
   const sprintStart = parseLocalDate(sprintPeriod.startDate)
   const sprintEnd = parseLocalDate(sprintPeriod.endDate)
@@ -46,13 +72,37 @@ function buildTasks(memberships: TeamMembership[], rowsByMembershipId: Map<strin
       const ticket = bar.entry.ticketId
       const roleLabel = bar.role ? ` [${bar.role.toUpperCase()}]` : ''
       tasks.push({
-        id: bar.key,
+        // A Split ticket's rendered Dev/QA pair gets the deterministic
+        // `dev-<jiraKey>`/`qa-<jiraKey>` id ticket 08 requires so the
+        // `links` config and the `[data-id^=":dev-"]`/`[data-id^=":qa-"]`
+        // CSS rules below both target it - every other bar keeps its
+        // default ticket-07 `bar.key` id (ganttDevQaLinks.ts only populates
+        // an override for a complete, both-roles-rendered pair).
+        id: taskIdByBarKey.get(bar.key) ?? bar.key,
         text: `${ticket.jiraKey}${roleLabel}`,
         parent: `person-${membershipId}`,
         start: parseLocalDate(bar.start),
         end: parseLocalDate(bar.end),
       })
     }
+  }
+
+  // Leave/holiday sibling tasks (ticket 08, ticket 01's confirmed
+  // "ordinary 1-day sibling task" approach - SVAR's `highlightTime` hook is
+  // global/per-column only, no per-row argument, so it can't shade a single
+  // person's row). Read-only same as every other bar here: the whole
+  // `<Gantt readonly>` below already disables drag/edit chart-wide, so
+  // these need no extra per-task flag to satisfy "no click/drag
+  // affordance."
+  for (const day of buildLeaveDays(memberships, capacity, sprintPeriod.holidays)) {
+    const start = parseLocalDate(day.date)
+    tasks.push({
+      id: day.key,
+      text: day.label,
+      parent: `person-${day.membershipId}`,
+      start,
+      end: nextDay(start),
+    })
   }
 
   return tasks
@@ -69,7 +119,7 @@ function SprintGantt({
   capacity: SprintCapacity[]
   sprintPeriod: SprintPeriod
 }) {
-  const tasks = useMemo(() => {
+  const { tasks, links } = useMemo(() => {
     // No saved-override input yet (ticket 05/09) — always an empty map, so
     // every placement takes the pure auto-placement branch. The
     // override-aware cursor-continuation branch inside computeGanttRows/
@@ -79,18 +129,32 @@ function SprintGantt({
       startDate: sprintPeriod.startDate,
       holidays: sprintPeriod.holidays,
     })
-    return buildTasks(memberships, rowsByMembershipId, sprintPeriod)
+    const { taskIdByBarKey, links } = computeDevQaLinks(rowsByMembershipId)
+    const tasks = buildTasks(memberships, rowsByMembershipId, sprintPeriod, capacity, taskIdByBarKey)
+    return { tasks, links }
   }, [memberships, entries, capacity, sprintPeriod])
 
   return (
     <div className="flex flex-col gap-3">
       {/* Hides each synthetic person-row's own summary bar - only its grid
-          label should show (ticket 01's API specifics). */}
-      <style>{`.wx-bar[data-id^=":person-"] { visibility: hidden; }`}</style>
+          label should show (ticket 01's API specifics). Leave/holiday
+          shading (ticket 08) reuses SprintLeaveGrid.tsx's exact color
+          vocabulary: full leave/holiday = red-400/500, half leave =
+          amber-300/500. A Split ticket's linked Dev/QA pair (ticket 08)
+          shares a fuchsia border/background, the same accent color this
+          app already uses for "highlighted/selected" affordances (see
+          SprintLeaveGrid's own row-highlight border). */}
+      <style>{`
+        .wx-bar[data-id^=":person-"] { visibility: hidden; }
+        .wx-bar[data-id^=":leave-full-"] { background: #ef4444; border-color: #f87171; }
+        .wx-bar[data-id^=":leave-half-"] { background: #f59e0b; border-color: #fcd34d; }
+        .wx-bar[data-id^=":dev-"], .wx-bar[data-id^=":qa-"] { border: 2px solid #e879f9; background: rgba(217, 70, 239, 0.35); }
+      `}</style>
       <div style={{ height: 480 }}>
         <WillowDark>
           <Gantt
             tasks={tasks}
+            links={links}
             columns={[{ id: 'text', header: 'Person', width: 160 }]}
             cellWidth={32}
             cellHeight={30}

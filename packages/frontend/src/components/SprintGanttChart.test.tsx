@@ -9,15 +9,29 @@ import type { DevQaRoleResolution, Person, SprintCapacity, SprintPlanEntry, Team
 // (`HTMLCanvasElement#getContext`, real box metrics) - same posture as
 // PlanningView.test.tsx stubbing @dnd-kit's DndContext rather than
 // re-testing a third-party library's own rendering contract. Stubbed here
-// with a plain list of the `tasks` prop it was handed, so these tests cover
-// this file's own task-tree building (person rows, ticket-03 exclusion,
-// ticket-04 placement dates feeding through) without depending on SVAR's
-// internal chart/canvas implementation.
+// with a plain list of the `tasks`/`links` props it was handed - each task
+// carries its real `id` as a `data-id` attribute (mirroring SVAR's own real
+// DOM output per ticket 01's prototype findings) so these tests can assert
+// on this file's own task-tree building (person rows, ticket-03 exclusion,
+// ticket-04 placement dates, ticket-08 leave/holiday siblings and Dev/QA
+// link ids feeding through) without depending on SVAR's internal
+// chart/canvas implementation.
 vi.mock('@svar-ui/react-gantt', () => ({
-  Gantt: ({ tasks }: { tasks: { id: string | number; text?: string; parent?: string | number }[] }) => (
+  Gantt: ({
+    tasks,
+    links,
+  }: {
+    tasks: { id: string | number; text?: string; parent?: string | number }[]
+    links?: { id: string | number; source: string | number; target: string | number; type: string }[]
+  }) => (
     <ul aria-label="Gantt tasks">
       {tasks.map((t) => (
-        <li key={String(t.id)}>{t.text}</li>
+        <li key={String(t.id)} data-id={String(t.id)}>
+          {t.text}
+        </li>
+      ))}
+      {(links ?? []).map((l) => (
+        <li key={String(l.id)} data-testid="gantt-link" data-source={String(l.source)} data-target={String(l.target)} data-link-type={l.type} />
       ))}
     </ul>
   ),
@@ -163,5 +177,103 @@ describe('GanttChartButton', () => {
     // never appears anywhere on the chart.
     expect(screen.getAllByText(/PROJ-9/)).toHaveLength(1)
     expect(screen.getByText(/PROJ-9 \[DEV\]/)).toBeInTheDocument()
+  })
+
+  it('renders a full-leave day and a sprint holiday as red-keyed sibling tasks, and a half-leave day as amber-keyed (ticket 08)', async () => {
+    const capacity: SprintCapacity = {
+      ...capacityFor(adaMembership),
+      leaveEntries: [
+        { date: '2026-08-11', portion: 'full' },
+        { date: '2026-08-12', portion: 'half' },
+      ],
+    }
+    const periodWithHoliday: SprintPeriod = { ...sprintPeriod, holidays: ['2026-08-13'] }
+    const { container } = render(
+      <GanttChartButton memberships={[adaMembership]} entries={[]} capacity={[capacity]} sprintPeriod={periodWithHoliday} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+    await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+    // Full-leave and holiday days both use the `leave-full-` id prefix the
+    // component's CSS targets for red-400/500 shading; the half-leave day
+    // uses `leave-half-` for amber-300/500 - not `highlightTime`, per
+    // ticket 01's confirmed approach.
+    expect(container.querySelector('[data-id="leave-full-leave-m1-2026-08-11"]')).not.toBeNull()
+    expect(container.querySelector('[data-id="leave-full-holiday-m1-2026-08-13"]')).not.toBeNull()
+    expect(container.querySelector('[data-id="leave-half-leave-m1-2026-08-12"]')).not.toBeNull()
+  })
+
+  it("links a Split ticket's rendered Dev and QA bars across two different rows, via a native s2s link and matching dev-/qa- data-ids (ticket 08)", async () => {
+    const split = ticket({ jiraKey: 'PROJ-201', type: 'Story' })
+    const splitEntry: SprintPlanEntry = {
+      _id: 'e201',
+      teamId: 't1',
+      sprintId: 's1',
+      ticketId: split,
+      order: 0,
+      devOrder: 0,
+      qaOrder: 0,
+      devQa: { dev: resolved('p1'), qa: resolved('p2') },
+      devEstimateHours: 8,
+      devPlanHours: null,
+      devSpillHours: null,
+      devPlannedHours: 8,
+      qaEstimateHours: 4,
+      qaPlanHours: null,
+      qaSpillHours: null,
+      qaPlannedHours: 4,
+    }
+    const { container } = render(
+      <GanttChartButton
+        memberships={[adaMembership, bobMembership]}
+        entries={[splitEntry]}
+        capacity={[capacityFor(adaMembership), capacityFor(bobMembership)]}
+        sprintPeriod={sprintPeriod}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+    await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+    // Deterministic dev-<jiraKey>/qa-<jiraKey> ids, not the default
+    // ticket-07 `bar.key` - what the `[data-id^=":dev-"]`/`[data-id^=":qa-"]`
+    // CSS rules and the native dependency link both target.
+    expect(container.querySelector('[data-id="dev-PROJ-201"]')).not.toBeNull()
+    expect(container.querySelector('[data-id="qa-PROJ-201"]')).not.toBeNull()
+
+    const link = screen.getByTestId('gantt-link')
+    expect(link).toHaveAttribute('data-source', 'dev-PROJ-201')
+    expect(link).toHaveAttribute('data-target', 'qa-PROJ-201')
+    expect(link).toHaveAttribute('data-link-type', 's2s')
+  })
+
+  it("does not link a Split ticket whose QA role is still needs-assignment (ticket 03's exclusion) - no link, default bar id kept", async () => {
+    const split = ticket({ jiraKey: 'PROJ-9', type: 'Story' })
+    const splitEntry: SprintPlanEntry = {
+      _id: 'e9',
+      teamId: 't1',
+      sprintId: 's1',
+      ticketId: split,
+      order: 0,
+      devOrder: 0,
+      qaOrder: 0,
+      devQa: { dev: resolved('p1'), qa: needsAssignment() },
+      devEstimateHours: 8,
+      devPlanHours: null,
+      devSpillHours: null,
+      devPlannedHours: 8,
+      qaEstimateHours: 4,
+      qaPlanHours: null,
+      qaSpillHours: null,
+      qaPlannedHours: 4,
+    }
+    const { container } = render(
+      <GanttChartButton memberships={[adaMembership]} entries={[splitEntry]} capacity={[capacityFor(adaMembership)]} sprintPeriod={sprintPeriod} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
+    await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+
+    expect(container.querySelector('[data-id="e9-dev"]')).not.toBeNull()
+    expect(container.querySelector('[data-id^="dev-"]')).toBeNull()
+    expect(screen.queryByTestId('gantt-link')).not.toBeInTheDocument()
   })
 })
