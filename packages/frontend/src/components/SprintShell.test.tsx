@@ -137,8 +137,7 @@ describe('SprintShell', () => {
     expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('heading', { name: 'Sprint' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Planner →' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Planner' }))
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'My Planner' })).toBeInTheDocument()

@@ -1014,7 +1014,13 @@ function AppShell() {
 
   return (
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
-      <Header theme={theme} onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
+      <Header
+        theme={theme}
+        onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        workspaceSwitcher={
+          <WorkspaceSwitcher current="planner" onNavigate={(target) => target === 'sprint' && navigate('/sprint')} />
+        }
+      >
         <div
           role="tablist"
           aria-label="View"
@@ -1057,7 +1063,6 @@ function AppShell() {
             onDeleteRequest={handleDeleteProfileRequest}
           />
         )}
-        <WorkspaceSwitcher current="planner" onNavigate={(target) => target === 'sprint' && navigate('/sprint')} />
       </Header>
 
       {(error || profileError) && (

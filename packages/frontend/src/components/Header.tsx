@@ -11,10 +11,15 @@ interface HeaderProps {
   subtitle?: string
   theme: Theme
   onToggleTheme: () => void
+  // Rendered right next to the title/subtitle block, not in the far-right
+  // cluster - it answers "which app am I in", the same question the title
+  // text itself answers, so it sits beside it rather than off with the
+  // profile/theme controls.
+  workspaceSwitcher?: ReactNode
   // Rendered in the header's right-hand cluster, before the theme toggle -
-  // AppShell passes its Todos/Notes/Boards tab row, ProfileSwitcher, and
-  // WorkspaceSwitcher; SprintShell mirrors that with its own Planning/Status
-  // tab row, TeamSwitcher, and WorkspaceSwitcher.
+  // AppShell passes its Todos/Notes/Boards tab row and ProfileSwitcher;
+  // SprintShell mirrors that with its own Planning/Status tab row and
+  // TeamSwitcher.
   children?: ReactNode
 }
 
@@ -28,15 +33,19 @@ export function Header({
   subtitle = "Here's what's glowing today.",
   theme,
   onToggleTheme,
+  workspaceSwitcher,
   children,
 }: HeaderProps) {
   return (
     <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 className="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-3xl font-extrabold text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-300">
-          {title}
-        </h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+      <div className="flex flex-wrap items-center gap-4">
+        <div>
+          <h1 className="bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 bg-clip-text text-3xl font-extrabold text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-cyan-300">
+            {title}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+        </div>
+        {workspaceSwitcher}
       </div>
       <div className="flex items-center gap-3">
         {children}

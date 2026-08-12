@@ -121,9 +121,12 @@ export function SprintShell() {
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
       <Header
         title="Sprint"
-        subtitle="Capacity, tickets, and who's underwater this sprint."
+        subtitle="From backlog to sprint."
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        workspaceSwitcher={
+          <WorkspaceSwitcher current="sprint" onNavigate={(target) => target === 'planner' && navigate('/')} />
+        }
       >
         {activeTeam && (
           <div
@@ -160,7 +163,6 @@ export function SprintShell() {
             onDeleteRequest={setPendingDelete}
           />
         )}
-        <WorkspaceSwitcher current="sprint" onNavigate={(target) => target === 'planner' && navigate('/')} />
       </Header>
 
       {error && (
