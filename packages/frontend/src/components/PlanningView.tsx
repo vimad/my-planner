@@ -10,6 +10,7 @@ import { AddPlaceholderPopup, type AddPlaceholderBody } from './AddPlaceholderPo
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
+import { GanttChartButton } from './SprintGanttChart'
 import { SprintBreakdownCard } from './SprintBreakdownCard'
 import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
@@ -19,52 +20,16 @@ import { formatDaysHours } from '../utils/formatDuration'
 import { getId } from '../utils/getId'
 import { computeSprintBreakdown } from '../utils/sprintBreakdown'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
+import {
+  groupPlacementsByMembership,
+  placementField,
+  placementFieldValue,
+  placementKey,
+  rolePlannedHours,
+  type PlacedEntry,
+} from '../utils/ticketPlacements'
 import { ticketTypeAccent } from '../utils/ticketType'
 import type { LeaveEntry, PlaceholderTicket, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
-
-// A ticket's placement within one "Tickets by person" row. `role` is set
-// only for a Split ticket's dev or qa sub-placement (CONTEXT.md "Split
-// ticket") - the same SprintPlanEntry can appear as two placements, one per
-// resolved role. A non-split entry has exactly one placement, `role`
-// omitted.
-interface PlacedEntry {
-  entry: SprintPlanEntry
-  role?: 'dev' | 'qa'
-}
-
-function placementKey(p: PlacedEntry): string {
-  return `${getId(p.entry) ?? p.entry.ticketId.jiraKey}-${p.role ?? 'main'}`
-}
-
-// Which of SprintPlanEntry's three independent order namespaces (ticket 23's
-// devOrder/qaOrder alongside the original order) a placement belongs to -
-// see SprintPlanEntry.ts. A non-split placement (`role` unset) always uses
-// `order`; a Split ticket's dev-row or qa-row placement uses only its own
-// role's field.
-function placementField(p: PlacedEntry): 'order' | 'devOrder' | 'qaOrder' {
-  if (p.role === 'dev') return 'devOrder'
-  if (p.role === 'qa') return 'qaOrder'
-  return 'order'
-}
-
-function placementFieldValue(p: PlacedEntry): number {
-  const field = placementField(p)
-  if (field === 'devOrder') return p.entry.devOrder ?? 0
-  if (field === 'qaOrder') return p.entry.qaOrder ?? 0
-  return p.entry.order
-}
-
-// A role placement's own resolved Planned-this-sprint figure (spec
-// ".scratch/sprint-plan-spill-estimate/spec.md") - devPlannedHours/
-// qaPlannedHours (each role's own [Dev]/[Test] Sub-task Plan/Spill), never
-// the parent Story/Bug's own, which a non-split placement (`role` unset)
-// uses (plannedHours) instead. What the badge actually displays now, in
-// place of the raw Original estimate it showed before this feature.
-function rolePlannedHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
-  if (role === 'dev') return entry.devPlannedHours ?? null
-  if (role === 'qa') return entry.qaPlannedHours ?? null
-  return entry.plannedHours ?? null
-}
 
 // The same role placement's Original (Effort) - devEstimateHours/
 // qaEstimateHours, or entry.estimateHours for a non-split placement. Used
@@ -1078,73 +1043,15 @@ export function PlanningView({ team }: { team: Team }) {
   // Split-ticket roles only). A Split entry (ticket.devQa present) can land
   // up to two placements across any combination of these buckets,
   // independently per role; a non-split entry always has exactly one.
-  // Recomputed whenever either input changes, not per-render.
-  const { ticketsByMembershipId, unmappedPlacements, needsAssignmentPlacements } = useMemo(() => {
-    const byMembership = new Map<string, PlacedEntry[]>()
-    for (const membership of memberships) {
-      byMembership.set(getId(membership) ?? '', [])
-    }
-    const membershipIdByAccountId = new Map(memberships.map((m) => [m.personId.jiraAccountId, getId(m) ?? '']))
-    const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
-
-    const unmapped: PlacedEntry[] = []
-    const needsAssignment: PlacedEntry[] = []
-
-    function placeResolved(membershipId: string | undefined, placed: PlacedEntry) {
-      // A resolved role whose personId no longer matches any current
-      // TeamMembership (e.g. an Override picked someone since removed from
-      // the team) has nowhere mapped to go - falls back to Unmapped rather
-      // than silently vanishing from the table.
-      if (membershipId && byMembership.has(membershipId)) byMembership.get(membershipId)!.push(placed)
-      else unmapped.push(placed)
-    }
-
-    for (const entry of entries) {
-      if (entry.devQa) {
-        for (const role of ['dev', 'qa'] as const) {
-          const resolution = entry.devQa[role]
-          const placed: PlacedEntry = { entry, role }
-          if (resolution.status === 'resolved') {
-            placeResolved(membershipIdByPersonId.get(resolution.personId), placed)
-          } else if (resolution.status === 'unmapped') {
-            unmapped.push(placed)
-          } else {
-            needsAssignment.push(placed)
-          }
-        }
-      } else {
-        const placed: PlacedEntry = { entry }
-        // An Assignee Override (docs/adr/0005), if set, wins over Jira's own
-        // assigneeAccountId for where the badge lands - same
-        // Override-wins-over-Jira precedence as a Split entry's devQa above,
-        // reusing placeResolved's "stale Override -> Unmapped" fallback.
-        if (entry.assigneeOverridePersonId) {
-          placeResolved(membershipIdByPersonId.get(entry.assigneeOverridePersonId), placed)
-        } else {
-          const accountId = entry.ticketId.assigneeAccountId
-          const membershipId = accountId ? membershipIdByAccountId.get(accountId) : undefined
-          if (membershipId) byMembership.get(membershipId)!.push(placed)
-          else unmapped.push(placed)
-        }
-      }
-    }
-
-    // A non-split placement sorts by the entry's plain `order`; a Split role
-    // placement sorts by that role's own devOrder/qaOrder (ticket 23).
-    // Comparing these three fields' raw values directly only produces the
-    // right row-wide order because computeReorderPatches above always
-    // writes them as one shared, row-wide index space - see its comment.
-    function placementOrder(p: PlacedEntry): number {
-      if (p.role === 'dev') return p.entry.devOrder ?? 0
-      if (p.role === 'qa') return p.entry.qaOrder ?? 0
-      return p.entry.order
-    }
-    for (const placements of byMembership.values()) placements.sort((a, b) => placementOrder(a) - placementOrder(b))
-    unmapped.sort((a, b) => placementOrder(a) - placementOrder(b))
-    needsAssignment.sort((a, b) => placementOrder(a) - placementOrder(b))
-
-    return { ticketsByMembershipId: byMembership, unmappedPlacements: unmapped, needsAssignmentPlacements: needsAssignment }
-  }, [memberships, entries])
+  // Recomputed whenever either input changes, not per-render. The grouping
+  // itself lives in utils/ticketPlacements.ts (moved out during the Sprint
+  // Planning Gantt Chart's ticket 07) so the Gantt's own per-person
+  // placement algorithm (utils/ganttPlacement.ts) can resolve rows the exact
+  // same way, rather than re-deriving this resolution logic a second time.
+  const { ticketsByMembershipId, unmappedPlacements, needsAssignmentPlacements } = useMemo(
+    () => groupPlacementsByMembership(entries, memberships),
+    [memberships, entries],
+  )
 
   // Sprint Breakdown card's Features/Technical items/Bugs totals (map's
   // Notes) - recomputed whenever entries or memberships change, same
@@ -1260,6 +1167,7 @@ export function PlanningView({ team }: { team: Team }) {
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
                 <div className="flex items-center gap-2">
                   {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
+                  <GanttChartButton memberships={memberships} entries={entries} capacity={capacity} sprintPeriod={sprintPeriod} />
                   <SyncPlanButton syncing={syncingPlan} error={syncPlanError} onSync={() => syncPlan().catch(() => {})} />
                 </div>
               </div>

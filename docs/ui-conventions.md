@@ -118,6 +118,16 @@ card:     w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-
 
 Reference: `ConfirmDialog.tsx`, `CreateBoardPrompt.tsx`, `MoveToFolderPicker.tsx`, `TodoDetail.tsx`, `BoardSwitcherModal.tsx`.
 
+**Variant: large modal** — same backdrop/card classes, widened for content that needs real width/height (a chart, a wide table), not the base archetype's small confirm/prompt dialogs:
+
+```
+backdrop: fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4
+card:     flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100
+content:  overflow-auto   (on the inner content wrapper, since the card itself is now height-capped)
+```
+
+`max-w-sm` → `max-w-6xl` is the only width change; the base archetype has no height cap at all (its dialogs are always short), so `max-h-[90vh] overflow-hidden` on the card plus `overflow-auto` on the inner content are new, not overridden. Reference: `SprintGanttChart.tsx`'s Gantt chart modal (wayfinder `.scratch/sprint-gantt-chart/` tickets 01/07).
+
 ### C. Slide-in/slide-over drawer
 
 Edge-anchored, full-height, heaviest shadow in the app.
