@@ -1,11 +1,10 @@
 import { useMemo } from 'react'
 import { useStatusView } from '../hooks/useStatusView'
 import { SprintSelect } from './SprintSelect'
+import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
 import { ticketTypeAccent } from '../utils/ticketType'
 import type { Team, Ticket } from '../types'
-
-const JIRA_BASE_URL = import.meta.env.VITE_JIRA_BASE_URL ?? 'https://wealthos.atlassian.net'
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'Never synced'

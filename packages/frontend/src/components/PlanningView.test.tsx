@@ -474,6 +474,24 @@ describe('PlanningView', () => {
     expect(within(adaRow).getByText(/Fix login — To Do, synced/)).toBeInTheDocument()
   })
 
+  it('clicking a non-split ticket badge opens a read-only info popup with title, Jira link, and assignee - not the dev/qa reassignment popup', async () => {
+    render(<PlanningView team={team} />)
+
+    const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+    const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-100' })
+    fireEvent.click(badge)
+
+    const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-100' })
+    expect(within(dialog).getByText('Fix login')).toBeInTheDocument()
+    const jiraLink = within(dialog).getByRole('link', { name: /Open in Jira/ })
+    expect(jiraLink).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-100')
+    expect(within(dialog).queryByLabelText('Dev assignee')).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('QA assignee')).not.toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it("shows an estimate sub-label (e.g. '1d 4h') instead of the raw type text, and colors the badge by issue type", async () => {
     const bugTicket = ticket({ jiraKey: 'WOSMVP-110', assigneeAccountId: 'acc-1', type: 'Bug', estimateHours: 12 })
     const taskTicket = ticket({ jiraKey: 'WOSMVP-120', assigneeAccountId: 'acc-1', type: 'Dev Task', estimateHours: 1.5 })
@@ -615,6 +633,52 @@ describe('PlanningView', () => {
       const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-800' })
       const devSelect = within(dialog).getByLabelText('Dev assignee')
       expect(devSelect).toHaveValue('p1')
+    })
+
+    it('opens the same popup when clicking an already-resolved (non-flagged) Split ticket badge, not just a needs-assignment one', async () => {
+      entriesData = [...entriesData, entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0 })]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-300' })
+
+      fireEvent.click(badge)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
+      expect(within(dialog).getByText(/Ada Lovelace.*from Jira/)).toBeInTheDocument()
+      expect(within(dialog).getByText(/Grace Hopper.*from Jira/)).toBeInTheDocument()
+    })
+
+    it('shows an "Open in Jira" link pointing at the ticket, alongside the title', async () => {
+      entriesData = [...entriesData, entry('e-needs-qa', needsQaTicket, 1, { devQa: needsQaDevQa })]
+      render(<PlanningView team={team} />)
+
+      const flagButton = await screen.findByRole('button', { name: 'Assign dev/qa for WOSMVP-400' })
+      fireEvent.click(flagButton)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })
+      expect(within(dialog).getByText('Needs QA')).toBeInTheDocument()
+      const jiraLink = within(dialog).getByRole('link', { name: /Open in Jira/ })
+      expect(jiraLink).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-400')
+      expect(jiraLink).toHaveAttribute('target', '_blank')
+    })
+
+    it('only offers dev-role people for Dev and qa-role people for QA, per role mapping', async () => {
+      entriesData = [...entriesData, entry('e-needs-both', splitTicket, 1, { devQa: { dev: needsAssignment(), qa: needsAssignment() } })]
+      render(<PlanningView team={team} />)
+
+      const flagRow = await screen.findByLabelText('Tickets for Needs dev/qa')
+      const [flagButton] = await within(flagRow).findAllByRole('button', { name: 'Assign dev/qa for WOSMVP-300' })
+      fireEvent.click(flagButton)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
+      const devSelect = within(dialog).getByLabelText('Dev assignee')
+      const qaSelect = within(dialog).getByLabelText('QA assignee')
+
+      expect(within(devSelect).getByText('Ada Lovelace')).toBeInTheDocument()
+      expect(within(devSelect).queryByText('Grace Hopper')).not.toBeInTheDocument()
+      expect(within(qaSelect).getByText('Grace Hopper')).toBeInTheDocument()
+      expect(within(qaSelect).queryByText('Ada Lovelace')).not.toBeInTheDocument()
     })
 
     it("saving an override via the popup calls the PUT endpoint with only the changed field and moves the badge into the picked person's row", async () => {

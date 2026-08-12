@@ -10,6 +10,7 @@ import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
+import { TicketInfoPopup } from './TicketInfoPopup'
 import { parseLocalDate } from '../utils/dateAgenda'
 import { formatDaysHours } from '../utils/formatDuration'
 import { getId } from '../utils/getId'
@@ -511,11 +512,13 @@ function AddToPlanForm({
 // A ticket-number pill, wrapped by SortableTicketBadge (below) for drag-
 // reorder within a real per-person row (ticket 19) - the Unmapped/Needs
 // dev/qa catch-all rows render it bare, undraggable, since their placements
-// don't share a single meaningful order group (see PersonRow). In its
-// `needsAssignment` variant (ticket 24) it's itself the click target
-// that opens DevQaAssignmentPopup for that ticket. The full title/status/
-// staleness lives in the title tooltip rather than on the face of the
-// badge, per the ticket's "enough to identify the ticket". A Split ticket's
+// don't share a single meaningful order group (see PersonRow). Every badge
+// is a click target that opens a detail popup for that ticket: a Split
+// (Story/Bug) ticket opens DevQaAssignmentPopup (needs-assignment or
+// already-resolved alike), a non-split ticket opens the read-only
+// TicketInfoPopup instead (see PlanningView's popupEntry rendering). The
+// full title/status/staleness lives in the title tooltip rather than on the
+// face of the badge, per the ticket's "enough to identify the ticket". A Split ticket's
 // two resolved placements (ticket 24) land in separate rows already keyed
 // to their resolved dev/qa person, so no DEV/QA sub-label is needed there -
 // the Unmapped catch-all row is the one place it comes back, by explicit
@@ -541,7 +544,10 @@ function TicketBadge({
   role?: 'dev' | 'qa'
   unmapped?: boolean
   needsAssignment?: boolean
-  onFlagClick?: () => void
+  // Every caller (SortableTicketBadge, PersonRow's bare-badge branch) passes
+  // this unconditionally now - a plain click always opens a detail/assign
+  // popup (see badgeEl below), never optional.
+  onFlagClick: () => void
   // Undoes an accidental add-to-plan (spec). A Split ticket's dev and qa
   // placements share one SprintPlanEntry (PlacedEntry's `role`), so removing
   // from either placement clears both - there's nothing to remove per-role.
@@ -600,9 +606,8 @@ function TicketBadge({
   // for a keyboard user tabbing to the needsAssignment button - the native
   // `title` it replaced showed on focus too.
   // Option/Alt+click (e.altKey - Option on Mac, Alt on Windows) toggles pop
-  // instead of the badge's normal click behavior (opening the assign-dev/qa
-  // popup, for a needsAssignment badge) - checked first so the two never
-  // fire together on the same click.
+  // instead of the badge's normal click behavior (opening its detail/assign
+  // popup) - checked first so the two never fire together on the same click.
   function handleClick(e: MouseEvent) {
     if (e.altKey) {
       e.preventDefault()
@@ -612,19 +617,20 @@ function TicketBadge({
     onFlagClick?.()
   }
 
-  const badgeEl = needsAssignment ? (
+  // Every badge opens a popup on a plain click now (spec: "when a ticket
+  // click I want popup") - needsAssignment keeps its own distinct
+  // aria-label/copy (existing tests assert on it), any other badge gets a
+  // generic one since it's opening the same popup just to view/reassign an
+  // already-resolved (or non-split) ticket rather than to clear a flag.
+  const badgeEl = (
     <button
       type="button"
       onClick={handleClick}
-      aria-label={`Assign dev/qa for ${ticket.jiraKey}`}
+      aria-label={needsAssignment ? `Assign dev/qa for ${ticket.jiraKey}` : `Open ${ticket.jiraKey}`}
       className={`${baseClasses} cursor-pointer hover:opacity-80`}
     >
       {content}
     </button>
-  ) : (
-    <span onClick={onPopClick ? handleClick : undefined} className={`${baseClasses} cursor-pointer`}>
-      {content}
-    </span>
   )
 
   return (
@@ -651,18 +657,18 @@ function TicketBadge({
 // Makes one badge draggable/sortable via dnd-kit, mirroring TodoDetail's
 // SortableLinkedTodoRow / BoardsView's SortableBoardCard: a small separate
 // drag-handle button (not the badge itself) owns useSortable's
-// listeners/attributes, keeping the needsAssignment variant's own onClick
-// (never used here - only a resolved, non-flagged placement ever lands in a
-// real per-person row, see ticketsByMembershipId) conflict-free by
-// construction.
+// listeners/attributes, keeping the badge's own onClick (opens the
+// detail/assign popup) conflict-free by construction.
 function SortableTicketBadge({
   placement,
+  onFlagClick,
   onRemove,
   removing,
   isPopped,
   onPopClick,
 }: {
   placement: PlacedEntry
+  onFlagClick: () => void
   onRemove?: () => void
   removing?: boolean
   isPopped?: boolean
@@ -687,6 +693,7 @@ function SortableTicketBadge({
       <TicketBadge
         entry={placement.entry}
         role={placement.role}
+        onFlagClick={onFlagClick}
         onRemove={onRemove}
         removing={removing}
         isPopped={isPopped}
@@ -779,6 +786,7 @@ function PersonRow({
                   <SortableTicketBadge
                     key={placementKey(p)}
                     placement={p}
+                    onFlagClick={() => onOpenPopup?.(getId(p.entry.ticketId) ?? '')}
                     onRemove={onRemove ? () => onRemove(entryId) : undefined}
                     removing={removingEntryId === entryId}
                     isPopped={!!entryId && entryId === poppedEntryId}
@@ -800,7 +808,7 @@ function PersonRow({
                 role={role}
                 unmapped={unmapped}
                 needsAssignment={needsAssignment}
-                onFlagClick={needsAssignment ? () => onOpenPopup?.(getId(entry.ticketId) ?? '') : undefined}
+                onFlagClick={() => onOpenPopup?.(getId(entry.ticketId) ?? '')}
                 onRemove={onRemove ? () => onRemove(entryId) : undefined}
                 removing={removingEntryId === entryId}
                 isPopped={!!entryId && entryId === poppedEntryId}
@@ -1128,16 +1136,19 @@ export function PlanningView({ team }: { team: Team }) {
         </>
       )}
 
-      {popupEntry && popupEntry.devQa && (
-        <DevQaAssignmentPopup
-          entry={popupEntry as SprintPlanEntry & { devQa: NonNullable<SprintPlanEntry['devQa']> }}
-          memberships={memberships}
-          saving={savingDevQaOverride}
-          error={devQaOverrideError}
-          onSave={(body) => saveDevQaOverride(getId(popupEntry.ticketId) ?? '', body)}
-          onClose={() => setPopupTicketId(null)}
-        />
-      )}
+      {popupEntry &&
+        (popupEntry.devQa ? (
+          <DevQaAssignmentPopup
+            entry={popupEntry as SprintPlanEntry & { devQa: NonNullable<SprintPlanEntry['devQa']> }}
+            memberships={memberships}
+            saving={savingDevQaOverride}
+            error={devQaOverrideError}
+            onSave={(body) => saveDevQaOverride(getId(popupEntry.ticketId) ?? '', body)}
+            onClose={() => setPopupTicketId(null)}
+          />
+        ) : (
+          <TicketInfoPopup ticket={popupEntry.ticketId} onClose={() => setPopupTicketId(null)} />
+        ))}
     </div>
   )
 }

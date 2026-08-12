@@ -16,3 +16,10 @@ export const ROLE_DEFAULT_CAPACITY_PERCENT: Record<Role, number> = {
   'QA Intern': 50,
   'Dev Intern': 50,
 }
+
+// Which roles count as "dev" vs "qa" for reassignment pickers (Dev/QA
+// Assignment popup) - a role not in either list simply can't be picked for
+// either slot. Doesn't gate what the backend accepts (dev-qa-override has no
+// server-side role check), only which memberships a picker offers.
+export const DEV_ROLES: Role[] = ['TL', 'ATL', 'SSE', 'SE', 'Dev Intern']
+export const QA_ROLES: Role[] = ['SQA', 'QA', 'QA Intern']

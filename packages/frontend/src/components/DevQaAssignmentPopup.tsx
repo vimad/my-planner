@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react'
+import { JIRA_BASE_URL } from '../constants/jira'
+import { DEV_ROLES, QA_ROLES } from '../constants/roles'
 import { getId } from '../utils/getId'
 import type { DevQaRoleResolution, SprintPlanEntry, TeamMembership } from '../types'
 
@@ -61,12 +63,20 @@ function RoleField({
   label,
   resolution,
   memberships,
+  options,
   value,
   onChange,
 }: {
   label: 'Dev' | 'QA'
   resolution: DevQaRoleResolution
+  // Full roster, used only to resolve the currently-assigned person's name
+  // (e.g. a read-only Jira-sourced assignee, or someone an Override picked
+  // before their role changed/they left the team) - never filtered, so that
+  // lookup can't go stale just because `options` narrowed.
   memberships: TeamMembership[]
+  // Who this role's <select> actually offers - DEV_ROLES for Dev, QA_ROLES
+  // for QA (spec: "only show those people to select and reassign").
+  options: TeamMembership[]
   value: string
   onChange: (v: string) => void
 }) {
@@ -89,7 +99,7 @@ function RoleField({
           className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
         >
           <option value="">— Select —</option>
-          {memberships.map((m) => (
+          {options.map((m) => (
             <option key={getId(m)} value={getId(m.personId)}>
               {m.personId.name}
             </option>
@@ -101,17 +111,22 @@ function RoleField({
   )
 }
 
-// Ticket 24's popup: shows both roles for one Split ticket and lets the user
-// fill in or edit a Dev/QA Override (CONTEXT.md). Reachable two ways from
-// PlanningView: auto-opened right after AddToPlanForm's submit succeeds
-// when a role is needs-assignment, or by clicking any "needs dev/qa"
-// flagged TicketBadge in the table - same component, same pre-filled state,
-// either way. Modeled on ConfirmDialog.tsx's archetype-B full modal
-// (docs/ui-conventions.md) rather than inventing a new modal mechanism.
+// Ticket 24's popup: shows both roles for one Split ticket, a Jira deep
+// link, and lets the user fill in or edit a Dev/QA Override (CONTEXT.md).
+// Reachable from PlanningView either by clicking any TicketBadge for a Split
+// ticket (needs-assignment or already-resolved - same component either way)
+// or auto-opened right after AddToPlanForm's submit succeeds when a role is
+// needs-assignment. Each select only offers memberships whose role maps to
+// that slot (constants/roles.ts's DEV_ROLES/QA_ROLES) - reassigning Dev to a
+// QA-only person (or vice versa) isn't offered. Modeled on ConfirmDialog.tsx's
+// archetype-B full modal (docs/ui-conventions.md) rather than inventing a new
+// modal mechanism.
 export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave, onClose }: DevQaAssignmentPopupProps) {
   const { dev, qa } = entry.devQa
   const [devPersonId, setDevPersonId] = useState(initialPersonId(dev))
   const [qaPersonId, setQaPersonId] = useState(initialPersonId(qa))
+  const devOptions = memberships.filter((m) => DEV_ROLES.includes(m.role))
+  const qaOptions = memberships.filter((m) => QA_ROLES.includes(m.role))
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -147,11 +162,35 @@ export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave
       aria-label={`Assign dev/qa for ${entry.ticketId.jiraKey}`}
     >
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
-        <h2 className="text-lg font-semibold">{entry.ticketId.jiraKey}</h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-lg font-semibold">{entry.ticketId.jiraKey}</h2>
+          <a
+            href={`${JIRA_BASE_URL}/browse/${entry.ticketId.jiraKey}`}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-xs text-fuchsia-600 hover:underline dark:text-fuchsia-300"
+          >
+            Open in Jira ↗
+          </a>
+        </div>
         <p className="mb-4 truncate text-xs text-slate-500 dark:text-slate-400">{entry.ticketId.title}</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <RoleField label="Dev" resolution={dev} memberships={memberships} value={devPersonId} onChange={setDevPersonId} />
-          <RoleField label="QA" resolution={qa} memberships={memberships} value={qaPersonId} onChange={setQaPersonId} />
+          <RoleField
+            label="Dev"
+            resolution={dev}
+            memberships={memberships}
+            options={devOptions}
+            value={devPersonId}
+            onChange={setDevPersonId}
+          />
+          <RoleField
+            label="QA"
+            resolution={qa}
+            memberships={memberships}
+            options={qaOptions}
+            value={qaPersonId}
+            onChange={setQaPersonId}
+          />
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <button

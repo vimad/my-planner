@@ -1,8 +1,7 @@
 import { useState } from 'react'
+import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
 import type { Epic } from '../types'
-
-const JIRA_BASE_URL = import.meta.env.VITE_JIRA_BASE_URL ?? 'https://wealthos.atlassian.net'
 
 function EpicPill({ epic, onClick }: { epic: Epic; onClick: () => void }) {
   return (
