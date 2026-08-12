@@ -8,13 +8,13 @@ import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPl
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
-import { SprintLeaveGrid } from './SprintLeaveGrid'
+import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
 import { parseLocalDate } from '../utils/dateAgenda'
 import { getId } from '../utils/getId'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import { ticketTypeAccent } from '../utils/ticketType'
-import type { Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
+import type { LeaveEntry, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
 
 // A ticket's placement within one "Tickets by person" row. `role` is set
 // only for a Split ticket's dev or qa sub-placement (CONTEXT.md "Split
@@ -245,16 +245,37 @@ function sprintDateSeed(value: string | null | undefined): string {
 // deliberately never re-syncs from `period` after mount, so a failed save
 // leaves in-progress selections exactly as the user left them (spec story
 // 16).
+//
+// Also hosts SprintLeaveGrid (moved in from PlanningView's always-visible
+// area to cut clutter - .scratch/sprint-leave-picker follow-up): since this
+// form already owns the live startDate/endDate/holidays draft, the grid's
+// columns are derived straight from that draft state, so toggling a holiday
+// chip or nudging a date input reflows the grid immediately, before Save is
+// even clicked. Only columns that match the *saved* `period` are click-
+// writable though (`writableDates` below) - PATCH .../capacity-entries
+// rejects a leave date outside the sprint's currently-saved working-day
+// calendar (services/leaveEntries.ts's validateAgainstWorkingDates), and the
+// POST path, while permissive at write time, has any such date silently
+// filtered back out by the next GET's reconciliation - so an unsaved draft
+// column would either hard-error or silently no-op if left clickable.
 function SprintPeriodForm({
   period,
   sprint,
   saving,
   onSave,
+  capacity,
+  savingLeaveEntries,
+  leaveEntriesError,
+  onSetLeaveEntries,
 }: {
   period: SprintPeriod | null
   sprint: Sprint | null
   saving: boolean
   onSave: (period: SprintPeriodInput) => Promise<void>
+  capacity: SprintCapacity[]
+  savingLeaveEntries: boolean
+  leaveEntriesError: string | null
+  onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
 }) {
   const [startDate, setStartDate] = useState(period?.startDate ?? sprintDateSeed(sprint?.startDate))
   const [endDate, setEndDate] = useState(period?.endDate ?? sprintDateSeed(sprint?.endDate))
@@ -264,13 +285,25 @@ function SprintPeriodForm({
   const days = useMemo(() => enumerateRangeDays(startDate, endDate), [startDate, endDate])
   const rangeValid = days.length > 0
   const totalWeekdays = days.filter((d) => !d.isWeekend).length
-  // Shared with SprintLeaveGrid's own column derivation (utils/
+  // Shared with SprintLeaveGrid's column derivation (utils/
   // sprintWorkingDates.ts) - previously an inline weekend/holiday filter
   // over `days` duplicated that logic (spec ".scratch/sprint-leave-picker/
-  // spec.md").
-  const workingDaysCount = useMemo(
-    () => computeWorkingDates(startDate, endDate, [...holidays]).length,
-    [startDate, endDate, holidays],
+  // spec.md"). This is the live draft the grid's columns render from.
+  const workingDates = useMemo(() => computeWorkingDates(startDate, endDate, [...holidays]), [startDate, endDate, holidays])
+  const workingDaysCount = workingDates.length
+  // The last-saved period's own working dates - the subset of `workingDates`
+  // (the draft) that a leave-grid cell click can actually persist. `period`
+  // deliberately isn't re-read after mount anywhere else in this component
+  // (see comment above), but this one derivation is meant to track it live:
+  // it's what tells the grid a Save just landed and a given draft column is
+  // now writable.
+  const savedWorkingDates = useMemo(
+    () => new Set(period ? computeWorkingDates(period.startDate, period.endDate, period.holidays) : []),
+    [period],
+  )
+  const leaveGridColumns: SprintLeaveGridColumn[] = useMemo(
+    () => workingDates.map((date) => ({ date, writable: savedWorkingDates.has(date) })),
+    [workingDates, savedWorkingDates],
   )
 
   // Holiday selection intersected with range changes (spec): narrowing the
@@ -308,82 +341,91 @@ function SprintPeriodForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      aria-label="Sprint period"
-      className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md"
-    >
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300">
-          {rangeValid ? `${workingDaysCount}/${totalWeekdays} working days` : 'Pick a valid date range'}
-        </span>
-        <div className="flex items-center gap-1.5">
-          <label htmlFor="sprint-period-start" className="text-xs font-medium text-slate-500 dark:text-slate-300">
-            Start date
-          </label>
-          <input
-            id="sprint-period-start"
-            type="date"
-            value={startDate}
-            onChange={(e) => handleRangeChange(e.target.value, endDate)}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-          />
+    <div className="flex flex-col gap-3">
+      <form
+        onSubmit={handleSubmit}
+        aria-label="Sprint period"
+        className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md"
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-white/10 dark:text-slate-300">
+            {rangeValid ? `${workingDaysCount}/${totalWeekdays} working days` : 'Pick a valid date range'}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="sprint-period-start" className="text-xs font-medium text-slate-500 dark:text-slate-300">
+              Start date
+            </label>
+            <input
+              id="sprint-period-start"
+              type="date"
+              value={startDate}
+              onChange={(e) => handleRangeChange(e.target.value, endDate)}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="sprint-period-end" className="text-xs font-medium text-slate-500 dark:text-slate-300">
+              End date
+            </label>
+            <input
+              id="sprint-period-end"
+              type="date"
+              value={endDate}
+              onChange={(e) => handleRangeChange(startDate, e.target.value)}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={saving || !rangeValid}
+            className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save period'}
+          </button>
+          {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
         </div>
-        <div className="flex items-center gap-1.5">
-          <label htmlFor="sprint-period-end" className="text-xs font-medium text-slate-500 dark:text-slate-300">
-            End date
-          </label>
-          <input
-            id="sprint-period-end"
-            type="date"
-            value={endDate}
-            onChange={(e) => handleRangeChange(startDate, e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={saving || !rangeValid}
-          className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save period'}
-        </button>
-        {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
-      </div>
-      {days.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {days.map((d) => {
-            if (d.isWeekend) {
+        {days.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {days.map((d) => {
+              if (d.isWeekend) {
+                return (
+                  <span
+                    key={d.date}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-600"
+                  >
+                    {formatChipLabel(d.date)}
+                  </span>
+                )
+              }
+              const isHoliday = holidays.has(d.date)
               return (
-                <span
+                <button
                   key={d.date}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-600"
+                  type="button"
+                  onClick={() => toggleHoliday(d.date)}
+                  aria-pressed={isHoliday}
+                  aria-label={`Toggle holiday for ${d.date}`}
+                  className={
+                    isHoliday
+                      ? 'rounded-full border border-red-300 bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 line-through dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300'
+                      : 'rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'
+                  }
                 >
                   {formatChipLabel(d.date)}
-                </span>
+                </button>
               )
-            }
-            const isHoliday = holidays.has(d.date)
-            return (
-              <button
-                key={d.date}
-                type="button"
-                onClick={() => toggleHoliday(d.date)}
-                aria-pressed={isHoliday}
-                aria-label={`Toggle holiday for ${d.date}`}
-                className={
-                  isHoliday
-                    ? 'rounded-full border border-red-300 bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 line-through dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300'
-                    : 'rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10'
-                }
-              >
-                {formatChipLabel(d.date)}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </form>
+            })}
+          </div>
+        )}
+      </form>
+      <SprintLeaveGrid
+        capacity={capacity}
+        columns={leaveGridColumns}
+        saving={savingLeaveEntries}
+        error={leaveEntriesError}
+        onSetLeaveEntries={onSetLeaveEntries}
+      />
+    </div>
   )
 }
 
@@ -1005,6 +1047,10 @@ export function PlanningView({ team }: { team: Team }) {
                 sprint={selectedSprint}
                 saving={savingSprintPeriod}
                 onSave={setSprintPeriod}
+                capacity={capacity}
+                savingLeaveEntries={savingLeaveEntries}
+                leaveEntriesError={leaveEntriesError}
+                onSetLeaveEntries={setLeaveEntries}
               />
             ))}
 
@@ -1018,22 +1064,13 @@ export function PlanningView({ team }: { team: Team }) {
             </p>
           ) : (
             planConfigured && (
-              <>
-                <div className="flex gap-3 overflow-x-auto pb-1">
-                  {capacity.length === 0 ? (
-                    <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
-                  ) : (
-                    capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
-                  )}
-                </div>
-                <SprintLeaveGrid
-                  capacity={capacity}
-                  sprintPeriod={sprintPeriod}
-                  saving={savingLeaveEntries}
-                  error={leaveEntriesError}
-                  onSetLeaveEntries={setLeaveEntries}
-                />
-              </>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {capacity.length === 0 ? (
+                  <span className="text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</span>
+                ) : (
+                  capacity.map((c) => <CapacityCard key={c.teamMembershipId} capacity={c} />)
+                )}
+              </div>
             )
           )}
 

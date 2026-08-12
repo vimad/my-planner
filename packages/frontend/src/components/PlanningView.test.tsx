@@ -1347,6 +1347,15 @@ describe('PlanningView', () => {
       }
     }
 
+    // The grid now lives inside the (closed-by-default) period edit panel -
+    // see the "collapsible edit panel" describe above - so every test here
+    // opens the panel first, same as the period-picker's own tests do.
+    async function openPeriodForm(): Promise<HTMLElement> {
+      const toggle = await screen.findByRole('button', { name: /^(set|edit) period$/i })
+      fireEvent.click(toggle)
+      return screen.findByLabelText('Sprint period')
+    }
+
     beforeEach(() => {
       teamSprintPlanDoc = fiveDayPlan()
       capacityData = [
@@ -1357,6 +1366,7 @@ describe('PlanningView', () => {
 
     it('renders one column per working date and one row per membership', async () => {
       render(<PlanningView team={team} />)
+      await openPeriodForm()
 
       const adaCells = await screen.findAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })
       expect(adaCells).toHaveLength(5)
@@ -1372,6 +1382,7 @@ describe('PlanningView', () => {
       teamSprintPlanDoc = fiveDayPlan({ holidays: ['2026-08-05'] })
 
       render(<PlanningView team={team} />)
+      await openPeriodForm()
 
       await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
       // 2026-08-05 is now a holiday - not a working date, so no column for
@@ -1385,6 +1396,7 @@ describe('PlanningView', () => {
 
     it('cycles a cell none -> half -> full -> none, calling POST then PATCH with the full updated entries array each time', async () => {
       render(<PlanningView team={team} />)
+      await openPeriodForm()
       const cell = await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
 
       fireEvent.click(cell)
@@ -1444,6 +1456,7 @@ describe('PlanningView', () => {
         }),
       ]
       render(<PlanningView team={team} />)
+      await openPeriodForm()
       // CapacityCard's root has a distinguishing `w-44` class - scope
       // lookups to it (rather than plain getByText('Ada Lovelace')) since
       // the grid's own sticky Person column also renders the name as plain
@@ -1455,6 +1468,48 @@ describe('PlanningView', () => {
 
       await waitFor(() => expect(within(adaCard).getByText('28.8h avail')).toBeInTheDocument())
       expect(within(adaCard).getByText('28.8h remaining')).toBeInTheDocument()
+    })
+
+    it("reflows its columns live from the period form's own draft date range, before Save is clicked", async () => {
+      render(<PlanningView team={team} />)
+      await openPeriodForm()
+      await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-07')
+
+      // Narrows the saved 08-03..08-07 range down to 08-03..08-04 - purely a
+      // local, unsaved edit (no Save click, no fetch).
+      fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-08-04' } })
+
+      expect(screen.getAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })).toHaveLength(2)
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-07')).not.toBeInTheDocument()
+    })
+
+    it("reflows its columns live when a chip is toggled into a holiday, before Save is clicked", async () => {
+      render(<PlanningView team={team} />)
+      await openPeriodForm()
+      await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-05')
+
+      fireEvent.click(screen.getByLabelText('Toggle holiday for 2026-08-05'))
+
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-05')).not.toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })).toHaveLength(4)
+    })
+
+    it('renders a draft column outside the saved period as non-interactive, since a click on it would either 400 (PATCH) or silently vanish on refetch (POST)', async () => {
+      render(<PlanningView team={team} />)
+      await openPeriodForm()
+      await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-07')
+
+      // Widens the saved range by one working day (08-10, a Monday) -
+      // still unsaved.
+      fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-08-10' } })
+
+      // 08-10 now has a column (the draft reflow above), but no clickable
+      // cell - it isn't in the last-saved plan's working-day calendar yet.
+      expect(screen.getAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })).toHaveLength(5)
+      expect(screen.queryByLabelText('Toggle leave for Ada Lovelace on 2026-08-10')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Leave for Ada Lovelace on 2026-08-10 unavailable until the period is saved')).toBeInTheDocument()
+      // The already-saved 08-03..08-07 columns stay fully interactive.
+      expect(screen.getByLabelText('Toggle leave for Ada Lovelace on 2026-08-07')).toBeInTheDocument()
     })
   })
 })
