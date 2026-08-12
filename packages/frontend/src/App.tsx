@@ -154,9 +154,10 @@ function AppShell() {
   const [theme, setTheme] = useState(getInitialTheme)
   const [nextOfficeDay, setNextOfficeDay] = useState<string | null>(null)
   // Swaps the Categories+Agenda section for the Notes/Boards view - see the
-  // header tab below. Nothing else on the page (header chrome, the
-  // fixed-bottom Scratchpad bar) is affected by which tab is active, per the
-  // Notes spec (Boards follows the same mechanism - see .scratch/boards/spec.md).
+  // header tab below. Header chrome is unaffected by which tab is active,
+  // per the Notes spec (Boards follows the same mechanism - see
+  // .scratch/boards/spec.md), but the fixed-bottom Scratchpad bar is hidden
+  // on the Boards tab since boards aren't a scratch-note capture surface.
   // Driven by the URL's `:tab` segment (falling back to 'todos' for a
   // missing/unrecognized one) rather than its own useState, so the active
   // tab survives a refresh instead of always resetting - see the two sync
@@ -1227,22 +1228,24 @@ function AppShell() {
         </>
       )}
 
-      <Scratchpad
-        notes={scratchNotes}
-        categories={categories}
-        showSessions={activeTab === 'todos'}
-        captureMode={activeTab === 'notes' ? 'note' : 'scratch'}
-        onCreateTempNote={handleCreateTempNote}
-        onCreateNote={handleCreateScratchNote}
-        onUpdateLines={handleUpdateScratchNoteLines}
-        onPromote={handlePromoteScratchLine}
-        onArchive={handleArchiveScratchNote}
-        onDelete={(id) =>
-          requestConfirm('Delete this scratch note? This cannot be undone.', () =>
-            handleDeleteScratchNote(id),
-          )
-        }
-      />
+      {activeTab !== 'boards' && (
+        <Scratchpad
+          notes={scratchNotes}
+          categories={categories}
+          showSessions={activeTab === 'todos'}
+          captureMode={activeTab === 'notes' ? 'note' : 'scratch'}
+          onCreateTempNote={handleCreateTempNote}
+          onCreateNote={handleCreateScratchNote}
+          onUpdateLines={handleUpdateScratchNoteLines}
+          onPromote={handlePromoteScratchLine}
+          onArchive={handleArchiveScratchNote}
+          onDelete={(id) =>
+            requestConfirm('Delete this scratch note? This cannot be undone.', () =>
+              handleDeleteScratchNote(id),
+            )
+          }
+        />
+      )}
 
       {selectedTodo && (
         <TodoDetail
