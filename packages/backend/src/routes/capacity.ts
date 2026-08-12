@@ -10,6 +10,7 @@ import type { PersonDoc } from '../models/Person.ts'
 import { ROLE_DEFAULT_CAPACITY_PERCENT } from '../models/Role.ts'
 import { computeEffortHours } from '../services/ticketSync.ts'
 import { computeCapacity } from '../services/capacityFormula.ts'
+import { plannedHours } from '../services/planSpill.ts'
 import { isSplitTicket, resolveDevQa, roleSubtaskEstimateHours, type MembershipForResolution } from '../services/devQaResolution.ts'
 import { loadAssigneeOverrides, resolveAssignee } from '../services/assigneeResolution.ts'
 import { computeWorkingDates } from '../services/sprintWorkingDays.ts'
@@ -74,12 +75,14 @@ capacityRouter.get(
 
         const resolution = await resolveDevQa(ticket, membershipsForResolution)
         if (resolution.dev.status === 'resolved') {
-          const hours = await roleSubtaskEstimateHours(ticket.jiraKey, 'Dev')
+          const original = await roleSubtaskEstimateHours(ticket.jiraKey, 'Dev')
+          const hours = plannedHours(original, { planHours: entry.devPlanHours, spillHours: entry.devSpillHours })
           const key = String(resolution.dev.personId)
           splitPlannedByPersonId.set(key, (splitPlannedByPersonId.get(key) ?? 0) + hours)
         }
         if (resolution.qa.status === 'resolved') {
-          const hours = await roleSubtaskEstimateHours(ticket.jiraKey, 'Test')
+          const original = await roleSubtaskEstimateHours(ticket.jiraKey, 'Test')
+          const hours = plannedHours(original, { planHours: entry.qaPlanHours, spillHours: entry.qaSpillHours })
           const key = String(resolution.qa.personId)
           splitPlannedByPersonId.set(key, (splitPlannedByPersonId.get(key) ?? 0) + hours)
         }
@@ -103,7 +106,8 @@ capacityRouter.get(
         const resolvedPersonId = resolveAssignee(ticket, assigneeOverrideByTicketId, personIdByAccountId)
         if (!resolvedPersonId) continue
 
-        const hours = (await computeEffortHours(ticket)) ?? 0
+        const original = (await computeEffortHours(ticket)) ?? 0
+        const hours = plannedHours(original, { planHours: entry.planHours, spillHours: entry.spillHours })
         const key = String(resolvedPersonId)
         nonSplitPlannedByPersonId.set(key, (nonSplitPlannedByPersonId.get(key) ?? 0) + hours)
       }

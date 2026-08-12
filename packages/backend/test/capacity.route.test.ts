@@ -457,4 +457,141 @@ describe('GET /api/teams/:teamId/sprints/:sprintId/capacity', () => {
       expect(res.body[0].planned).toBe(0)
     })
   })
+
+  describe('Plan/Spill override — Planned (spec ".scratch/sprint-plan-spill-estimate/spec.md")', () => {
+    it("a null Plan/Spill on every field produces the exact same Planned as before this feature (regression guard)", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          {
+            ticketId: { jiraKey: 'WOSMVP-20', type: 'Story', assigneeAccountId: null, estimateHours: 999 },
+            devPlanHours: null,
+            devSpillHours: null,
+            qaPlanHours: null,
+            qaSpillHours: null,
+          },
+          { ticketId: { jiraKey: 'WOSMVP-21', assigneeAccountId: 'acct-a', estimateHours: 5 }, planHours: null, spillHours: null },
+        ]),
+      )
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'subtask', personId: 'p1' },
+        qa: { status: 'needs-assignment' },
+      })
+      roleSubtaskEstimateHours.mockResolvedValue(5)
+      computeEffortHours.mockResolvedValueOnce(5)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0].planned).toBe(10) // 5 (dev role, unoverridden) + 5 (non-split, unoverridden)
+    })
+
+    it("a Split entry's devPlanHours/devSpillHours override changes that person's planned figure — both the reduced-spill and increased-buffer directions", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      // Original Dev estimate is 8h; Spill reduces it to 3h Planned.
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          {
+            ticketId: { jiraKey: 'WOSMVP-22', type: 'Story', assigneeAccountId: null },
+            devPlanHours: null,
+            devSpillHours: 5,
+            qaPlanHours: null,
+            qaSpillHours: null,
+          },
+        ]),
+      )
+      resolveDevQa.mockResolvedValue({ dev: { status: 'resolved', source: 'subtask', personId: 'p1' }, qa: { status: 'needs-assignment' } })
+      roleSubtaskEstimateHours.mockResolvedValue(8)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      expect(res.body[0].planned).toBe(3) // 8 - 5 spill
+
+      // Increased-buffer direction: a Plan raised above Original.
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          {
+            ticketId: { jiraKey: 'WOSMVP-22', type: 'Story', assigneeAccountId: null },
+            devPlanHours: 12,
+            devSpillHours: null,
+            qaPlanHours: null,
+            qaSpillHours: null,
+          },
+        ]),
+      )
+
+      const res2 = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+      expect(res2.body[0].planned).toBe(12) // Plan raised above the 8h Original, no Spill
+    })
+
+    it("a non-split entry's planHours/spillHours override changes that person's planned figure — both the reduced-spill and increased-buffer directions", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(withPopulate([membership({ personId: { _id: 'p1', jiraAccountId: 'acct-a' } })]))
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          { ticketId: { jiraKey: 'WOSMVP-23', assigneeAccountId: 'acct-a', estimateHours: 8 }, planHours: null, spillHours: 5 },
+        ]),
+      )
+      computeEffortHours.mockResolvedValue(8)
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+      expect(res.body[0].planned).toBe(3) // 8 - 5 spill
+
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          { ticketId: { jiraKey: 'WOSMVP-23', assigneeAccountId: 'acct-a', estimateHours: 8 }, planHours: 15, spillHours: null },
+        ]),
+      )
+      const res2 = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+      expect(res2.body[0].planned).toBe(15) // Plan raised above the 8h Original, no Spill
+    })
+
+    it("the worked example — QA fully spills (contributes 0) while Dev's Planned stays untouched", async () => {
+      TeamSprintPlan.findOne.mockResolvedValue(tenDayPlan())
+      TeamMembership.find.mockReturnValue(
+        withPopulate([
+          membership({ _id: 'm1', personId: { _id: 'p1', name: 'Dev', jiraAccountId: 'acct-a' } }),
+          membership({ _id: 'm2', personId: { _id: 'p2', name: 'QA', jiraAccountId: 'acct-b' } }),
+        ]),
+      )
+      CapacityEntry.findOne.mockResolvedValue({ _id: 'ce1', leaveEntries: [] })
+      CapacityLookup.find.mockResolvedValue([])
+      SprintPlanEntry.find.mockReturnValue(
+        withPopulate([
+          {
+            ticketId: { jiraKey: 'WOSMVP-24', type: 'Story', assigneeAccountId: null },
+            devPlanHours: null,
+            devSpillHours: null, // Dev: 24h original, no override
+            qaPlanHours: null,
+            qaSpillHours: 16, // QA: 16h original, fully spilled -> 0
+          },
+        ]),
+      )
+      resolveDevQa.mockResolvedValue({
+        dev: { status: 'resolved', source: 'subtask', personId: 'p1' },
+        qa: { status: 'resolved', source: 'subtask', personId: 'p2' },
+      })
+      roleSubtaskEstimateHours.mockImplementation(async (_jiraKey: string, kind: string) => (kind === 'Dev' ? 24 : 16))
+
+      const app = createApp()
+      const res = await request(app).get('/api/teams/t1/sprints/s1/capacity')
+
+      expect(res.status).toBe(200)
+      const byPerson = Object.fromEntries(res.body.map((c: { personId: string; planned: number }) => [c.personId, c.planned]))
+      expect(byPerson.p1).toBe(24)
+      expect(byPerson.p2).toBe(0)
+    })
+  })
 })

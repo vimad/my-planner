@@ -189,6 +189,17 @@ export interface UseSprintPlanResult {
   // so the badge moves into the newly-picked person's row.
   saveAssigneeOverride: (ticketId: string, body: { personId: string | null }) => Promise<void>
 
+  savingPlanSpill: boolean
+  planSpillError: string | null
+  // PATCH /api/sprint-plan-entries/:id (spec ".scratch/
+  // sprint-plan-spill-estimate/spec.md") - a thin call reusing the same
+  // route ticket 19's reorderEntries already patches, just with a
+  // `{ [role]: { planHours, spillHours } }` body instead of an order field.
+  // Refreshes the plan on success so capacity cards and every badge's
+  // Planned figure update immediately, same as every other plan-mutating
+  // save in this hook.
+  savePlanSpill: (entryId: string, role: 'dev' | 'qa' | 'single', pair: { planHours: number; spillHours: number }) => Promise<void>
+
   // PATCH /api/sprint-plan-entries/:id per patch (ticket 19's drag-reorder
   // save-on-drop) - optimistic, patching local `entries` state immediately
   // so the reorder feels instant, then rolling every patch in the drop back
@@ -263,6 +274,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [devQaOverrideError, setDevQaOverrideError] = useState<string | null>(null)
   const [savingAssigneeOverride, setSavingAssigneeOverride] = useState(false)
   const [assigneeOverrideError, setAssigneeOverrideError] = useState<string | null>(null)
+  const [savingPlanSpill, setSavingPlanSpill] = useState(false)
+  const [planSpillError, setPlanSpillError] = useState<string | null>(null)
   const [syncingPlan, setSyncingPlan] = useState(false)
   const [syncPlanError, setSyncPlanError] = useState<string | null>(null)
   const [removingEntryId, setRemovingEntryId] = useState<string | null>(null)
@@ -586,6 +599,28 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [refreshPlan],
   )
 
+  const savePlanSpill = useCallback(
+    async (entryId: string, role: 'dev' | 'qa' | 'single', pair: { planHours: number; spillHours: number }) => {
+      setSavingPlanSpill(true)
+      setPlanSpillError(null)
+      try {
+        const res = await fetch(`${API_URL}/api/sprint-plan-entries/${entryId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [role]: pair }),
+        })
+        if (!res.ok) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
+      } catch (err) {
+        setPlanSpillError((err as Error).message)
+        throw err
+      } finally {
+        setSavingPlanSpill(false)
+      }
+    },
+    [refreshPlan],
+  )
+
   const reorderEntries = useCallback(
     async (patches: SprintPlanEntryOrderPatch[]) => {
       if (patches.length === 0) return
@@ -686,6 +721,9 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingPlanSpill,
+    planSpillError,
+    savePlanSpill,
     reorderEntries,
     removingEntryId,
     removeEntryError,

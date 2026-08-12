@@ -231,6 +231,18 @@ function recomputeCapacityRow(
   return { ...row, leaveEntries, leaveDays, extraHours, total, available, remaining: available - row.planned }
 }
 
+// Mirrors planSpill.ts's plannedHours() formula (Math.max(0, plan - spill),
+// plan defaulting to Original, spill to 0) - kept local to this fixture
+// builder (not imported from the backend) since these tests only assert on
+// the frontend's own rendering of an already-resolved figure, same
+// "fixture computes what the real GET response would send" convention
+// entry() already follows for devQa/estimate fields below.
+function resolvedPlanned(original: number, planHours?: number | null, spillHours?: number | null): number {
+  const plan = planHours ?? original
+  const spill = spillHours ?? 0
+  return Math.max(0, plan - spill)
+}
+
 function entry(
   id: string,
   t: Ticket,
@@ -242,8 +254,27 @@ function entry(
     devEstimateHours?: number
     qaEstimateHours?: number
     assigneeOverridePersonId?: string | null
+    // Plan/Spill raw overrides (spec ".scratch/sprint-plan-spill-estimate/
+    // spec.md") - when omitted, the resolved *PlannedHours fields default to
+    // Original, mirroring the real GET response's "a null Plan/Spill
+    // everywhere follows Original" default.
+    estimateHours?: number
+    devPlanHours?: number | null
+    devSpillHours?: number | null
+    qaPlanHours?: number | null
+    qaSpillHours?: number | null
+    planHours?: number | null
+    spillHours?: number | null
   },
 ): SprintPlanEntry {
+  const devEstimateHours = extra?.devEstimateHours
+  const qaEstimateHours = extra?.qaEstimateHours
+  // Non-split entries always carry estimateHours/plannedHours on the real
+  // GET response (unconditional, unlike devQa/devEstimateHours which are
+  // Split-only) - defaults from the ticket's own estimateHours when the
+  // test doesn't care to override it, same as the badge showed pre-feature.
+  const estimateHours = extra?.estimateHours ?? t.estimateHours ?? 0
+
   return {
     _id: id,
     teamId: 'team-a',
@@ -256,12 +287,34 @@ function entry(
     // (not null) for a non-split one, matching the real GET contract
     // exactly (ticket 23's comments).
     ...(extra?.devQa ? { devQa: extra.devQa } : {}),
-    ...(extra?.devEstimateHours != null ? { devEstimateHours: extra.devEstimateHours } : {}),
-    ...(extra?.qaEstimateHours != null ? { qaEstimateHours: extra.qaEstimateHours } : {}),
+    ...(devEstimateHours != null
+      ? {
+          devEstimateHours,
+          devPlanHours: extra?.devPlanHours ?? null,
+          devSpillHours: extra?.devSpillHours ?? null,
+          devPlannedHours: resolvedPlanned(devEstimateHours, extra?.devPlanHours, extra?.devSpillHours),
+        }
+      : {}),
+    ...(qaEstimateHours != null
+      ? {
+          qaEstimateHours,
+          qaPlanHours: extra?.qaPlanHours ?? null,
+          qaSpillHours: extra?.qaSpillHours ?? null,
+          qaPlannedHours: resolvedPlanned(qaEstimateHours, extra?.qaPlanHours, extra?.qaSpillHours),
+        }
+      : {}),
     // Present (possibly null) only for a non-split entry (docs/adr/0005) -
     // omitted here when unset so it doesn't spuriously appear on a Split
     // fixture, matching the real GET contract's "the two never coexist".
     ...(extra && 'assigneeOverridePersonId' in extra ? { assigneeOverridePersonId: extra.assigneeOverridePersonId } : {}),
+    ...(!extra?.devQa
+      ? {
+          estimateHours,
+          planHours: extra?.planHours ?? null,
+          spillHours: extra?.spillHours ?? null,
+          plannedHours: resolvedPlanned(estimateHours, extra?.planHours, extra?.spillHours),
+        }
+      : {}),
   }
 }
 
@@ -367,8 +420,44 @@ function stubFetch(): FetchMock {
     const patchMatch = href.match(/\/api\/sprint-plan-entries\/([^/?]+)$/)
     if (patchMatch && method === 'PATCH') {
       const id = patchMatch[1]
-      const body: { order?: number; devOrder?: number; qaOrder?: number } = JSON.parse(init?.body ?? '{}')
-      entriesData = entriesData.map((e) => (e._id === id ? { ...e, ...body } : e))
+      const body: {
+        order?: number
+        devOrder?: number
+        qaOrder?: number
+        dev?: { planHours: number; spillHours: number }
+        qa?: { planHours: number; spillHours: number }
+        single?: { planHours: number; spillHours: number }
+      } = JSON.parse(init?.body ?? '{}')
+      entriesData = entriesData.map((e) => {
+        if (e._id !== id) return e
+        const next: SprintPlanEntry = {
+          ...e,
+          ...('order' in body ? { order: body.order! } : {}),
+          ...('devOrder' in body ? { devOrder: body.devOrder! } : {}),
+          ...('qaOrder' in body ? { qaOrder: body.qaOrder! } : {}),
+        }
+        // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md") -
+        // mirrors the real route's per-role pair persistence, recomputing
+        // the resolved *PlannedHours the same way the real GET response
+        // would, using resolvedPlanned (this file's local mirror of
+        // planSpill.ts's plannedHours()).
+        if (body.dev) {
+          next.devPlanHours = body.dev.planHours
+          next.devSpillHours = body.dev.spillHours
+          next.devPlannedHours = resolvedPlanned(e.devEstimateHours ?? 0, body.dev.planHours, body.dev.spillHours)
+        }
+        if (body.qa) {
+          next.qaPlanHours = body.qa.planHours
+          next.qaSpillHours = body.qa.spillHours
+          next.qaPlannedHours = resolvedPlanned(e.qaEstimateHours ?? 0, body.qa.planHours, body.qa.spillHours)
+        }
+        if (body.single) {
+          next.planHours = body.single.planHours
+          next.spillHours = body.single.spillHours
+          next.plannedHours = resolvedPlanned(e.estimateHours ?? 0, body.single.planHours, body.single.spillHours)
+        }
+        return next
+      })
       return jsonResponse(entriesData.find((e) => e._id === id))
     }
 
@@ -864,6 +953,144 @@ describe('PlanningView', () => {
         expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('700')).toBeInTheDocument(),
       )
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md")', () => {
+    it("opening a Split ticket's popup shows two PlanSpillTrios pre-filled from devPlanHours ?? devEstimateHours / qaPlanHours ?? qaEstimateHours", async () => {
+      entriesData = [
+        ...entriesData,
+        entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0, devEstimateHours: 24, qaEstimateHours: 16 }),
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-300' })
+      fireEvent.click(badge)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
+      expect(within(dialog).getByLabelText('Dev plan hours')).toHaveValue(24)
+      expect(within(dialog).getByLabelText('Dev spill hours')).toHaveValue(0)
+      expect(within(dialog).getByLabelText('QA plan hours')).toHaveValue(16)
+      expect(within(dialog).getByLabelText('QA spill hours')).toHaveValue(0)
+    })
+
+    it('pre-fills Plan/Spill from a stored override rather than Original when one is already set', async () => {
+      entriesData = [
+        ...entriesData,
+        entry('e-split', splitTicket, 1, {
+          devQa: splitDevQa,
+          devOrder: 0,
+          qaOrder: 0,
+          devEstimateHours: 24,
+          qaEstimateHours: 16,
+          qaSpillHours: 16, // the worked example: QA fully spills
+        }),
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-300' })
+      fireEvent.click(badge)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
+      expect(within(dialog).getByLabelText('QA plan hours')).toHaveValue(16)
+      expect(within(dialog).getByLabelText('QA spill hours')).toHaveValue(16)
+      expect(within(dialog).getByText('0h')).toBeInTheDocument() // QA planned this sprint
+    })
+
+    it('saving only a changed role calls the PATCH route with only that role\'s pair, leaving the other role untouched', async () => {
+      entriesData = [
+        ...entriesData,
+        entry('e-split', splitTicket, 1, { devQa: splitDevQa, devOrder: 0, qaOrder: 0, devEstimateHours: 24, qaEstimateHours: 16 }),
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const badge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-300' })
+      fireEvent.click(badge)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
+      fireEvent.change(within(dialog).getByLabelText('QA spill hours'), { target: { value: '16' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e-split',
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ qa: { planHours: 16, spillHours: 16 } }) }),
+        ),
+      )
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringContaining('/dev-qa-override'),
+        expect.anything(),
+      )
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
+    it("saves a non-split ticket's single Plan/Spill pair via TicketInfoPopup, keyed to 'single'", async () => {
+      const taskTicket = ticket({ jiraKey: 'WOSMVP-130', assigneeAccountId: 'acc-1', type: 'Task', estimateHours: 8 })
+      entriesData = [...entriesData, entry('e-task', taskTicket, 1)]
+      render(<PlanningView team={team} />)
+
+      const badge = await screen.findByRole('button', { name: 'Open WOSMVP-130' })
+      fireEvent.click(badge)
+
+      const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-130' })
+      fireEvent.change(within(dialog).getByLabelText('Estimate plan hours'), { target: { value: '10' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e-task',
+          expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ single: { planHours: 10, spillHours: 0 } }) }),
+        ),
+      )
+    })
+
+    it("the board badge's displayed hours reflect the resolved Planned figure (devPlannedHours), not the raw Original (devEstimateHours), once an override is set", async () => {
+      entriesData = [
+        ...entriesData,
+        entry('e-split', splitTicket, 1, {
+          devQa: splitDevQa,
+          devOrder: 0,
+          qaOrder: 0,
+          devEstimateHours: 24, // Original: 3d
+          devSpillHours: 16, // Planned: 24 - 16 = 8h (1d)
+        }),
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      await waitFor(() => expect(within(adaRow).getByText('300')).toBeInTheDocument())
+      expect(within(adaRow).getByText('1d')).toBeInTheDocument() // Planned (8h), not Original (3d)
+      expect(within(adaRow).queryByText('3d')).not.toBeInTheDocument()
+    })
+
+    it('rings the badge amber when Planned is spilled below Original, emerald when buffered above it, and not at all when they match', async () => {
+      const spilledTicket = ticket({ jiraKey: 'WOSMVP-131', assigneeAccountId: 'acc-1', type: 'Task', estimateHours: 8 })
+      const bufferedTicket = ticket({ jiraKey: 'WOSMVP-132', assigneeAccountId: 'acc-1', type: 'Task', estimateHours: 8 })
+      const untouchedTicket = ticket({ jiraKey: 'WOSMVP-133', assigneeAccountId: 'acc-1', type: 'Task', estimateHours: 8 })
+      entriesData = [
+        ...entriesData,
+        entry('e-spilled', spilledTicket, 1, { spillHours: 4 }), // Planned 4 < Original 8
+        entry('e-buffered', bufferedTicket, 2, { planHours: 12 }), // Planned 12 > Original 8
+        entry('e-untouched', untouchedTicket, 3), // no override - Planned == Original
+      ]
+      render(<PlanningView team={team} />)
+
+      const adaRow = await screen.findByLabelText('Tickets for Ada Lovelace')
+      const spilledBadge = await within(adaRow).findByRole('button', { name: 'Open WOSMVP-131' })
+      const bufferedBadge = within(adaRow).getByRole('button', { name: 'Open WOSMVP-132' })
+      const untouchedBadge = within(adaRow).getByRole('button', { name: 'Open WOSMVP-133' })
+
+      expect(spilledBadge.className).toContain('ring-amber-400')
+      expect(spilledBadge.className).not.toContain('ring-emerald-400')
+
+      expect(bufferedBadge.className).toContain('ring-emerald-400')
+      expect(bufferedBadge.className).not.toContain('ring-amber-400')
+
+      expect(untouchedBadge.className).not.toContain('ring-amber-400')
+      expect(untouchedBadge.className).not.toContain('ring-emerald-400')
     })
   })
 

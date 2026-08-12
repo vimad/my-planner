@@ -9,12 +9,14 @@ vi.mock('../src/services/jiraClient.ts', () => ({
 interface MockedTicketModel {
   findOne: Mock
   findOneAndUpdate: Mock
+  find: Mock
 }
 
 vi.mock('../src/models/Ticket.ts', () => ({
   Ticket: {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
+    find: vi.fn(),
   },
 }))
 
@@ -131,6 +133,11 @@ describe('SprintPlanEntry routes', () => {
     // Default: no Assignee Override recorded for any ticket - only the GET
     // tests that specifically exercise the Override need to override this.
     TicketAssigneeOverride.find.mockResolvedValue([])
+    // Default: no Sub-tasks - GET's non-split branch now always calls the
+    // real computeEffortHours (Original for Plan/Spill, spec ".scratch/
+    // sprint-plan-spill-estimate/spec.md") which queries Ticket.find itself;
+    // only tests that care about a specific Effort figure override this.
+    Ticket.find.mockResolvedValue([])
   })
 
   describe('POST /api/sprint-plan-entries', () => {
@@ -333,7 +340,9 @@ describe('SprintPlanEntry routes', () => {
 
       expect(res.status).toBe(200)
       expect(SprintPlanEntry.find).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
-      expect(res.body).toEqual([{ ...doc.toObject(), assigneeOverridePersonId: null }])
+      expect(res.body).toEqual([
+        { ...doc.toObject(), assigneeOverridePersonId: null, estimateHours: 0, plannedHours: 0 },
+      ])
     })
 
     it("inlines a Split entry's resolved dev/qa Role assignment as devQa, and a non-split entry's Assignee Override (or null) as assigneeOverridePersonId", async () => {
@@ -371,7 +380,7 @@ describe('SprintPlanEntry routes', () => {
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Dev')
       expect(roleSubtaskEstimateHours).toHaveBeenCalledWith('WOSMVP-2', 'Test')
       expect(res.body).toEqual([
-        { ...nonSplitEntry.toObject(), assigneeOverridePersonId: 'p9' },
+        { ...nonSplitEntry.toObject(), assigneeOverridePersonId: 'p9', estimateHours: 0, plannedHours: 0 },
         {
           _id: 'e2',
           order: 0,
@@ -381,6 +390,8 @@ describe('SprintPlanEntry routes', () => {
           devQa,
           devEstimateHours: 6,
           qaEstimateHours: 2,
+          devPlannedHours: 6,
+          qaPlannedHours: 2,
         },
       ])
     })
@@ -414,6 +425,82 @@ describe('SprintPlanEntry routes', () => {
       await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
 
       expect(TicketAssigneeOverride.find).not.toHaveBeenCalled()
+    })
+
+    describe('Plan/Spill fields (spec ".scratch/sprint-plan-spill-estimate/spec.md")', () => {
+      it("a non-split entry's null raw planHours/spillHours still resolves plannedHours equal to Original (estimateHours)", async () => {
+        const doc = nonSplitDoc({ planHours: null, spillHours: null })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        Ticket.find.mockResolvedValue([]) // no sub-tasks - Original falls back to the ticket's own estimateHours (undefined here)
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.status).toBe(200)
+        expect(res.body[0]).toMatchObject({ estimateHours: 0, planHours: null, spillHours: null, plannedHours: 0 })
+      })
+
+      it("a non-split entry's raw plan/spill override resolves plannedHours via the stored figures, not Original", async () => {
+        const doc = nonSplitDoc({ planHours: 10, spillHours: 3 })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        Ticket.find.mockResolvedValue([{ estimateHours: 6 }]) // one sub-task -> Original (Effort) = 6
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.status).toBe(200)
+        expect(res.body[0]).toMatchObject({ estimateHours: 6, planHours: 10, spillHours: 3, plannedHours: 7 })
+      })
+
+      it("a Split entry's null raw dev*/qa* fields still resolve devPlannedHours/qaPlannedHours equal to each role's own Original estimate", async () => {
+        const splitEntry = {
+          _id: 'e2',
+          order: 0,
+          ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+          devPlanHours: null,
+          devSpillHours: null,
+          qaPlanHours: null,
+          qaSpillHours: null,
+          toObject() {
+            return this
+          },
+        }
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([splitEntry]))
+        TeamMembership.find.mockReturnValue(withMembershipPopulate([]))
+        resolveDevQa.mockResolvedValue({ dev: { status: 'needs-assignment' }, qa: { status: 'needs-assignment' } })
+        roleSubtaskEstimateHours.mockImplementation((_jiraKey: string, kind: string) => Promise.resolve(kind === 'Dev' ? 6 : 2))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.status).toBe(200)
+        expect(res.body[0]).toMatchObject({ devEstimateHours: 6, qaEstimateHours: 2, devPlannedHours: 6, qaPlannedHours: 2 })
+      })
+
+      it("a Split entry's raw dev*/qa* override resolves devPlannedHours/qaPlannedHours via the stored figures", async () => {
+        const splitEntry = {
+          _id: 'e2',
+          order: 0,
+          ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+          devPlanHours: null,
+          devSpillHours: 4, // Dev: 6h original, 4h spilled -> 2h planned
+          qaPlanHours: 10, // QA: 2h original, buffered to 10h planned (no spill)
+          qaSpillHours: null,
+          toObject() {
+            return this
+          },
+        }
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([splitEntry]))
+        TeamMembership.find.mockReturnValue(withMembershipPopulate([]))
+        resolveDevQa.mockResolvedValue({ dev: { status: 'needs-assignment' }, qa: { status: 'needs-assignment' } })
+        roleSubtaskEstimateHours.mockImplementation((_jiraKey: string, kind: string) => Promise.resolve(kind === 'Dev' ? 6 : 2))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.status).toBe(200)
+        expect(res.body[0]).toMatchObject({ devPlannedHours: 2, qaPlannedHours: 10 })
+      })
     })
   })
 
@@ -696,6 +783,116 @@ describe('SprintPlanEntry routes', () => {
       const res = await request(app).patch('/api/sprint-plan-entries/e1').send({})
       expect(res.status).toBe(400)
       expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md"):
+    // `dev`/`qa`/`single` are always sent as a full { planHours, spillHours }
+    // pair, validated against `entry.ticketId.type` (isSplitTicket) before
+    // being applied - same guard shape as this route's other per-kind
+    // fields.
+    describe('Plan/Spill (dev/qa/single pairs)', () => {
+      function nonSplitEntry() {
+        return { _id: 'e1', ticketId: { _id: 'tk-1', type: 'Task' } }
+      }
+      function splitEntry() {
+        return { _id: 'e1', ticketId: { _id: 'tk-1', type: 'Story' } }
+      }
+
+      it('accepts a single pair against a non-split entry, persisting both fields together', async () => {
+        SprintPlanEntry.findOne.mockReturnValue(findWithPopulate(nonSplitEntry()))
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1', planHours: 10, spillHours: 3 })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ single: { planHours: 10, spillHours: 3 } })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { planHours: 10, spillHours: 3 },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('accepts dev and qa pairs together against a split entry, persisting all four fields', async () => {
+        SprintPlanEntry.findOne.mockReturnValue(findWithPopulate(splitEntry()))
+        const populate = vi.fn().mockResolvedValue({ _id: 'e1' })
+        SprintPlanEntry.findByIdAndUpdate.mockReturnValue({ populate })
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ dev: { planHours: 24, spillHours: 0 }, qa: { planHours: 16, spillHours: 16 } })
+
+        expect(res.status).toBe(200)
+        expect(SprintPlanEntry.findByIdAndUpdate).toHaveBeenCalledWith(
+          'e1',
+          { devPlanHours: 24, devSpillHours: 0, qaPlanHours: 16, qaSpillHours: 16 },
+          { returnDocument: 'after' },
+        )
+      })
+
+      it('rejects spillHours > planHours (400) without touching the DB', async () => {
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ single: { planHours: 5, spillHours: 10 } })
+
+        expect(res.status).toBe(400)
+        expect(SprintPlanEntry.findOne).not.toHaveBeenCalled()
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+
+      it('rejects a negative planHours or spillHours (400) without touching the DB', async () => {
+        const app = createApp()
+        const res1 = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ single: { planHours: -1, spillHours: 0 } })
+        expect(res1.status).toBe(400)
+
+        const res2 = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ single: { planHours: 5, spillHours: -1 } })
+        expect(res2.status).toBe(400)
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+
+      it("rejects single against a Split ticket's entry (400)", async () => {
+        SprintPlanEntry.findOne.mockReturnValue(findWithPopulate(splitEntry()))
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ single: { planHours: 10, spillHours: 0 } })
+
+        expect(res.status).toBe(400)
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+
+      it('rejects dev/qa against a non-split entry (400)', async () => {
+        SprintPlanEntry.findOne.mockReturnValue(findWithPopulate(nonSplitEntry()))
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/e1')
+          .send({ dev: { planHours: 10, spillHours: 0 } })
+
+        expect(res.status).toBe(400)
+        expect(SprintPlanEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+      })
+
+      it('returns 404 when the entry does not exist', async () => {
+        SprintPlanEntry.findOne.mockReturnValue(findWithPopulate(null))
+
+        const app = createApp()
+        const res = await request(app)
+          .patch('/api/sprint-plan-entries/nope')
+          .send({ single: { planHours: 10, spillHours: 0 } })
+
+        expect(res.status).toBe(404)
+      })
     })
   })
 })

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { DEV_ROLES, QA_ROLES } from '../constants/roles'
 import { getId } from '../utils/getId'
+import { initialPlanSpillPair, PlanSpillTrio, type PlanSpillPair } from './PlanSpillTrio'
 import type { DevQaRoleResolution, SprintPlanEntry, TeamMembership } from '../types'
 
 // PUT /api/tickets/:ticketId/dev-qa-override's body (ticket 23) - only the
@@ -23,6 +24,13 @@ interface DevQaAssignmentPopupProps {
   saving: boolean
   error: string | null
   onSave: (body: DevQaOverrideBody) => Promise<void>
+  // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md") - a
+  // separate save action from the Dev/QA select's onSave above, since it's
+  // a per-role pair rather than a person pick. Both can fire from the same
+  // Save click when both changed.
+  savingPlanSpill: boolean
+  planSpillError: string | null
+  onSavePlanSpill: (role: 'dev' | 'qa', pair: PlanSpillPair) => Promise<void>
   onClose: () => void
 }
 
@@ -99,12 +107,32 @@ function RoleField({
 // QA-only person (or vice versa) isn't offered. Modeled on ConfirmDialog.tsx's
 // archetype-B full modal (docs/ui-conventions.md) rather than inventing a new
 // modal mechanism.
-export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave, onClose }: DevQaAssignmentPopupProps) {
+export function DevQaAssignmentPopup({
+  entry,
+  memberships,
+  saving,
+  error,
+  onSave,
+  savingPlanSpill,
+  planSpillError,
+  onSavePlanSpill,
+  onClose,
+}: DevQaAssignmentPopupProps) {
   const { dev, qa } = entry.devQa
   const [devPersonId, setDevPersonId] = useState(initialPersonId(dev))
   const [qaPersonId, setQaPersonId] = useState(initialPersonId(qa))
   const devOptions = memberships.filter((m) => DEV_ROLES.includes(m.role))
   const qaOptions = memberships.filter((m) => QA_ROLES.includes(m.role))
+
+  // Reassigning a role's person does not reset that role's Plan/Spill -
+  // they're properties of the ticket+role+sprint, not of whichever person
+  // currently holds the role (spec).
+  const devOriginal = entry.devEstimateHours ?? 0
+  const qaOriginal = entry.qaEstimateHours ?? 0
+  const initialDevPair = initialPlanSpillPair(entry.devPlanHours ?? undefined, entry.devSpillHours ?? undefined, devOriginal)
+  const initialQaPair = initialPlanSpillPair(entry.qaPlanHours ?? undefined, entry.qaSpillHours ?? undefined, qaOriginal)
+  const [devPair, setDevPair] = useState(initialDevPair)
+  const [qaPair, setQaPair] = useState(initialQaPair)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -116,18 +144,29 @@ export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave
     if (devPersonId !== initialPersonId(dev)) body.devPersonId = devPersonId || null
     if (qaPersonId !== initialPersonId(qa)) body.qaPersonId = qaPersonId || null
 
-    if (Object.keys(body).length === 0) {
+    // Same "only touch what changed" pattern, extended to each role's own
+    // Plan/Spill pair.
+    const pairChanged = (pair: PlanSpillPair, initial: PlanSpillPair) =>
+      pair.planHours !== initial.planHours || pair.spillHours !== initial.spillHours
+
+    const saves: Promise<unknown>[] = []
+    if (Object.keys(body).length > 0) saves.push(onSave(body))
+    if (pairChanged(devPair, initialDevPair)) saves.push(onSavePlanSpill('dev', devPair))
+    if (pairChanged(qaPair, initialQaPair)) saves.push(onSavePlanSpill('qa', qaPair))
+
+    if (saves.length === 0) {
       onClose()
       return
     }
 
     try {
-      await onSave(body)
+      await Promise.all(saves)
       onClose()
     } catch {
-      // The `error` prop (threaded from useSprintPlan's saveDevQaOverride)
-      // already surfaces the failure - keep the popup open with the user's
-      // picks intact so they can retry without re-selecting.
+      // The `error`/`planSpillError` props (threaded from useSprintPlan's
+      // saveDevQaOverride/savePlanSpill) already surface the failure - keep
+      // the popup open with the user's picks intact so they can retry
+      // without re-entering everything.
     }
   }
 
@@ -152,8 +191,32 @@ export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave
         </div>
         <p className="mb-4 truncate text-xs text-slate-500 dark:text-slate-400">{entry.ticketId.title}</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <RoleField label="Dev" resolution={dev} options={devOptions} value={devPersonId} onChange={setDevPersonId} />
-          <RoleField label="QA" resolution={qa} options={qaOptions} value={qaPersonId} onChange={setQaPersonId} />
+          <div>
+            <RoleField label="Dev" resolution={dev} options={devOptions} value={devPersonId} onChange={setDevPersonId} />
+            <PlanSpillTrio
+              label="Dev"
+              original={devOriginal}
+              plan={devPair.planHours}
+              spill={devPair.spillHours}
+              onPlanChange={(planHours) => setDevPair((p) => ({ ...p, planHours }))}
+              onSpillChange={(spillHours) => setDevPair((p) => ({ ...p, spillHours }))}
+              saving={savingPlanSpill}
+              error={planSpillError}
+            />
+          </div>
+          <div>
+            <RoleField label="QA" resolution={qa} options={qaOptions} value={qaPersonId} onChange={setQaPersonId} />
+            <PlanSpillTrio
+              label="QA"
+              original={qaOriginal}
+              plan={qaPair.planHours}
+              spill={qaPair.spillHours}
+              onPlanChange={(planHours) => setQaPair((p) => ({ ...p, planHours }))}
+              onSpillChange={(spillHours) => setQaPair((p) => ({ ...p, spillHours }))}
+              saving={savingPlanSpill}
+              error={planSpillError}
+            />
+          </div>
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <button
@@ -165,10 +228,10 @@ export function DevQaAssignmentPopup({ entry, memberships, saving, error, onSave
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || savingPlanSpill}
               className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving || savingPlanSpill ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>

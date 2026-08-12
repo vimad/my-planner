@@ -6,7 +6,7 @@ import { TeamMembership } from '../models/TeamMembership.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import type { PersonDoc } from '../models/Person.ts'
 import { refreshStatusSet } from '../services/statusSync.ts'
-import { fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
+import { computeEffortHours, fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
 import { loadAssigneeOverrides } from '../services/assigneeResolution.ts'
 import {
   isSplitTicket,
@@ -15,6 +15,7 @@ import {
   type DevQaResolution,
   type MembershipForResolution,
 } from '../services/devQaResolution.ts'
+import { plannedHours } from '../services/planSpill.ts'
 import { isDuplicateKeyError } from '../utils/mongoErrors.ts'
 
 export const sprintPlanEntriesRouter = Router()
@@ -33,10 +34,18 @@ interface SyncPlanBody {
   sprintId?: string
 }
 
+interface PlanSpillPair {
+  planHours?: number
+  spillHours?: number
+}
+
 interface ReorderBody {
   order?: number
   devOrder?: number
   qaOrder?: number
+  dev?: PlanSpillPair
+  qa?: PlanSpillPair
+  single?: PlanSpillPair
 }
 
 // A team's current TeamMembership roster, reduced to what
@@ -257,6 +266,14 @@ sprintPlanEntriesRouter.post(
 // (docs/adr/0005), or null when none is set — so the frontend can place the
 // badge under the Override's row instead of Jira's own assigneeAccountId
 // without redoing the Override lookup itself.
+//
+// Every entry also gains its Plan/Spill figures (spec ".scratch/
+// sprint-plan-spill-estimate/spec.md", ADR 0006): the resolved figures
+// (devPlannedHours/qaPlannedHours for a Split entry, plannedHours for a
+// non-split one) alongside the raw stored dev*/qa*/plain pair, computed here
+// so the frontend never has to re-derive planSpill.ts's formula itself. A
+// non-split entry also gains `estimateHours` (Original, computeEffortHours)
+// since neither the popup nor the badge had a reason to see it before this.
 sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, sprintId } = req.query
@@ -280,7 +297,9 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
         const ticket = entry.ticketId
         if (!isSplitTicket(ticket.type)) {
           const assigneeOverridePersonId = assigneeOverrideByTicketId.get(String(ticket._id)) ?? null
-          return { ...entry.toObject(), assigneeOverridePersonId }
+          const estimateHours = (await computeEffortHours(ticket)) ?? 0
+          const planned = plannedHours(estimateHours, { planHours: entry.planHours, spillHours: entry.spillHours })
+          return { ...entry.toObject(), assigneeOverridePersonId, estimateHours, plannedHours: planned }
         }
 
         const [devQa, devEstimateHours, qaEstimateHours]: [DevQaResolution, number, number] = await Promise.all([
@@ -288,7 +307,9 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
           roleSubtaskEstimateHours(ticket.jiraKey, 'Dev'),
           roleSubtaskEstimateHours(ticket.jiraKey, 'Test'),
         ])
-        return { ...entry.toObject(), devQa, devEstimateHours, qaEstimateHours }
+        const devPlannedHours = plannedHours(devEstimateHours, { planHours: entry.devPlanHours, spillHours: entry.devSpillHours })
+        const qaPlannedHours = plannedHours(qaEstimateHours, { planHours: entry.qaPlanHours, spillHours: entry.qaSpillHours })
+        return { ...entry.toObject(), devQa, devEstimateHours, qaEstimateHours, devPlannedHours, qaPlannedHours }
       }),
     )
 
@@ -344,18 +365,52 @@ sprintPlanEntriesRouter.delete('/:id', async (req: Request<{ id: string }>, res:
   }
 })
 
-// PATCH /api/sprint-plan-entries/:id -> body { order?, devOrder?, qaOrder? },
-// only-touch-what's-present (same convention as PUT
-// /api/tickets/:ticketId/dev-qa-override). Drag-reorder save-on-drop (ticket
-// 19 is the UI consumer): a non-split placement patches `order`; a Split
-// ticket's dev-row or qa-row placement patches only that role's own
-// devOrder/qaOrder, never both in the same request.
+// One role's Plan/Spill pair validation (spec ".scratch/
+// sprint-plan-spill-estimate/spec.md"): both fields must be present,
+// non-negative numbers, and Spill may never exceed Plan (the derived
+// Planned figure, planSpill.ts's plannedHours, must never go negative).
+// `dev`/`qa`/`single` are only ever sent together as a full pair - never one
+// field alone - so there's no partial-pair case to reconstruct against
+// already-stored values.
+function validatePlanSpillPair(pair: PlanSpillPair | undefined, label: string): string | null {
+  if (!pair) return null
+  if (typeof pair.planHours !== 'number' || pair.planHours < 0) {
+    return `${label}.planHours must be a non-negative number`
+  }
+  if (typeof pair.spillHours !== 'number' || pair.spillHours < 0) {
+    return `${label}.spillHours must be a non-negative number`
+  }
+  if (pair.spillHours > pair.planHours) {
+    return `${label}.spillHours can't exceed ${label}.planHours`
+  }
+  return null
+}
+
+type ReorderUpdate = Partial<
+  Record<
+    'order' | 'devOrder' | 'qaOrder' | 'devPlanHours' | 'devSpillHours' | 'qaPlanHours' | 'qaSpillHours' | 'planHours' | 'spillHours',
+    number
+  >
+>
+
+// PATCH /api/sprint-plan-entries/:id -> body { order?, devOrder?, qaOrder?,
+// dev?, qa?, single? }, only-touch-what's-present (same convention as PUT
+// /api/tickets/:ticketId/dev-qa-override). `order`/`devOrder`/`qaOrder`
+// back ticket 19's drag-reorder save-on-drop: a non-split placement patches
+// `order`; a Split ticket's dev-row or qa-row placement patches only that
+// role's own devOrder/qaOrder, never both in the same request.
+// `dev`/`qa`/`single` back the Plan/Spill widget (spec ".scratch/
+// sprint-plan-spill-estimate/spec.md"): each is always a full
+// `{ planHours, spillHours }` pair, never one field alone - a Split
+// entry only ever accepts `dev`/`qa`, a non-split entry only `single`,
+// checked against `entry.ticketId.type` (isSplitTicket) the same way the
+// route already guards other per-kind fields.
 sprintPlanEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, ReorderBody>, res: Response, next: NextFunction) => {
     try {
-      const { order, devOrder, qaOrder } = req.body
-      const update: Partial<Record<'order' | 'devOrder' | 'qaOrder', number>> = {}
+      const { order, devOrder, qaOrder, dev, qa, single } = req.body
+      const update: ReorderUpdate = {}
 
       if (order !== undefined) {
         if (typeof order !== 'number') return res.status(400).json({ error: 'order must be a number' })
@@ -369,8 +424,34 @@ sprintPlanEntriesRouter.patch(
         if (typeof qaOrder !== 'number') return res.status(400).json({ error: 'qaOrder must be a number' })
         update.qaOrder = qaOrder
       }
+
+      const pairError = validatePlanSpillPair(dev, 'dev') ?? validatePlanSpillPair(qa, 'qa') ?? validatePlanSpillPair(single, 'single')
+      if (pairError) return res.status(400).json({ error: pairError })
+
+      if (dev || qa || single) {
+        const existing = await SprintPlanEntry.findOne({ _id: req.params.id }).populate<{ ticketId: PopulatedTicket }>('ticketId')
+        if (!existing) return res.status(404).json({ error: 'Sprint plan entry not found' })
+
+        const split = isSplitTicket(existing.ticketId.type)
+        if (single && split) return res.status(400).json({ error: 'single is not valid for a Split ticket' })
+        if ((dev || qa) && !split) return res.status(400).json({ error: 'dev/qa is not valid for a non-split ticket' })
+
+        if (dev) {
+          update.devPlanHours = dev.planHours
+          update.devSpillHours = dev.spillHours
+        }
+        if (qa) {
+          update.qaPlanHours = qa.planHours
+          update.qaSpillHours = qa.spillHours
+        }
+        if (single) {
+          update.planHours = single.planHours
+          update.spillHours = single.spillHours
+        }
+      }
+
       if (Object.keys(update).length === 0) {
-        return res.status(400).json({ error: 'order, devOrder or qaOrder is required' })
+        return res.status(400).json({ error: 'order, devOrder, qaOrder, dev, qa or single is required' })
       }
 
       const entry = await SprintPlanEntry.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' }).populate(

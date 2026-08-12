@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
+import { initialPlanSpillPair, PlanSpillTrio, type PlanSpillPair } from './PlanSpillTrio'
 import type { SprintPlanEntry, TeamMembership } from '../types'
 
 // PUT /api/tickets/:ticketId/assignee-override's body (docs/adr/0005) -
@@ -17,6 +18,13 @@ interface TicketInfoPopupProps {
   saving: boolean
   error: string | null
   onSave: (body: AssigneeOverrideBody) => Promise<void>
+  // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md") - a
+  // separate save action from the Planning assignee select's onSave above,
+  // fired for the entry's single (non-split) slot. Both can fire from the
+  // same Save click when both changed.
+  savingPlanSpill: boolean
+  planSpillError: string | null
+  onSavePlanSpill: (pair: PlanSpillPair) => Promise<void>
   onClose: () => void
 }
 
@@ -29,26 +37,48 @@ interface TicketInfoPopupProps {
 // Override (docs/adr/0005), the same "Planning-only, never touches Jira"
 // pattern as a Dev/QA Override, unrestricted by role since a non-split
 // ticket has no dev/qa distinction to filter by.
-export function TicketInfoPopup({ entry, memberships, saving, error, onSave, onClose }: TicketInfoPopupProps) {
+export function TicketInfoPopup({
+  entry,
+  memberships,
+  saving,
+  error,
+  onSave,
+  savingPlanSpill,
+  planSpillError,
+  onSavePlanSpill,
+  onClose,
+}: TicketInfoPopupProps) {
   const ticket = entry.ticketId
   const initialPersonId = entry.assigneeOverridePersonId ?? ''
   const [personId, setPersonId] = useState(initialPersonId)
 
+  const original = entry.estimateHours ?? 0
+  const initialPair = initialPlanSpillPair(entry.planHours ?? undefined, entry.spillHours ?? undefined, original)
+  const [pair, setPair] = useState(initialPair)
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
 
-    if (personId === initialPersonId) {
+    const personChanged = personId !== initialPersonId
+    const pairChanged = pair.planHours !== initialPair.planHours || pair.spillHours !== initialPair.spillHours
+
+    const saves: Promise<unknown>[] = []
+    if (personChanged) saves.push(onSave({ personId: personId || null }))
+    if (pairChanged) saves.push(onSavePlanSpill(pair))
+
+    if (saves.length === 0) {
       onClose()
       return
     }
 
     try {
-      await onSave({ personId: personId || null })
+      await Promise.all(saves)
       onClose()
     } catch {
-      // The `error` prop (threaded from useSprintPlan's saveAssigneeOverride)
-      // already surfaces the failure - keep the popup open with the user's
-      // pick intact so they can retry without re-selecting.
+      // The `error`/`planSpillError` props (threaded from useSprintPlan's
+      // saveAssigneeOverride/savePlanSpill) already surface the failure -
+      // keep the popup open with the user's picks intact so they can retry
+      // without re-entering everything.
     }
   }
 
@@ -90,6 +120,16 @@ export function TicketInfoPopup({ entry, memberships, saving, error, onSave, onC
             </select>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">Jira assignee: {ticket.assigneeDisplayName ?? 'Unassigned'}</p>
+          <PlanSpillTrio
+            label="Estimate"
+            original={original}
+            plan={pair.planHours}
+            spill={pair.spillHours}
+            onPlanChange={(planHours) => setPair((p) => ({ ...p, planHours }))}
+            onSpillChange={(spillHours) => setPair((p) => ({ ...p, spillHours }))}
+            saving={savingPlanSpill}
+            error={planSpillError}
+          />
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <button
@@ -101,10 +141,10 @@ export function TicketInfoPopup({ entry, memberships, saving, error, onSave, onC
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || savingPlanSpill}
               className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving || savingPlanSpill ? 'Saving…' : 'Save'}
             </button>
           </div>
         </form>

@@ -285,6 +285,28 @@ export interface SprintPlanEntry {
   // entry, mirroring devQa's "present only for a Split entry" convention -
   // the two never coexist on the same entry.
   assigneeOverridePersonId?: string | null
+  // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md", ADR
+  // 0006) - a per-sprint, per-role adjustment to Original (Effort) for
+  // capacity purposes: Plan (defaults to Original) minus Spill (defaults to
+  // 0) = Planned-this-sprint. `null` on a raw field means "not overridden,
+  // follow Original". Split-only (dev*/qa*) and non-split-only (bare) pairs
+  // never coexist on the same entry, same convention as devQa/
+  // assigneeOverridePersonId above. The three *PlannedHours fields are
+  // always present alongside their raw siblings (server-resolved, never
+  // re-derived on the frontend) - devEstimateHours/qaEstimateHours's
+  // non-split counterpart, `estimateHours`, is likewise always present for a
+  // non-split entry (Original, computeEffortHours) even though nothing used
+  // it before this feature.
+  devPlanHours?: number | null
+  devSpillHours?: number | null
+  devPlannedHours?: number
+  qaPlanHours?: number | null
+  qaSpillHours?: number | null
+  qaPlannedHours?: number
+  estimateHours?: number
+  planHours?: number | null
+  spillHours?: number | null
+  plannedHours?: number
 }
 
 // The Team x Sprint header - a picked start/end date range plus any

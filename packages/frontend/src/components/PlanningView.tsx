@@ -50,14 +50,27 @@ function placementFieldValue(p: PlacedEntry): number {
   return p.entry.order
 }
 
-// A role placement's own [Dev]/[Test] Sub-task estimate (devEstimateHours/
-// qaEstimateHours, backend's roleSubtaskEstimateHours) - never the parent
-// Story/Bug's own estimateHours, which a non-split placement (`role` unset)
-// uses instead.
-function roleEstimateHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
+// A role placement's own resolved Planned-this-sprint figure (spec
+// ".scratch/sprint-plan-spill-estimate/spec.md") - devPlannedHours/
+// qaPlannedHours (each role's own [Dev]/[Test] Sub-task Plan/Spill), never
+// the parent Story/Bug's own, which a non-split placement (`role` unset)
+// uses (plannedHours) instead. What the badge actually displays now, in
+// place of the raw Original estimate it showed before this feature.
+function rolePlannedHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
+  if (role === 'dev') return entry.devPlannedHours ?? null
+  if (role === 'qa') return entry.qaPlannedHours ?? null
+  return entry.plannedHours ?? null
+}
+
+// The same role placement's Original (Effort) - devEstimateHours/
+// qaEstimateHours, or entry.estimateHours for a non-split placement. Used
+// only to decide the badge's amber/emerald Plan/Spill ring (never displayed
+// directly on the badge itself, which shows Planned via rolePlannedHours
+// above).
+function roleOriginalHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
   if (role === 'dev') return entry.devEstimateHours ?? null
   if (role === 'qa') return entry.qaEstimateHours ?? null
-  return entry.ticketId.estimateHours
+  return entry.estimateHours ?? null
 }
 
 // Ticket 19's drag-reorder save-on-drop: reorders `placements` per the drag
@@ -573,16 +586,31 @@ function TicketBadge({
     : unmapped
       ? 'border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-300'
       : typeColorClasses(ticket.type)
+  const plannedHoursValue = rolePlannedHours(entry, role)
+  const originalHoursValue = roleOriginalHours(entry, role)
+  // Plan/Spill (spec ".scratch/sprint-plan-spill-estimate/spec.md", Variant
+  // B): amber when Planned is spilled/reduced below Original, emerald when
+  // buffered above it, no ring when they match or either figure is missing.
+  const planSpillRingClass =
+    plannedHoursValue == null || originalHoursValue == null || plannedHoursValue === originalHoursValue
+      ? ''
+      : plannedHoursValue < originalHoursValue
+        ? 'ring-2 ring-amber-400/70 dark:ring-amber-400/60'
+        : 'ring-2 ring-emerald-400/70 dark:ring-emerald-400/60'
   // Option/Alt+click "pop": a bit larger + ring-highlighted, with a short
   // transform transition so it visibly pops rather than snapping. `shadow-sm`
   // and `shadow-lg` never appear in the same className string (Tailwind
   // utilities of equal specificity don't reliably cascade by DOM order), so
   // the popped/unpopped shadow lives in this one branch, not layered on top
-  // of a base shadow class.
-  const popClasses = isPopped ? 'relative z-20 scale-125 shadow-lg ring-2 ring-fuchsia-400/60' : 'scale-100 shadow-sm'
+  // of a base shadow class. The Plan/Spill ring above follows the same rule
+  // - kept to this one branch (only when not popped) rather than layered
+  // unconditionally alongside the popped ring, since two `ring-2 ring-*`
+  // utilities of different colors in one className string hit the identical
+  // cascade-order gotcha.
+  const popClasses = isPopped
+    ? 'relative z-20 scale-125 shadow-lg ring-2 ring-fuchsia-400/60'
+    : `scale-100 shadow-sm ${planSpillRingClass}`
   const baseClasses = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-semibold transition-transform duration-150 ease-out ${popClasses} ${colorClasses}`
-
-  const estimateHours = roleEstimateHours(entry, role)
 
   const content = (
     <>
@@ -590,8 +618,8 @@ function TicketBadge({
       {unmapped && role && (
         <span className="font-sans text-[9px] font-normal uppercase tracking-wide opacity-70">{role}</span>
       )}
-      {estimateHours != null && (
-        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatDaysHours(estimateHours)}</span>
+      {plannedHoursValue != null && (
+        <span className="font-sans text-[9px] font-normal tracking-wide opacity-70">{formatDaysHours(plannedHoursValue)}</span>
       )}
     </>
   )
@@ -859,6 +887,9 @@ export function PlanningView({ team }: { team: Team }) {
     savingAssigneeOverride,
     assigneeOverrideError,
     saveAssigneeOverride,
+    savingPlanSpill,
+    planSpillError,
+    savePlanSpill,
     reorderEntries,
     removingEntryId,
     removeEntryError,
@@ -1155,6 +1186,9 @@ export function PlanningView({ team }: { team: Team }) {
             saving={savingDevQaOverride}
             error={devQaOverrideError}
             onSave={(body) => saveDevQaOverride(getId(popupEntry.ticketId) ?? '', body)}
+            savingPlanSpill={savingPlanSpill}
+            planSpillError={planSpillError}
+            onSavePlanSpill={(role, pair) => savePlanSpill(getId(popupEntry) ?? '', role, pair)}
             onClose={() => setPopupTicketId(null)}
           />
         ) : (
@@ -1164,6 +1198,9 @@ export function PlanningView({ team }: { team: Team }) {
             saving={savingAssigneeOverride}
             error={assigneeOverrideError}
             onSave={(body) => saveAssigneeOverride(getId(popupEntry.ticketId) ?? '', body)}
+            savingPlanSpill={savingPlanSpill}
+            planSpillError={planSpillError}
+            onSavePlanSpill={(pair) => savePlanSpill(getId(popupEntry) ?? '', 'single', pair)}
             onClose={() => setPopupTicketId(null)}
           />
         ))}

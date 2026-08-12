@@ -27,6 +27,22 @@ export interface SprintPlanEntryDoc {
   devOrder: number | null
   // Same as devOrder, for the qa role.
   qaOrder: number | null
+  // Per-sprint, per-role Plan/Spill override (spec ".scratch/
+  // sprint-plan-spill-estimate/spec.md", ADR 0006) - `null` on every field
+  // means "not overridden, follow Original" (a Split entry's role Sub-task
+  // estimate, or a non-split entry's Effort). A Split entry only ever uses
+  // the dev*/qa* pair; a non-split entry only ever uses the bare pair - same
+  // "the two variants never coexist on the same entry" convention devQa/
+  // assigneeOverridePersonId already follow on this model's GET response.
+  // Deliberately sprint-scoped here (not a global per-ticket doc like
+  // TicketDevQaOverride/TicketAssigneeOverride) - a ticket carried into a
+  // later sprint gets an independent Plan/Spill each time, see ADR 0006.
+  devPlanHours: number | null
+  devSpillHours: number | null
+  qaPlanHours: number | null
+  qaSpillHours: number | null
+  planHours: number | null
+  spillHours: number | null
 }
 
 const sprintPlanEntrySchema = new Schema<SprintPlanEntryDoc>({
@@ -37,6 +53,12 @@ const sprintPlanEntrySchema = new Schema<SprintPlanEntryDoc>({
   order: { type: Number, required: true },
   devOrder: { type: Number, default: null },
   qaOrder: { type: Number, default: null },
+  devPlanHours: { type: Number, default: null },
+  devSpillHours: { type: Number, default: null },
+  qaPlanHours: { type: Number, default: null },
+  qaSpillHours: { type: Number, default: null },
+  planHours: { type: Number, default: null },
+  spillHours: { type: Number, default: null },
 })
 
 sprintPlanEntrySchema.index({ teamId: 1, sprintId: 1, ticketId: 1 }, { unique: true })
