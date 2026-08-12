@@ -168,7 +168,7 @@ export function SprintLeaveGrid({
                   key={c.teamMembershipId}
                   className={
                     isHighlighted
-                      ? 'border-y border-fuchsia-400/60 dark:border-fuchsia-400/60'
+                      ? 'border-y-2 border-fuchsia-400/60 dark:border-fuchsia-400/60'
                       : 'border-b border-slate-100 last:border-0 dark:border-white/5'
                   }
                 >
@@ -186,7 +186,7 @@ export function SprintLeaveGrid({
                     aria-label={`Highlight ${c.personName}'s row`}
                     className={`sticky left-0 z-10 cursor-pointer px-2 py-1 font-medium text-slate-800 dark:text-slate-100 ${
                       isHighlighted
-                        ? 'border-y border-l border-r border-fuchsia-400/60 bg-fuchsia-50 dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10'
+                        ? 'border-y-2 border-l border-r border-fuchsia-400/60 bg-fuchsia-50 dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10'
                         : 'border-r border-slate-200 bg-white hover:bg-slate-50 dark:border-white/10 dark:bg-[#160f24] dark:hover:bg-white/10'
                     }`}
                   >
@@ -233,7 +233,7 @@ export function SprintLeaveGrid({
                   })}
                   <td
                     className={`px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200 ${
-                      isHighlighted ? 'border-y border-r border-fuchsia-400/60 dark:border-fuchsia-400/60' : ''
+                      isHighlighted ? 'border-y-2 border-r border-fuchsia-400/60 dark:border-fuchsia-400/60' : ''
                     }`}
                   >
                     {totalHours > 0 ? formatDaysHours(totalHours) : '—'}
