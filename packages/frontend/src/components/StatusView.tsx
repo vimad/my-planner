@@ -1,10 +1,24 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Shuffle } from 'lucide-react'
 import { useStatusView } from '../hooks/useStatusView'
 import { SprintSelect } from './SprintSelect'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
 import { ticketTypeAccent } from '../utils/ticketType'
-import type { Team, Ticket } from '../types'
+import type { Team, TeamMembership, Ticket } from '../types'
+
+// Fisher-Yates, new array each call - used to let the roster be shuffled for
+// standups (different reading order on different days) without touching the
+// server; order is plain component state so a page refresh drops back to
+// `memberships`' fetched order.
+function shuffled<T>(items: T[]): T[] {
+  const next = [...items]
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[next[i], next[j]] = [next[j], next[i]]
+  }
+  return next
+}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'Never synced'
@@ -146,6 +160,14 @@ export function StatusView({ team }: { team: Team }) {
     syncPerson,
   } = useStatusView(teamId)
 
+  // Client-side-only display order for the roster (standup reading order) -
+  // reset whenever the fetched roster itself changes, otherwise left alone
+  // so shuffling doesn't get clobbered by unrelated re-renders.
+  const [rosterOrder, setRosterOrder] = useState<TeamMembership[]>(memberships)
+  useEffect(() => {
+    setRosterOrder(memberships)
+  }, [memberships])
+
   // Cached tickets grouped by assignee - the roster's per-row summary and
   // the selected person's board are both derived from this one grouping,
   // rather than filtering the flat `tickets` list twice.
@@ -230,16 +252,29 @@ export function StatusView({ team }: { team: Team }) {
       {selectedSprintId && (
         <div className="flex flex-wrap items-start gap-5">
           <div className="w-64 shrink-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-            <h2 className="px-1 pb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Team
-            </h2>
+            <div className="flex items-center justify-between px-1 pb-2">
+              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Team
+              </h2>
+              {rosterOrder.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setRosterOrder((prev) => shuffled(prev))}
+                  aria-label="Shuffle team order"
+                  title="Shuffle team order"
+                  className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                >
+                  <Shuffle size={14} />
+                </button>
+              )}
+            </div>
             {loadingMemberships ? (
               <p className="px-1 text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
-            ) : memberships.length === 0 ? (
+            ) : rosterOrder.length === 0 ? (
               <p className="px-1 text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</p>
             ) : (
               <ul aria-label="Team roster" className="space-y-0.5">
-                {memberships.map((membership) => {
+                {rosterOrder.map((membership) => {
                   const personId = getId(membership.personId) ?? ''
                   const active = personId === selectedPersonId
                   const syncing = syncingPersonId === personId

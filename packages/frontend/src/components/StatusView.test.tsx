@@ -326,6 +326,32 @@ describe('StatusView', () => {
     expect(link).toHaveAttribute('target', '_blank')
   })
 
+  it('shuffles the roster order client-side on click, with no server call', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    render(<StatusView team={team} />)
+    const roster = await screen.findByLabelText('Team roster')
+    const namesInOrder = () => within(roster).getAllByRole('listitem').map((li) => li.textContent)
+
+    expect(namesInOrder()[0]).toContain('Ada Lovelace')
+    expect(namesInOrder()[1]).toContain('Grace Hopper')
+
+    const callsBeforeShuffle = fetchMock.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Shuffle team order' }))
+
+    expect(namesInOrder()[0]).toContain('Grace Hopper')
+    expect(namesInOrder()[1]).toContain('Ada Lovelace')
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeShuffle)
+
+    // Shuffling is uncapped - a second click re-shuffles again rather than
+    // being a no-op once the button's been used once.
+    fireEvent.click(screen.getByRole('button', { name: 'Shuffle team order' }))
+    expect(namesInOrder()[0]).toContain('Ada Lovelace')
+    expect(namesInOrder()[1]).toContain('Grace Hopper')
+
+    randomSpy.mockRestore()
+  })
+
   it('switching the selected person shows their own board, not the previous person\'s', async () => {
     ticketsData = [
       ticket({ jiraKey: 'WOSMVP-100', assigneeAccountId: 'acc-1', status: 'To Do', title: "Ada's ticket" }),
