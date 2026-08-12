@@ -126,7 +126,17 @@ card:     flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2x
 content:  overflow-auto   (on the inner content wrapper, since the card itself is now height-capped)
 ```
 
-`max-w-sm` → `max-w-6xl` is the only width change; the base archetype has no height cap at all (its dialogs are always short), so `max-h-[90vh] overflow-hidden` on the card plus `overflow-auto` on the inner content are new, not overridden. Reference: `SprintGanttChart.tsx`'s Gantt chart modal (wayfinder `.scratch/sprint-gantt-chart/` tickets 01/07).
+`max-w-sm` → `max-w-6xl` is the only width change; the base archetype has no height cap at all (its dialogs are always short), so `max-h-[90vh] overflow-hidden` on the card plus `overflow-auto` on the inner content are new, not overridden.
+
+**Variant: near-fullscreen modal** — same backdrop, but the card fills essentially the whole viewport (minus the backdrop's own `p-4` margin) instead of being width/height-capped — for content that wants all the screen it can get (e.g. a dense chart):
+
+```
+backdrop: fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4
+card:     flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100
+content:  overflow-auto   (on the inner content wrapper)
+```
+
+`max-h-[90vh] w-full max-w-6xl` → `h-full w-full` is the only change from the large-modal variant: the card grows to fill the padded backdrop box completely instead of capping at a fixed width/vh. Reference: `SprintGanttChart.tsx`'s Gantt chart modal (wayfinder `.scratch/sprint-gantt-chart/` tickets 01/07).
 
 ### C. Slide-in/slide-over drawer
 

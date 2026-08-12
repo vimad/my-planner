@@ -19,6 +19,7 @@ import { Gantt, WillowDark } from '@svar-ui/react-gantt'
 import type { IApi, ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { computeDragPatches, computeGanttRows, type GanttDragPatch, type GanttPlacedBar } from '../utils/ganttPlacement'
 import { buildLeaveDays } from '../utils/ganttLeaveDays'
 import { computeDevQaLinks } from '../utils/ganttDevQaLinks'
@@ -240,7 +241,7 @@ function SprintGantt({
   }, [])
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Hides each synthetic person-row's own summary bar - only its grid
           label should show (ticket 01's API specifics). visibility: hidden
           (not opacity/display) also means this row never receives pointer
@@ -260,7 +261,7 @@ function SprintGantt({
         .wx-bar[data-id^=":leave-half-"] { background: #f59e0b; border-color: #fcd34d; }
         .wx-bar[data-id^=":dev-"], .wx-bar[data-id^=":qa-"] { border: 2px solid #e879f9; background: rgba(217, 70, 239, 0.35); }
       `}</style>
-      <div style={{ height: 480 }}>
+      <div className="min-h-0 flex-1">
         <WillowDark>
           <Gantt
             tasks={tasks}
@@ -276,13 +277,14 @@ function SprintGantt({
   )
 }
 
-// Widened "large modal" variant of docs/ui-conventions.md's Archetype B
-// (full modal dialog) — `max-w-6xl` instead of the base `max-w-sm`, plus
-// `max-h-[90vh] overflow-hidden` on the card with `overflow-auto` on the
-// inner content, since the base archetype has no height cap (its dialogs
-// are always short). Confirmed viable in ticket 01's prototype; documented
-// as its own named variant in docs/ui-conventions.md so a later "big"
-// surface can copy this instead of re-deriving the numbers.
+// "Near-fullscreen modal" variant of docs/ui-conventions.md's Archetype B
+// (full modal dialog) — `h-full w-full` instead of the base `max-w-sm`, so
+// the card fills the backdrop's own `p-4` padding almost edge-to-edge.
+// Rendered via a portal to `document.body` rather than in place: this
+// button sits inside "Tickets by person"'s `dark:backdrop-blur-md` card
+// (PlanningView.tsx), and `backdrop-filter` establishes a containing block
+// for `position: fixed` descendants, which without the portal shrank this
+// modal down to that card's own bounds instead of the viewport.
 function GanttChartModal({
   memberships,
   entries,
@@ -298,9 +300,9 @@ function GanttChartModal({
   onClose: () => void
   onDragReschedule: (patches: GanttDragPatch[]) => void
 }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
+      <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Sprint Gantt chart</h2>
           <button
@@ -312,7 +314,7 @@ function GanttChartModal({
             ×
           </button>
         </div>
-        <div className="overflow-auto">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {!sprintPeriod ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">
               Set this sprint&apos;s period (start/end date and working days) before viewing its Gantt chart.
@@ -330,7 +332,8 @@ function GanttChartModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

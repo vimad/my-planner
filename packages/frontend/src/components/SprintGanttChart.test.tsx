@@ -240,7 +240,7 @@ describe('GanttChartButton', () => {
       ],
     }
     const periodWithHoliday: SprintPeriod = { ...sprintPeriod, holidays: ['2026-08-13'] }
-    const { container } = render(
+    render(
       <GanttChartButton memberships={[adaMembership]} entries={[]} capacity={[capacity]} sprintPeriod={periodWithHoliday} onDragReschedule={noop} />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
@@ -249,10 +249,12 @@ describe('GanttChartButton', () => {
     // Full-leave and holiday days both use the `leave-full-` id prefix the
     // component's CSS targets for red-400/500 shading; the half-leave day
     // uses `leave-half-` for amber-300/500 - not `highlightTime`, per
-    // ticket 01's confirmed approach.
-    expect(container.querySelector('[data-id="leave-full-leave-m1-2026-08-11"]')).not.toBeNull()
-    expect(container.querySelector('[data-id="leave-full-holiday-m1-2026-08-13"]')).not.toBeNull()
-    expect(container.querySelector('[data-id="leave-half-leave-m1-2026-08-12"]')).not.toBeNull()
+    // ticket 01's confirmed approach. Queried against document.body, not the
+    // render `container`, since the modal now portals out of it (see
+    // SprintGanttChart.tsx's GanttChartModal comment).
+    expect(document.body.querySelector('[data-id="leave-full-leave-m1-2026-08-11"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-id="leave-full-holiday-m1-2026-08-13"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-id="leave-half-leave-m1-2026-08-12"]')).not.toBeNull()
   })
 
   it("links a Split ticket's rendered Dev and QA bars across two different rows, via a native s2s link and matching dev-/qa- data-ids (ticket 08)", async () => {
@@ -275,7 +277,7 @@ describe('GanttChartButton', () => {
       qaSpillHours: null,
       qaPlannedHours: 4,
     }
-    const { container } = render(
+    render(
       <GanttChartButton
         memberships={[adaMembership, bobMembership]}
         entries={[splitEntry]}
@@ -289,9 +291,10 @@ describe('GanttChartButton', () => {
 
     // Deterministic dev-<jiraKey>/qa-<jiraKey> ids, not the default
     // ticket-07 `bar.key` - what the `[data-id^=":dev-"]`/`[data-id^=":qa-"]`
-    // CSS rules and the native dependency link both target.
-    expect(container.querySelector('[data-id="dev-PROJ-201"]')).not.toBeNull()
-    expect(container.querySelector('[data-id="qa-PROJ-201"]')).not.toBeNull()
+    // CSS rules and the native dependency link both target. Queried against
+    // document.body since the modal portals out of the render container.
+    expect(document.body.querySelector('[data-id="dev-PROJ-201"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-id="qa-PROJ-201"]')).not.toBeNull()
 
     const link = screen.getByTestId('gantt-link')
     expect(link).toHaveAttribute('data-source', 'dev-PROJ-201')
@@ -319,14 +322,14 @@ describe('GanttChartButton', () => {
       qaSpillHours: null,
       qaPlannedHours: 4,
     }
-    const { container } = render(
+    render(
       <GanttChartButton memberships={[adaMembership]} entries={[splitEntry]} capacity={[capacityFor(adaMembership)]} sprintPeriod={sprintPeriod} onDragReschedule={noop} />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Gantt chart' }))
     await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
 
-    expect(container.querySelector('[data-id="e9-dev"]')).not.toBeNull()
-    expect(container.querySelector('[data-id^="dev-"]')).toBeNull()
+    expect(document.body.querySelector('[data-id="e9-dev"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-id^="dev-"]')).toBeNull()
     expect(screen.queryByTestId('gantt-link')).not.toBeInTheDocument()
   })
 
