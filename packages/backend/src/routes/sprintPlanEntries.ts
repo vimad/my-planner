@@ -3,12 +3,14 @@ import type { Types } from 'mongoose'
 import { SprintPlanEntry } from '../models/SprintPlanEntry.ts'
 import { Ticket, type TicketDoc } from '../models/Ticket.ts'
 import { TeamMembership } from '../models/TeamMembership.ts'
+import { TeamSprintPlan } from '../models/TeamSprintPlan.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import type { PersonDoc } from '../models/Person.ts'
 import { refreshStatusSet } from '../services/statusSync.ts'
 import { computeEffortHours, fullSyncTickets, type SyncedTicket } from '../services/ticketSync.ts'
 import { loadAssigneeOverrides } from '../services/assigneeResolution.ts'
 import { loadFeatureOverrides } from '../services/featureResolution.ts'
+import { clampToNextWorkingDay } from '../services/sprintWorkingDays.ts'
 import {
   isSplitTicket,
   resolveDevQa,
@@ -261,6 +263,33 @@ sprintPlanEntriesRouter.post(
   },
 )
 
+interface GanttCalendar {
+  startDate: string
+  endDate: string
+  holidays: string[]
+}
+
+// Read-time reconciliation for a single Gantt start-date override (Ticket
+// 10, spec ".scratch/sprint-gantt-chart/issues/06-sprint-date-change-
+// reconciliation.md"): applied to ganttStartDate/devGanttStartDate/
+// qaGanttStartDate in the GET response below, never written back to
+// storage — mirrors how routes/capacity.ts applies leaveEntries.ts's
+// reconcileWithWorkingDates to leaveEntries, read-time only.
+//
+// `null` (no override, auto-placement) passes through untouched — nothing
+// to reconcile. A date past the calendar's current endDate is also left
+// exactly as stored: narrowing endDate just means more overrides now sit in
+// the already-supported "spillover" zone (map's Decided section), not an
+// error state. Everything else is handed to clampToNextWorkingDay, which is
+// itself a no-op for a date that's still a valid working day — so a date
+// that moved-later startDate or a newly-added holiday made invalid clamps
+// forward silently, while an already-valid date comes back unchanged.
+function reconcileGanttStartDate(date: string | null, calendar: GanttCalendar): string | null {
+  if (date === null) return date
+  if (date > calendar.endDate) return date
+  return clampToNextWorkingDay(date, calendar.startDate, calendar.endDate, calendar.holidays)
+}
+
 // GET /api/sprint-plan-entries?teamId=&sprintId= -> lists the plan with
 // Ticket populated. Grouping by assignee is left to the client. Each Split
 // entry (Story/Bug) additionally carries `devQa: { dev, qa }` — its
@@ -299,6 +328,17 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
       'ticketId',
     ).sort({ order: 1 })
 
+    // Ticket 10's reconciliation calendar: a legacy/not-yet-configured
+    // TeamSprintPlan (no stored startDate/endDate) has no working-date
+    // calendar to reconcile against, mirroring how routes/capacity.ts
+    // treats a missing period as "no working dates" rather than erroring —
+    // every stored override is returned exactly as stored in that case.
+    const teamSprintPlan = await TeamSprintPlan.findOne({ teamId, sprintId })
+    const ganttCalendar: GanttCalendar | null =
+      teamSprintPlan?.startDate && teamSprintPlan?.endDate
+        ? { startDate: teamSprintPlan.startDate, endDate: teamSprintPlan.endDate, holidays: teamSprintPlan.holidays }
+        : null
+
     const hasSplitEntry = entries.some((entry) => isSplitTicket(entry.ticketId.type))
     const memberships = hasSplitEntry ? await loadMembershipsForResolution(teamId) : []
 
@@ -314,7 +354,15 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
           const isFeature = featureOverrideByTicketId.get(String(ticket._id)) ?? false
           const estimateHours = (await computeEffortHours(ticket)) ?? 0
           const planned = plannedHours(estimateHours, { planHours: entry.planHours, spillHours: entry.spillHours })
-          return { ...entry.toObject(), assigneeOverridePersonId, isFeature, estimateHours, plannedHours: planned }
+          const ganttStartDate = ganttCalendar ? reconcileGanttStartDate(entry.ganttStartDate, ganttCalendar) : entry.ganttStartDate
+          return {
+            ...entry.toObject(),
+            assigneeOverridePersonId,
+            isFeature,
+            estimateHours,
+            plannedHours: planned,
+            ganttStartDate,
+          }
         }
 
         const [devQa, devEstimateHours, qaEstimateHours]: [DevQaResolution, number, number] = await Promise.all([
@@ -324,7 +372,22 @@ sprintPlanEntriesRouter.get('/', async (req: Request, res: Response, next: NextF
         ])
         const devPlannedHours = plannedHours(devEstimateHours, { planHours: entry.devPlanHours, spillHours: entry.devSpillHours })
         const qaPlannedHours = plannedHours(qaEstimateHours, { planHours: entry.qaPlanHours, spillHours: entry.qaSpillHours })
-        return { ...entry.toObject(), devQa, devEstimateHours, qaEstimateHours, devPlannedHours, qaPlannedHours }
+        const devGanttStartDate = ganttCalendar
+          ? reconcileGanttStartDate(entry.devGanttStartDate, ganttCalendar)
+          : entry.devGanttStartDate
+        const qaGanttStartDate = ganttCalendar
+          ? reconcileGanttStartDate(entry.qaGanttStartDate, ganttCalendar)
+          : entry.qaGanttStartDate
+        return {
+          ...entry.toObject(),
+          devQa,
+          devEstimateHours,
+          qaEstimateHours,
+          devPlannedHours,
+          qaPlannedHours,
+          devGanttStartDate,
+          qaGanttStartDate,
+        }
       }),
     )
 

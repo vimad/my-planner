@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeWorkingDates, computeWorkingDays } from '../src/services/sprintWorkingDays.ts'
+import { clampToNextWorkingDay, computeWorkingDates, computeWorkingDays } from '../src/services/sprintWorkingDays.ts'
 
 describe('computeWorkingDays', () => {
   it('counts a plain Mon-Fri range with no holidays as 5', () => {
@@ -83,5 +83,41 @@ describe('computeWorkingDates', () => {
     for (const [startDate, endDate, holidays] of cases) {
       expect(computeWorkingDates(startDate, endDate, holidays).length).toBe(computeWorkingDays(startDate, endDate, holidays))
     }
+  })
+})
+
+describe('clampToNextWorkingDay', () => {
+  it('returns the date unchanged when it is already a valid working day within range', () => {
+    // 2026-08-05 is a Wednesday, well within a Mon-Fri range with no holidays.
+    expect(clampToNextWorkingDay('2026-08-05', '2026-08-03', '2026-08-07', [])).toBe('2026-08-05')
+  })
+
+  it('clamps forward past a single newly-added holiday to the next working day', () => {
+    expect(clampToNextWorkingDay('2026-08-05', '2026-08-03', '2026-08-07', ['2026-08-05'])).toBe('2026-08-06')
+  })
+
+  it('clamps forward across consecutive holidays in one call', () => {
+    expect(clampToNextWorkingDay('2026-08-05', '2026-08-03', '2026-08-14', ['2026-08-05', '2026-08-06', '2026-08-07'])).toBe(
+      '2026-08-10',
+    )
+  })
+
+  it('skips a weekend when clamping forward from a Friday holiday', () => {
+    // 2026-08-07 is a Friday; 2026-08-08/09 are the following Sat/Sun.
+    expect(clampToNextWorkingDay('2026-08-07', '2026-08-03', '2026-08-14', ['2026-08-07'])).toBe('2026-08-10')
+  })
+
+  it('clamps a date before a moved-later startDate up to startDate itself, when startDate is a working day', () => {
+    expect(clampToNextWorkingDay('2026-07-30', '2026-08-03', '2026-08-07', [])).toBe('2026-08-03')
+  })
+
+  it('clamps a date before a moved-later startDate forward past startDate when startDate itself is now a holiday', () => {
+    expect(clampToNextWorkingDay('2026-07-30', '2026-08-03', '2026-08-07', ['2026-08-03'])).toBe('2026-08-04')
+  })
+
+  it('is not bounded by endDate - walks past it when every remaining day in range is a holiday (supported spillover)', () => {
+    expect(
+      clampToNextWorkingDay('2026-08-05', '2026-08-03', '2026-08-07', ['2026-08-05', '2026-08-06', '2026-08-07']),
+    ).toBe('2026-08-10')
   })
 })

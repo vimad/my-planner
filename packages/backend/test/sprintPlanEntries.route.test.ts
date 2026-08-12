@@ -44,6 +44,14 @@ vi.mock('../src/models/TeamMembership.ts', () => ({
   TeamMembership: { find: vi.fn() },
 }))
 
+interface MockedTeamSprintPlanModel {
+  findOne: Mock
+}
+
+vi.mock('../src/models/TeamSprintPlan.ts', () => ({
+  TeamSprintPlan: { findOne: vi.fn() },
+}))
+
 interface MockedTicketDevQaOverrideModel {
   findOne: Mock
 }
@@ -91,6 +99,9 @@ const { SprintPlanEntry } = (await import('../src/models/SprintPlanEntry.ts')) a
 }
 const { TeamMembership } = (await import('../src/models/TeamMembership.ts')) as unknown as {
   TeamMembership: MockedTeamMembershipModel
+}
+const { TeamSprintPlan } = (await import('../src/models/TeamSprintPlan.ts')) as unknown as {
+  TeamSprintPlan: MockedTeamSprintPlanModel
 }
 const { TicketDevQaOverride } = (await import('../src/models/TicketDevQaOverride.ts')) as unknown as {
   TicketDevQaOverride: MockedTicketDevQaOverrideModel
@@ -152,6 +163,12 @@ describe('SprintPlanEntry routes', () => {
     // sprint-plan-spill-estimate/spec.md") which queries Ticket.find itself;
     // only tests that care about a specific Effort figure override this.
     Ticket.find.mockResolvedValue([])
+    // Default: no TeamSprintPlan configured for this team+sprint (legacy/
+    // not-yet-set-up case) - GET's Ticket 10 reconciliation then has no
+    // calendar to reconcile against, so every stored Gantt override passes
+    // through unchanged; only the reconciliation describe block below
+    // overrides this with a real startDate/endDate/holidays.
+    TeamSprintPlan.findOne.mockResolvedValue(null)
   })
 
   describe('POST /api/sprint-plan-entries', () => {
@@ -516,6 +533,124 @@ describe('SprintPlanEntry routes', () => {
 
         expect(res.status).toBe(200)
         expect(res.body[0]).toMatchObject({ devPlannedHours: 2, qaPlannedHours: 10 })
+      })
+    })
+
+    // Ticket 10 (spec ".scratch/sprint-gantt-chart/issues/06-sprint-date-
+    // change-reconciliation.md"): a stored Gantt start-date override is
+    // reconciled against the sprint's *current* TeamSprintPlan calendar on
+    // every GET, never written back to storage - same read-time posture as
+    // capacity.ts's leaveEntries reconciliation.
+    describe('Gantt start-date override reconciliation (Ticket 10)', () => {
+      // 2026-08-03 is a Monday; 2026-08-10 the following Monday.
+      function teamSprintPlan(overrides: Record<string, unknown> = {}) {
+        return { startDate: '2026-08-03', endDate: '2026-08-14', holidays: [], ...overrides }
+      }
+
+      it('fetches the TeamSprintPlan for the same teamId/sprintId as the entries query', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: null })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan())
+
+        const app = createApp()
+        await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(TeamSprintPlan.findOne).toHaveBeenCalledWith({ teamId: 't1', sprintId: 's1' })
+      })
+
+      it('leaves a null ganttStartDate (auto-placement) untouched', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: null })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan())
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: null })
+      })
+
+      it('clamps a ganttStartDate that now falls before a sprint start that moved later, forward to the next valid working day', async () => {
+        // Sprint start moved from an earlier date to 2026-08-10; the stored
+        // override (2026-08-05) now falls before it.
+        const doc = nonSplitDoc({ ganttStartDate: '2026-08-05' })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan({ startDate: '2026-08-10' }))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: '2026-08-10' })
+      })
+
+      it('clamps a ganttStartDate that now lands on a newly-added holiday, forward to the next valid working day', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: '2026-08-11' })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan({ holidays: ['2026-08-11'] }))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: '2026-08-12' })
+      })
+
+      it('leaves a ganttStartDate that now falls after a narrowed endDate completely unchanged', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: '2026-08-20' })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan({ endDate: '2026-08-14' }))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: '2026-08-20' })
+      })
+
+      it('leaves overrides completely unchanged when no TeamSprintPlan exists for this team/sprint (legacy/no period set)', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: '2026-08-05' }) // would clamp under any real calendar
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue(null)
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: '2026-08-05' })
+      })
+
+      it('leaves overrides unchanged when the TeamSprintPlan has no startDate/endDate set (pre-period-picker legacy plan)', async () => {
+        const doc = nonSplitDoc({ ganttStartDate: '2026-08-05' })
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([doc]))
+        TeamSprintPlan.findOne.mockResolvedValue({ workingDays: 10, holidays: [] })
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ ganttStartDate: '2026-08-05' })
+      })
+
+      it('reconciles devGanttStartDate and qaGanttStartDate independently for a Split entry, and never mutates the stored document', async () => {
+        const splitEntry = {
+          _id: 'e2',
+          order: 0,
+          ticketId: { _id: 'tk-2', jiraKey: 'WOSMVP-2', type: 'Story' },
+          devGanttStartDate: '2026-08-11', // newly a holiday -> clamps
+          qaGanttStartDate: '2026-08-20', // past narrowed endDate -> unchanged
+          toObject() {
+            return this
+          },
+        }
+        SprintPlanEntry.find.mockReturnValue(findWithPopulate([splitEntry]))
+        TeamMembership.find.mockReturnValue(withMembershipPopulate([]))
+        resolveDevQa.mockResolvedValue({ dev: { status: 'needs-assignment' }, qa: { status: 'needs-assignment' } })
+        roleSubtaskEstimateHours.mockResolvedValue(0)
+        TeamSprintPlan.findOne.mockResolvedValue(teamSprintPlan({ endDate: '2026-08-14', holidays: ['2026-08-11'] }))
+
+        const app = createApp()
+        const res = await request(app).get('/api/sprint-plan-entries').query({ teamId: 't1', sprintId: 's1' })
+
+        expect(res.body[0]).toMatchObject({ devGanttStartDate: '2026-08-12', qaGanttStartDate: '2026-08-20' })
+        // The mock document's own fields are untouched by reconciliation -
+        // read-time only, never a write cascade.
+        expect(splitEntry.devGanttStartDate).toBe('2026-08-11')
+        expect(splitEntry.qaGanttStartDate).toBe('2026-08-20')
       })
     })
   })

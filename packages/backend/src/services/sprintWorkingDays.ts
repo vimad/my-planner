@@ -53,3 +53,41 @@ export function computeWorkingDates(startDate: string, endDate: string, holidays
 export function computeWorkingDays(startDate: string, endDate: string, holidays: string[]): number {
   return computeWorkingDates(startDate, endDate, holidays).length
 }
+
+// Clamps `date` forward to the next day that is a working day by
+// computeWorkingDates's own rules (not a weekend, not in `holidays`) and not
+// before `startDate` - the read-time reconciliation primitive backing
+// Ticket 10's Gantt start-date-override reconciliation (spec ".scratch/
+// sprint-gantt-chart/issues/06-sprint-date-change-reconciliation.md"): an
+// override that now falls before a sprint start that moved later, or on a
+// day newly marked a holiday, clamps forward silently rather than being
+// dropped - a Gantt override just means "begin around here", so shifting it
+// forward preserves the user's intent (unlike leaveEntries.ts's
+// reconcileWithWorkingDates, which drops instead, since a leave day has no
+// substitute).
+//
+// Deliberately NOT bounded by `endDate`, even though it's part of the same
+// three-argument calendar shape as computeWorkingDates/computeWorkingDays
+// (so callers can pass the exact same TeamSprintPlan fields to both). If
+// every remaining day through `endDate` is a holiday, this keeps walking
+// past it - already a supported "spillover" view per the map's Decided
+// section (the Gantt axis extends past endDate rather than clipping), so
+// landing there is the expected outcome, not a case needing its own
+// null/error signal.
+//
+// A `date` that's already a valid working day on/after `startDate` is
+// returned unchanged (the loop finds it on the first iteration) - callers
+// only need to invoke this when they've already determined the date is
+// invalid, but it's safe to call unconditionally too.
+export function clampToNextWorkingDay(date: string, startDate: string, endDate: string, holidays: string[]): string {
+  const holidaySet = new Set(holidays)
+  const cursor = parseLocalDate(date < startDate ? startDate : date)
+
+  while (true) {
+    const dayOfWeek = cursor.getDay() // 0 = Sunday, 6 = Saturday
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+    const iso = toLocalDateString(cursor)
+    if (!isWeekend && !holidaySet.has(iso)) return iso
+    cursor.setDate(cursor.getDate() + 1)
+  }
+}
