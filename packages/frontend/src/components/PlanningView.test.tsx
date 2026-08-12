@@ -95,17 +95,32 @@ const membershipGrace: TeamMembership = { _id: 'm2', teamId: 'team-a', personId:
 
 // DevQaRoleResolution builders (ticket 23's discriminated union, mirrored in
 // ../types) - one per status, matching services/devQaResolution.ts exactly.
-function resolvedSubtask(personId: string): DevQaRoleResolution {
-  return { status: 'resolved', source: 'subtask', personId }
+// `jiraAssigneeDisplayName` defaults to the roster name a resolved personId
+// maps to (the common case: the Sub-task's own assignee is who it resolved
+// to) - pass it explicitly to simulate an Override pointing away from
+// Jira's current raw assignee.
+const PERSON_DISPLAY_NAMES: Record<string, string> = { p1: ada.name, p2: grace.name }
+
+function resolvedSubtask(
+  personId: string,
+  jiraAssigneeDisplayName: string | null = PERSON_DISPLAY_NAMES[personId] ?? null,
+): DevQaRoleResolution {
+  return { status: 'resolved', source: 'subtask', personId, jiraAssigneeDisplayName }
 }
-function resolvedOverride(personId: string): DevQaRoleResolution {
-  return { status: 'resolved', source: 'override', personId }
+function resolvedOverride(personId: string, jiraAssigneeDisplayName: string | null = null): DevQaRoleResolution {
+  return { status: 'resolved', source: 'override', personId, jiraAssigneeDisplayName }
 }
-function needsAssignment(): DevQaRoleResolution {
-  return { status: 'needs-assignment' }
+function needsAssignment(jiraAssigneeDisplayName: string | null = null): DevQaRoleResolution {
+  return { status: 'needs-assignment', jiraAssigneeDisplayName }
 }
 function unmappedRole(accountId: string, displayName: string): DevQaRoleResolution {
-  return { status: 'unmapped', assigneeAccountId: accountId, assigneeDisplayName: displayName, assigneeEmail: null }
+  return {
+    status: 'unmapped',
+    assigneeAccountId: accountId,
+    assigneeDisplayName: displayName,
+    assigneeEmail: null,
+    jiraAssigneeDisplayName: displayName,
+  }
 }
 
 function ticket(overrides: Partial<Ticket> & { jiraKey: string; assigneeAccountId: string | null }): Ticket {
@@ -706,7 +721,7 @@ describe('PlanningView', () => {
       expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })).toBeInTheDocument()
     })
 
-    it('renders a resolved-via-Jira (subtask) role read-only in the popup, with an editable select for the other role', async () => {
+    it('renders a resolved-via-Jira (subtask) role as an editable, pre-filled select, so it can be reassigned to a Dev/QA Override', async () => {
       entriesData = [...entriesData, entry('e-needs-qa', needsQaTicket, 1, { devQa: needsQaDevQa })]
       render(<PlanningView team={team} />)
 
@@ -714,8 +729,9 @@ describe('PlanningView', () => {
       fireEvent.click(flagButton)
 
       const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })
-      expect(within(dialog).getByText(/Ada Lovelace.*from Jira/)).toBeInTheDocument()
-      expect(within(dialog).queryByLabelText('Dev assignee')).not.toBeInTheDocument()
+      expect(within(dialog).getByText(/Jira assignee:\s*Ada Lovelace/)).toBeInTheDocument()
+      const devSelect = within(dialog).getByLabelText('Dev assignee')
+      expect(devSelect).toHaveValue('p1')
       expect(within(dialog).getByLabelText('QA assignee')).toBeInTheDocument()
     })
 
@@ -741,8 +757,8 @@ describe('PlanningView', () => {
       fireEvent.click(badge)
 
       const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-300' })
-      expect(within(dialog).getByText(/Ada Lovelace.*from Jira/)).toBeInTheDocument()
-      expect(within(dialog).getByText(/Grace Hopper.*from Jira/)).toBeInTheDocument()
+      expect(within(dialog).getByText(/Jira assignee:\s*Ada Lovelace/)).toBeInTheDocument()
+      expect(within(dialog).getByText(/Jira assignee:\s*Grace Hopper/)).toBeInTheDocument()
     })
 
     it('shows an "Open in Jira" link pointing at the ticket, alongside the title', async () => {

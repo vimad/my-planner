@@ -237,17 +237,22 @@ export interface Ticket {
 // assignment") - mirrors the backend's devQaResolution.ts::DevQaRoleResolution
 // exactly (kept as a separate declaration rather than a cross-package import,
 // same convention as every other type in this file). `source` on `resolved`
-// is what lets the UI tell a Jira-sourced Sub-task match (read-only in the
-// popup) apart from a Dev/QA Override (editable) - see ADR 0004.
+// is what lets the UI tell a Jira-sourced Sub-task match apart from a Dev/QA
+// Override, though both are equally editable in the popup - see ADR 0004.
+// `jiraAssigneeDisplayName` (every variant) is the role's own `[Dev]`/`[Test]`
+// Sub-task's current Jira assignee, independent of resolution - stays
+// populated even once an Override wins over it, so DevQaAssignmentPopup can
+// always show Jira's real assignee alongside the select.
 export type DevQaRoleResolution =
-  | { status: 'resolved'; source: 'override' | 'subtask'; personId: string }
+  | { status: 'resolved'; source: 'override' | 'subtask'; personId: string; jiraAssigneeDisplayName: string | null }
   | {
       status: 'unmapped'
       assigneeAccountId: string
       assigneeDisplayName: string | null
       assigneeEmail: string | null
+      jiraAssigneeDisplayName: string | null
     }
-  | { status: 'needs-assignment' }
+  | { status: 'needs-assignment'; jiraAssigneeDisplayName: string | null }
 
 // Join: Team x Sprint x Ticket - a ticket manually added to a team's plan
 // for a sprint. `ticketId` comes back populated from

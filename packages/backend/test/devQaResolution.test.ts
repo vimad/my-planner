@@ -65,7 +65,14 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'resolved', source: 'override', personId: personId('person-ada') })
+    expect(resolution.dev).toEqual({
+      status: 'resolved',
+      source: 'override',
+      personId: personId('person-ada'),
+      // The real [Dev] sub-task's own assignee (Bob) stays visible for
+      // display even though the Override (Ada) is what actually resolved.
+      jiraAssigneeDisplayName: null,
+    })
   })
 
   it('resolves via a real mapped Sub-task assignee when no Override is set for that role', async () => {
@@ -74,7 +81,12 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'resolved', source: 'subtask', personId: personId('person-bob') })
+    expect(resolution.dev).toEqual({
+      status: 'resolved',
+      source: 'subtask',
+      personId: personId('person-bob'),
+      jiraAssigneeDisplayName: null,
+    })
   })
 
   it('resolves to unmapped when a real Sub-task assignee does not match any current TeamMembership', async () => {
@@ -95,6 +107,7 @@ describe('resolveDevQa', () => {
       assigneeAccountId: 'acct-outsider',
       assigneeDisplayName: 'Outside Contractor',
       assigneeEmail: 'outsider@example.com',
+      jiraAssigneeDisplayName: 'Outside Contractor',
     })
   })
 
@@ -104,8 +117,8 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'needs-assignment' })
-    expect(resolution.qa).toEqual({ status: 'needs-assignment' })
+    expect(resolution.dev).toEqual({ status: 'needs-assignment', jiraAssigneeDisplayName: null })
+    expect(resolution.qa).toEqual({ status: 'needs-assignment', jiraAssigneeDisplayName: null })
   })
 
   it('resolves to needs-assignment when a Sub-task of that kind exists but is unassigned', async () => {
@@ -114,7 +127,7 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'needs-assignment' })
+    expect(resolution.dev).toEqual({ status: 'needs-assignment', jiraAssigneeDisplayName: null })
   })
 
   it('resolves dev and qa fully independently on the same ticket (dev via Override, qa needs-assignment)', async () => {
@@ -123,8 +136,13 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'resolved', source: 'override', personId: personId('person-ada') })
-    expect(resolution.qa).toEqual({ status: 'needs-assignment' })
+    expect(resolution.dev).toEqual({
+      status: 'resolved',
+      source: 'override',
+      personId: personId('person-ada'),
+      jiraAssigneeDisplayName: null,
+    })
+    expect(resolution.qa).toEqual({ status: 'needs-assignment', jiraAssigneeDisplayName: null })
   })
 
   it('resolves dev via a mapped Sub-task while qa is unmapped, on the same ticket', async () => {
@@ -136,7 +154,12 @@ describe('resolveDevQa', () => {
 
     const resolution = await resolveDevQa(ticket, memberships)
 
-    expect(resolution.dev).toEqual({ status: 'resolved', source: 'subtask', personId: personId('person-ada') })
+    expect(resolution.dev).toEqual({
+      status: 'resolved',
+      source: 'subtask',
+      personId: personId('person-ada'),
+      jiraAssigneeDisplayName: null,
+    })
     expect(resolution.qa.status).toBe('unmapped')
   })
 
@@ -163,8 +186,18 @@ describe('resolveDevQa', () => {
     Ticket.find.mockResolvedValueOnce([subtask({ subtaskKind: 'Dev', assigneeAccountId: 'acct-bob' })])
     const after = await resolveDevQa(ticket, memberships)
 
-    expect(before.dev).toEqual({ status: 'resolved', source: 'override', personId: personId('person-ada') })
-    expect(after.dev).toEqual({ status: 'resolved', source: 'override', personId: personId('person-ada') })
+    expect(before.dev).toEqual({
+      status: 'resolved',
+      source: 'override',
+      personId: personId('person-ada'),
+      jiraAssigneeDisplayName: null,
+    })
+    expect(after.dev).toEqual({
+      status: 'resolved',
+      source: 'override',
+      personId: personId('person-ada'),
+      jiraAssigneeDisplayName: null,
+    })
   })
 })
 

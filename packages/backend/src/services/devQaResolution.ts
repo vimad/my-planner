@@ -22,23 +22,32 @@ export interface MembershipForResolution {
 
 // One role's resolved owner (CONTEXT.md "Role assignment"):
 // - resolved: an Override or a mapped Sub-task assignee -> personId, plus
-//   `source` so a caller (ticket 24's popup) can tell an Override
-//   (editable) apart from a Jira-sourced Sub-task match (read-only).
+//   `source` so a caller (ticket 24's popup) can tell an Override apart from
+//   a Jira-sourced Sub-task match.
 // - unmapped: a real Sub-task assignee that doesn't match any current
 //   TeamMembership (CONTEXT.md "Unmapped assignee") -> carries the same raw
 //   Jira display fields Ticket already caches, for the frontend to render
 //   like today's unmapped bucket.
 // - needs-assignment: no real Sub-task of this kind at all, or it exists
 //   but is unassigned, and no Override is set for the role either.
+//
+// Every variant also carries `jiraAssigneeDisplayName` - the role's
+// `[Dev]`/`[Test]` Sub-task's own current Jira assignee, independent of
+// resolution (so it stays populated even once an Override is in play and
+// wins over it per ADR 0004). The popup shows this alongside its select so
+// the actual Jira assignee is always visible, mirroring how
+// TicketInfoPopup always shows Jira's own assignee next to a non-split
+// ticket's Assignee Override select (ADR 0005).
 export type DevQaRoleResolution =
-  | { status: 'resolved'; source: 'override' | 'subtask'; personId: Types.ObjectId }
+  | { status: 'resolved'; source: 'override' | 'subtask'; personId: Types.ObjectId; jiraAssigneeDisplayName: string | null }
   | {
       status: 'unmapped'
       assigneeAccountId: string
       assigneeDisplayName: string | null
       assigneeEmail: string | null
+      jiraAssigneeDisplayName: string | null
     }
-  | { status: 'needs-assignment' }
+  | { status: 'needs-assignment'; jiraAssigneeDisplayName: string | null }
 
 export interface DevQaResolution {
   dev: DevQaRoleResolution
@@ -52,23 +61,28 @@ function resolveRole(
   subtask: SubtaskForResolution | null,
   personIdByAccountId: Map<string, Types.ObjectId>,
 ): DevQaRoleResolution {
+  // The Sub-task's own current Jira assignee - tracked separately from
+  // resolution below (which an Override can override) so it's always
+  // available for display, per this type's doc comment.
+  const jiraAssigneeDisplayName = subtask?.assigneeDisplayName ?? null
+
   // (a) An Override, once set for this role, always wins over Jira resync
   // data — full stop, per ADR 0004. A real Sub-task assignee is never even
   // consulted once an Override exists for the role.
   if (overridePersonId) {
-    return { status: 'resolved', source: 'override', personId: overridePersonId }
+    return { status: 'resolved', source: 'override', personId: overridePersonId, jiraAssigneeDisplayName }
   }
 
   // (d) No real Sub-task of this kind, or it exists but is unassigned, and
   // no Override.
   if (!subtask || !subtask.assigneeAccountId) {
-    return { status: 'needs-assignment' }
+    return { status: 'needs-assignment', jiraAssigneeDisplayName }
   }
 
   // (b) A real Sub-task whose assignee matches a current TeamMembership.
   const personId = personIdByAccountId.get(subtask.assigneeAccountId)
   if (personId) {
-    return { status: 'resolved', source: 'subtask', personId }
+    return { status: 'resolved', source: 'subtask', personId, jiraAssigneeDisplayName }
   }
 
   // (c) A real Sub-task whose assignee doesn't match any current membership.
@@ -77,6 +91,7 @@ function resolveRole(
     assigneeAccountId: subtask.assigneeAccountId,
     assigneeDisplayName: subtask.assigneeDisplayName,
     assigneeEmail: subtask.assigneeEmail,
+    jiraAssigneeDisplayName,
   }
 }
 
