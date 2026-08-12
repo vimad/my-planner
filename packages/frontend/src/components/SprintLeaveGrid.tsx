@@ -113,6 +113,8 @@ export function SprintLeaveGrid({
   onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
   onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
 }) {
+  const [highlightedMembershipId, setHighlightedMembershipId] = useState<string | null>(null)
+
   if (capacity.length === 0) return null
 
   if (columns.length === 0) {
@@ -157,9 +159,37 @@ export function SprintLeaveGrid({
           <tbody>
             {capacity.map((c) => {
               const totalHours = c.leaveDays * 8 + c.extraHours
+              const isHighlighted = c.teamMembershipId === highlightedMembershipId
+              function toggleHighlight() {
+                setHighlightedMembershipId((cur) => (cur === c.teamMembershipId ? null : c.teamMembershipId))
+              }
               return (
-                <tr key={c.teamMembershipId} className="border-b border-slate-100 last:border-0 dark:border-white/5">
-                  <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-2 py-1 font-medium text-slate-800 dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
+                <tr
+                  key={c.teamMembershipId}
+                  className={
+                    isHighlighted
+                      ? 'border-y border-fuchsia-400/60 dark:border-fuchsia-400/60'
+                      : 'border-b border-slate-100 last:border-0 dark:border-white/5'
+                  }
+                >
+                  <td
+                    role="button"
+                    tabIndex={0}
+                    onClick={toggleHighlight}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleHighlight()
+                      }
+                    }}
+                    aria-pressed={isHighlighted}
+                    aria-label={`Highlight ${c.personName}'s row`}
+                    className={`sticky left-0 z-10 cursor-pointer px-2 py-1 font-medium text-slate-800 dark:text-slate-100 ${
+                      isHighlighted
+                        ? 'border-y border-l border-r border-fuchsia-400/60 bg-fuchsia-50 dark:border-fuchsia-400/60 dark:bg-fuchsia-500/10'
+                        : 'border-r border-slate-200 bg-white hover:bg-slate-50 dark:border-white/10 dark:bg-[#160f24] dark:hover:bg-white/10'
+                    }`}
+                  >
                     {c.personName}
                   </td>
                   <td className="py-1 pl-1.5 pr-4 text-left">
@@ -201,7 +231,11 @@ export function SprintLeaveGrid({
                       </td>
                     )
                   })}
-                  <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">
+                  <td
+                    className={`px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200 ${
+                      isHighlighted ? 'border-y border-r border-fuchsia-400/60 dark:border-fuchsia-400/60' : ''
+                    }`}
+                  >
                     {totalHours > 0 ? formatDaysHours(totalHours) : '—'}
                   </td>
                 </tr>
