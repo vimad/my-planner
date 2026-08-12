@@ -40,7 +40,6 @@ function EpicModal({ epic, onClose }: { epic: Epic; onClose: () => void }) {
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {epic.status} &middot; {epic.doneCount}/{epic.childCount} child tickets done
         </p>
-        <p className="mt-3 text-xs text-slate-400">Stub detail view — full epic detail isn&apos;t fetched yet.</p>
         <div className="mt-4 flex justify-end gap-2">
           <a
             href={`${JIRA_BASE_URL}/browse/${epic.jiraKey}`}
