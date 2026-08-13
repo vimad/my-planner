@@ -317,8 +317,36 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
   const [placeholders, setPlaceholders] = useState<PlaceholderTicket[]>([])
   const [loadingPlan, setLoadingPlan] = useState(true)
   const [planError, setPlanError] = useState<string | null>(null)
-  const [refreshTick, setRefreshTick] = useState(0)
-  const refreshPlan = useCallback(() => setRefreshTick((t) => t + 1), [])
+
+  // The actual fetch-and-commit-state logic, factored out so it's callable
+  // directly (and awaitable) by every plan-mutating action below, not just
+  // by the team/sprint-change effect. Awaiting it - rather than the old
+  // fire-and-forget tick bump - means a handler's own `finally` (which
+  // clears its "saving" flag) only runs once the fresh capacity/entries
+  // have actually landed, instead of a beat before them; SprintLeaveGrid's
+  // cell colors and "Saving…" text were visibly out of sync from that gap.
+  // planRequestIdRef guards against an in-flight call's result landing after
+  // a newer one (e.g. a leave save's refetch resolving after a fast
+  // team/sprint switch already moved on) - only the latest request commits.
+  const planRequestIdRef = useRef(0)
+  const loadPlan = useCallback(async () => {
+    if (!teamId || !selectedSprintId) return
+    const requestId = ++planRequestIdRef.current
+    setPlanError(null)
+    try {
+      const result = await fetchCapacityAndEntries(teamId, selectedSprintId)
+      if (planRequestIdRef.current !== requestId) return
+      setPlanConfigured(result.planConfigured)
+      setCapacity(result.capacity)
+      setEntries(result.entries)
+      setPlaceholders(result.placeholders)
+    } catch (err) {
+      if (planRequestIdRef.current !== requestId) return
+      setPlanError((err as Error).message)
+    }
+  }, [teamId, selectedSprintId])
+
+  const refreshPlan = useCallback(() => loadPlan(), [loadPlan])
 
   // The plan doc itself (id + startDate/endDate/holidays/workingDays),
   // fetched independently of capacity+entries above - kept as the raw doc
@@ -431,14 +459,12 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     }
   }, [teamId])
 
-  // Capacity + plan entries - re-run on team/sprint change or an explicit
-  // refreshPlan() call (after adding a ticket or setting working days).
-  // loadingPlan only flips true for a genuine team/sprint switch (or first
-  // load) - a refreshTick-only refetch (every plan-mutating action) keeps
-  // the previous capacity/entries on screen while the fresh data loads, so
-  // PlanningView's loadingPlan-gated JSX doesn't unmount/remount the
-  // capacity cards on every edit (was causing a visible flash/flicker).
-  const planFetchKeyRef = useRef<string | null>(null)
+  // Capacity + plan entries - (re-)runs only on a genuine team/sprint change
+  // (loadPlan itself is called directly - and awaited - by every
+  // plan-mutating action below, not routed through this effect), so
+  // loadingPlan never flips true on a background refresh and PlanningView's
+  // loadingPlan-gated JSX doesn't unmount/remount the capacity cards on
+  // every edit (was causing a visible flash/flicker).
   useEffect(() => {
     if (!teamId || !selectedSprintId) {
       setPlanConfigured(false)
@@ -446,37 +472,19 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       setEntries([])
       setPlaceholders([])
       setLoadingPlan(false)
-      planFetchKeyRef.current = null
       return
     }
 
-    const key = `${teamId}:${selectedSprintId}`
-    const isSameKey = planFetchKeyRef.current === key
-    planFetchKeyRef.current = key
-
     let ignore = false
-    if (!isSameKey) setLoadingPlan(true)
-    setPlanError(null)
-
-    fetchCapacityAndEntries(teamId, selectedSprintId)
-      .then((result) => {
-        if (ignore) return
-        setPlanConfigured(result.planConfigured)
-        setCapacity(result.capacity)
-        setEntries(result.entries)
-        setPlaceholders(result.placeholders)
-      })
-      .catch((err) => {
-        if (!ignore) setPlanError((err as Error).message)
-      })
-      .finally(() => {
-        if (!ignore) setLoadingPlan(false)
-      })
+    setLoadingPlan(true)
+    loadPlan().finally(() => {
+      if (!ignore) setLoadingPlan(false)
+    })
 
     return () => {
       ignore = true
     }
-  }, [teamId, selectedSprintId, refreshTick])
+  }, [teamId, selectedSprintId, loadPlan])
 
   // The plan doc for the period-picker form - independent fetch, own
   // refresh trigger, same "parallel fetch" pattern as sprints/memberships/
@@ -545,7 +553,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
             })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         setSprintPlanRefreshTick((t) => t + 1)
-        refreshPlan()
+        await refreshPlan()
       } finally {
         setSavingSprintPeriod(false)
       }
@@ -572,7 +580,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
               body: JSON.stringify({ teamMembershipId, sprintId: selectedSprintId, leaveEntries: entries }),
             })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setCapacityEntryError((err as Error).message)
         throw err
@@ -602,7 +610,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
               body: JSON.stringify({ teamMembershipId, sprintId: selectedSprintId, extraHours: hours }),
             })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setCapacityEntryError((err as Error).message)
         throw err
@@ -629,7 +637,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         const created: SprintPlanEntry = await res.json()
-        refreshPlan()
+        await refreshPlan()
         return created
       } catch (err) {
         setAddTicketError((err as Error).message)
@@ -655,7 +663,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
         const created: PlaceholderTicket = await res.json()
-        refreshPlan()
+        await refreshPlan()
         return created
       } catch (err) {
         setAddPlaceholderError((err as Error).message)
@@ -698,7 +706,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setDevQaOverrideError((err as Error).message)
         throw err
@@ -720,7 +728,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setAssigneeOverrideError((err as Error).message)
         throw err
@@ -742,7 +750,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setPoAssignmentError((err as Error).message)
         throw err
@@ -764,7 +772,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify({ isFeature }),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setFeatureOverrideError((err as Error).message)
         throw err
@@ -786,7 +794,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
           body: JSON.stringify({ [role]: pair }),
         })
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setPlanSpillError((err as Error).message)
         throw err
@@ -864,7 +872,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       try {
         const res = await fetch(`${API_URL}/api/sprint-plan-entries/${entryId}`, { method: 'DELETE' })
         if (!res.ok && res.status !== 404) throw new Error(await parseErrorMessage(res))
-        refreshPlan()
+        await refreshPlan()
       } catch (err) {
         setEntries(previous)
         setRemoveEntryError((err as Error).message)
@@ -887,7 +895,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         body: JSON.stringify({ teamId, sprintId: selectedSprintId }),
       })
       if (!res.ok) throw new Error(await parseErrorMessage(res))
-      refreshPlan()
+      await refreshPlan()
     } catch (err) {
       setSyncPlanError((err as Error).message)
       throw err
