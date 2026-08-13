@@ -853,6 +853,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       try {
         const res = await fetch(`${API_URL}/api/sprint-plan-entries/${entryId}`, { method: 'DELETE' })
         if (!res.ok && res.status !== 404) throw new Error(await parseErrorMessage(res))
+        refreshPlan()
       } catch (err) {
         setEntries(previous)
         setRemoveEntryError((err as Error).message)
@@ -861,7 +862,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
         setRemovingEntryId(null)
       }
     },
-    [entries],
+    [entries, refreshPlan],
   )
 
   const syncPlan = useCallback(async () => {
