@@ -33,7 +33,6 @@ describe('SprintLeaveGrid row highlighting', () => {
       <SprintLeaveGrid
         capacity={capacity}
         columns={columns}
-        saving={false}
         error={null}
         onSetLeaveEntries={vi.fn()}
         onSetExtraHours={vi.fn()}

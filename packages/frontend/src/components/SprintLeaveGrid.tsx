@@ -101,14 +101,12 @@ function ExtraHoursCell({
 export function SprintLeaveGrid({
   capacity,
   columns,
-  saving,
   error,
   onSetLeaveEntries,
   onSetExtraHours,
 }: {
   capacity: SprintCapacity[]
   columns: SprintLeaveGridColumn[]
-  saving: boolean
   error: string | null
   onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
   onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
@@ -244,7 +242,6 @@ export function SprintLeaveGrid({
           </tbody>
         </table>
       </div>
-      {saving && <span className="text-xs text-slate-400 dark:text-slate-500">Saving…</span>}
       {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </div>
   )

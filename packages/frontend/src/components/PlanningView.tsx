@@ -233,7 +233,6 @@ function SprintPeriodForm({
   saving,
   onSave,
   capacity,
-  savingCapacityEntry,
   capacityEntryError,
   onSetLeaveEntries,
   onSetExtraHours,
@@ -243,7 +242,6 @@ function SprintPeriodForm({
   saving: boolean
   onSave: (period: SprintPeriodInput) => Promise<void>
   capacity: SprintCapacity[]
-  savingCapacityEntry: boolean
   capacityEntryError: string | null
   onSetLeaveEntries: (teamMembershipId: string, entries: LeaveEntry[]) => Promise<void>
   onSetExtraHours: (teamMembershipId: string, hours: number) => Promise<void>
@@ -392,7 +390,6 @@ function SprintPeriodForm({
       <SprintLeaveGrid
         capacity={capacity}
         columns={leaveGridColumns}
-        saving={savingCapacityEntry}
         error={capacityEntryError}
         onSetLeaveEntries={onSetLeaveEntries}
         onSetExtraHours={onSetExtraHours}
@@ -927,7 +924,6 @@ export function PlanningView({ team }: { team: Team }) {
     loadingSprintPeriod,
     savingSprintPeriod,
     setSprintPeriod,
-    savingCapacityEntry,
     capacityEntryError,
     setLeaveEntries,
     setExtraHours,
@@ -1137,7 +1133,6 @@ export function PlanningView({ team }: { team: Team }) {
                 saving={savingSprintPeriod}
                 onSave={setSprintPeriod}
                 capacity={capacity}
-                savingCapacityEntry={savingCapacityEntry}
                 capacityEntryError={capacityEntryError}
                 onSetLeaveEntries={setLeaveEntries}
                 onSetExtraHours={setExtraHours}
