@@ -433,6 +433,12 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
 
   // Capacity + plan entries - re-run on team/sprint change or an explicit
   // refreshPlan() call (after adding a ticket or setting working days).
+  // loadingPlan only flips true for a genuine team/sprint switch (or first
+  // load) - a refreshTick-only refetch (every plan-mutating action) keeps
+  // the previous capacity/entries on screen while the fresh data loads, so
+  // PlanningView's loadingPlan-gated JSX doesn't unmount/remount the
+  // capacity cards on every edit (was causing a visible flash/flicker).
+  const planFetchKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!teamId || !selectedSprintId) {
       setPlanConfigured(false)
@@ -440,11 +446,16 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
       setEntries([])
       setPlaceholders([])
       setLoadingPlan(false)
+      planFetchKeyRef.current = null
       return
     }
 
+    const key = `${teamId}:${selectedSprintId}`
+    const isSameKey = planFetchKeyRef.current === key
+    planFetchKeyRef.current = key
+
     let ignore = false
-    setLoadingPlan(true)
+    if (!isSameKey) setLoadingPlan(true)
     setPlanError(null)
 
     fetchCapacityAndEntries(teamId, selectedSprintId)

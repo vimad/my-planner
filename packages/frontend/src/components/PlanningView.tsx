@@ -250,7 +250,7 @@ function SprintPeriodForm({
 }) {
   const [startDate, setStartDate] = useState(period?.startDate ?? sprintDateSeed(sprint?.startDate))
   const [endDate, setEndDate] = useState(period?.endDate ?? sprintDateSeed(sprint?.endDate))
-  const [holidays, setHolidays] = useState<Set<string>>(new Set(period?.holidays ?? []))
+  const [holidays, setHolidays] = useState<Set<string>>(() => new Set(period?.holidays ?? []))
   const [error, setError] = useState<string | null>(null)
 
   const days = useMemo(() => enumerateRangeDays(startDate, endDate), [startDate, endDate])

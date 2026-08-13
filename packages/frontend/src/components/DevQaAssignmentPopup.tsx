@@ -199,8 +199,8 @@ export function DevQaAssignmentPopup({
   onClose,
 }: DevQaAssignmentPopupProps) {
   const { dev, qa } = entry.devQa
-  const [devPersonId, setDevPersonId] = useState(initialPersonId(dev))
-  const [qaPersonId, setQaPersonId] = useState(initialPersonId(qa))
+  const [devPersonId, setDevPersonId] = useState(() => initialPersonId(dev))
+  const [qaPersonId, setQaPersonId] = useState(() => initialPersonId(qa))
   const devOptions = memberships.filter((m) => DEV_ROLES.includes(m.role))
   const qaOptions = memberships.filter((m) => QA_ROLES.includes(m.role))
 
