@@ -7,10 +7,11 @@ function formatShortLabel(dateStr: string): string {
   return parseLocalDate(dateStr).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })
 }
 
-// none -> half -> full -> none, per cell click (spec's "click-to-cycle").
+// none -> full -> half -> none, per cell click (spec's "click-to-cycle").
+// Full day leads since it's the common case; half day is the secondary click.
 function cyclePortion(current: LeavePortion | undefined): LeavePortion | null {
-  if (current === undefined) return 'half'
-  if (current === 'half') return 'full'
+  if (current === undefined) return 'full'
+  if (current === 'full') return 'half'
   return null
 }
 

@@ -57,3 +57,54 @@ describe('SprintLeaveGrid row highlighting', () => {
     expect(bobCell).toHaveAttribute('aria-pressed', 'false')
   })
 })
+
+describe('SprintLeaveGrid leave-cell cycle', () => {
+  it('cycles a cell none -> full -> half -> none, full day first since it is the common case', () => {
+    const onSetLeaveEntries = vi.fn<(teamMembershipId: string, entries: import('../types').LeaveEntry[]) => Promise<void>>(
+      () => Promise.resolve(),
+    )
+
+    function renderWithEntries(leaveEntries: import('../types').LeaveEntry[]) {
+      const capacity = [makeCapacity({ teamMembershipId: 'm1', personName: 'Alice', leaveEntries })]
+      return render(
+        <SprintLeaveGrid
+          capacity={capacity}
+          columns={columns}
+          error={null}
+          onSetLeaveEntries={onSetLeaveEntries}
+          onSetExtraHours={vi.fn()}
+        />,
+      )
+    }
+
+    const { rerender } = renderWithEntries([])
+    const cell = () => screen.getByRole('button', { name: 'Toggle leave for Alice on 2026-08-10' })
+
+    fireEvent.click(cell())
+    expect(onSetLeaveEntries).toHaveBeenLastCalledWith('m1', [{ date: '2026-08-10', portion: 'full' }])
+
+    rerender(
+      <SprintLeaveGrid
+        capacity={[makeCapacity({ teamMembershipId: 'm1', personName: 'Alice', leaveEntries: [{ date: '2026-08-10', portion: 'full' }] })]}
+        columns={columns}
+        error={null}
+        onSetLeaveEntries={onSetLeaveEntries}
+        onSetExtraHours={vi.fn()}
+      />,
+    )
+    fireEvent.click(cell())
+    expect(onSetLeaveEntries).toHaveBeenLastCalledWith('m1', [{ date: '2026-08-10', portion: 'half' }])
+
+    rerender(
+      <SprintLeaveGrid
+        capacity={[makeCapacity({ teamMembershipId: 'm1', personName: 'Alice', leaveEntries: [{ date: '2026-08-10', portion: 'half' }] })]}
+        columns={columns}
+        error={null}
+        onSetLeaveEntries={onSetLeaveEntries}
+        onSetExtraHours={vi.fn()}
+      />,
+    )
+    fireEvent.click(cell())
+    expect(onSetLeaveEntries).toHaveBeenLastCalledWith('m1', [])
+  })
+})

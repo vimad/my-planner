@@ -1839,7 +1839,7 @@ describe('PlanningView', () => {
       expect(screen.getAllByRole('button', { name: /Toggle leave for Ada Lovelace on/ })).toHaveLength(4)
     })
 
-    it('cycles a cell none -> half -> full -> none, calling POST then PATCH with the full updated entries array each time', async () => {
+    it('cycles a cell none -> full -> half -> none, calling POST then PATCH with the full updated entries array each time', async () => {
       render(<PlanningView team={team} />)
       await openPeriodForm()
       const cell = await screen.findByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
@@ -1850,7 +1850,7 @@ describe('PlanningView', () => {
           'http://localhost:4100/api/capacity-entries',
           expect.objectContaining({
             method: 'POST',
-            body: JSON.stringify({ teamMembershipId: 'm1', sprintId: 'sprint-1', leaveEntries: [{ date: '2026-08-03', portion: 'half' }] }),
+            body: JSON.stringify({ teamMembershipId: 'm1', sprintId: 'sprint-1', leaveEntries: [{ date: '2026-08-03', portion: 'full' }] }),
           }),
         ),
       )
@@ -1858,8 +1858,8 @@ describe('PlanningView', () => {
       // (not just for the save's own fetch call to have fired) before the
       // next click - otherwise the cell's onClick closure still captures the
       // pre-save (empty) entries array and would cycle from "none" again
-      // instead of "half", producing a second POST instead of a PATCH.
-      await screen.findByText('0.5d leave')
+      // instead of "full", producing a second POST instead of a PATCH.
+      await screen.findByText('1d leave')
 
       fireEvent.click(cell)
       await waitFor(() =>
@@ -1867,11 +1867,11 @@ describe('PlanningView', () => {
           'http://localhost:4100/api/capacity-entries/ce-m1',
           expect.objectContaining({
             method: 'PATCH',
-            body: JSON.stringify({ leaveEntries: [{ date: '2026-08-03', portion: 'full' }] }),
+            body: JSON.stringify({ leaveEntries: [{ date: '2026-08-03', portion: 'half' }] }),
           }),
         ),
       )
-      await screen.findByText('1d leave')
+      await screen.findByText('0.5d leave')
 
       fireEvent.click(cell)
       await waitFor(() =>
@@ -1880,7 +1880,7 @@ describe('PlanningView', () => {
           expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ leaveEntries: [] }) }),
         ),
       )
-      await waitFor(() => expect(screen.queryByText('1d leave')).not.toBeInTheDocument())
+      await waitFor(() => expect(screen.queryByText('0.5d leave')).not.toBeInTheDocument())
     })
 
     it("updates the capacity card's Available/Remaining figure after a save", async () => {
@@ -1909,10 +1909,10 @@ describe('PlanningView', () => {
       const adaCard = (await screen.findByText('32h avail')).closest('.w-44') as HTMLElement
 
       const cell = screen.getByLabelText('Toggle leave for Ada Lovelace on 2026-08-03')
-      fireEvent.click(cell) // none -> half: 0.5 leave day, total = (5 - 0.5) * 8 = 36, available = 36 * 0.8 = 28.8
+      fireEvent.click(cell) // none -> full: 1 leave day, total = (5 - 1) * 8 = 32, available = 32 * 0.8 = 25.6
 
-      await waitFor(() => expect(within(adaCard).getByText('28.8h avail')).toBeInTheDocument())
-      expect(within(adaCard).getByText('28.8h remaining')).toBeInTheDocument()
+      await waitFor(() => expect(within(adaCard).getByText('25.6h avail')).toBeInTheDocument())
+      expect(within(adaCard).getByText('25.6h remaining')).toBeInTheDocument()
     })
 
     it("reflows its columns live from the period form's own draft date range, before Save is clicked", async () => {
