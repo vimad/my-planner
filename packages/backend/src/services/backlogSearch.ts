@@ -65,7 +65,7 @@ export async function searchBacklog(category: BacklogCategory, jiraLabels: strin
   const board = await resolveBoard(PROJECT_KEY, FUTURE_SPRINTS_BOARD_NAME)
   if (!board) return null
 
-  const sprints = await listSprints(board.id, ['active', 'future', 'closed'])
+  const sprints = await listSprints(board.id, ['future'])
   const sprint = sprints.find((s) => s.name === CATEGORY_SPRINT_NAMES[category])
   if (!sprint) return null
 
