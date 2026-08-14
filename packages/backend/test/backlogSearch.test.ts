@@ -65,7 +65,7 @@ describe('searchBacklog', () => {
     expect(resolveBoard).toHaveBeenCalledWith('WOSMVP', 'Product Delivery Board')
     expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
     expect(searchJql).toHaveBeenCalledWith(
-      'sprint = 501 AND labels in ("Odyssey")',
+      'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes()',
       expect.arrayContaining(['summary', 'issuetype', 'labels', 'assignee', 'subtasks']),
     )
   })
@@ -77,7 +77,7 @@ describe('searchBacklog', () => {
 
     await searchBacklog('product', ['Odyssey', 'Other'])
 
-    expect(searchJql).toHaveBeenCalledWith('sprint = 502 AND labels in ("Odyssey", "Other")', expect.any(Array))
+    expect(searchJql).toHaveBeenCalledWith('sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes()', expect.any(Array))
   })
 
   it('builds the JQL for the Bug category against the Bug Backlog sprint id', async () => {
@@ -87,7 +87,7 @@ describe('searchBacklog', () => {
 
     await searchBacklog('bug', ['Odyssey'])
 
-    expect(searchJql).toHaveBeenCalledWith('sprint = 503 AND labels in ("Odyssey")', expect.any(Array))
+    expect(searchJql).toHaveBeenCalledWith('sprint = 503 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes()', expect.any(Array))
   })
 
   it('resolves Dev/QA for a Story from its [Dev]/[Test] title-prefixed Sub-tasks', async () => {
@@ -207,6 +207,21 @@ describe('searchBacklog', () => {
     await searchBacklog('tech-ops', ['Odyssey'])
 
     expect(bulkFetchIssues).not.toHaveBeenCalled()
+  })
+
+  it('excludes a Sub-task that itself matches the sprint+label search from the results', async () => {
+    resolveBoard.mockResolvedValue(BOARD)
+    listSprints.mockResolvedValue(SPRINTS)
+    searchJql.mockResolvedValue([
+      issue('WOSMVP-300', { summary: 'A task', issuetype: { name: 'Task', subtask: false } }),
+      issue('WOSMVP-301', { summary: '[Dev]A task', issuetype: { name: 'Sub-task', subtask: true } }),
+    ])
+
+    const result = await searchBacklog('tech-ops', ['Odyssey'])
+
+    expect(result).toEqual([
+      { key: 'WOSMVP-300', title: 'A task', type: 'Task', labels: [], dev: null, qa: null, assignee: null },
+    ])
   })
 
   it('a Task uses its own plain assignee, no Sub-task lookup', async () => {

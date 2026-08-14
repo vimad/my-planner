@@ -32,6 +32,10 @@ interface JiraSubtaskRef {
   key: string
 }
 
+interface JiraIssueTypeRef {
+  subtask?: boolean
+}
+
 // Fields the Jira search itself needs - just enough for mapIssueToTicketFields
 // to derive title/type/labels/assignee, plus the raw Sub-task refs (not part
 // of TicketDoc) used below to fetch each Story/Bug's own Sub-tasks.
@@ -66,8 +70,17 @@ export async function searchBacklog(category: BacklogCategory, jiraLabels: strin
   if (!sprint) return null
 
   const labelClause = jiraLabels.map((label) => `"${label}"`).join(', ')
-  const jql = `sprint = ${sprint.id} AND labels in (${labelClause})`
-  const issues = await searchJql(jql, BACKLOG_SEARCH_FIELDS)
+  // Assignable work is Bug/Story/Task - a Sub-task is only ever surfaced
+  // below as a Story/Bug's resolved Dev/QA (via its own bulkFetchIssues
+  // lookup), never as its own pickable backlog row. `subtaskIssueTypes()`
+  // excludes every sub-task issue type regardless of its configured name,
+  // so this holds even for a custom-named sub-task type.
+  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes()`
+  const rawIssues = await searchJql(jql, BACKLOG_SEARCH_FIELDS)
+  // Defensive backstop for the JQL clause above, keyed off the same
+  // `issuetype.subtask` boolean mapIssueToTicketFields itself ignores -
+  // never trust a live Jira query alone to have excluded every Sub-task.
+  const issues = rawIssues.filter((issue) => !(issue.fields.issuetype as JiraIssueTypeRef | undefined)?.subtask)
 
   const syncedAt = new Date()
   const mapped = issues.map((issue) => ({ issue, fields: mapIssueToTicketFields(issue, syncedAt) }))
