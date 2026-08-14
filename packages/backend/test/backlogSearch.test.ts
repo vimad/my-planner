@@ -65,7 +65,7 @@ describe('searchBacklog', () => {
     expect(resolveBoard).toHaveBeenCalledWith('WOSMVP', 'Product Delivery Board')
     expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
     expect(searchJql).toHaveBeenCalledWith(
-      'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes()',
+      'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() ORDER BY Rank ASC',
       expect.arrayContaining(['summary', 'issuetype', 'labels', 'assignee', 'subtasks']),
     )
   })
@@ -77,7 +77,10 @@ describe('searchBacklog', () => {
 
     await searchBacklog('product', ['Odyssey', 'Other'])
 
-    expect(searchJql).toHaveBeenCalledWith('sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes()', expect.any(Array))
+    expect(searchJql).toHaveBeenCalledWith(
+      'sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes() ORDER BY Rank ASC',
+      expect.any(Array),
+    )
   })
 
   it('builds the JQL for the Bug category against the Bug backlog sprint id', async () => {
@@ -87,7 +90,24 @@ describe('searchBacklog', () => {
 
     await searchBacklog('bug', ['Odyssey'])
 
-    expect(searchJql).toHaveBeenCalledWith('sprint = 503 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes()', expect.any(Array))
+    expect(searchJql).toHaveBeenCalledWith(
+      'sprint = 503 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() ORDER BY Rank ASC',
+      expect.any(Array),
+    )
+  })
+
+  it('preserves the board-rank order searchJql returns, without re-sorting', async () => {
+    resolveBoard.mockResolvedValue(BOARD)
+    listSprints.mockResolvedValue(SPRINTS)
+    searchJql.mockResolvedValue([
+      issue('WOSMVP-300', { summary: 'Third in rank', issuetype: { name: 'Task', subtask: false } }),
+      issue('WOSMVP-100', { summary: 'First in rank', issuetype: { name: 'Task', subtask: false } }),
+      issue('WOSMVP-200', { summary: 'Second in rank', issuetype: { name: 'Task', subtask: false } }),
+    ])
+
+    const result = await searchBacklog('tech-ops', ['Odyssey'])
+
+    expect(result!.map((t) => t.key)).toEqual(['WOSMVP-300', 'WOSMVP-100', 'WOSMVP-200'])
   })
 
   it('resolves Dev/QA for a Story from its [Dev]/[Test] title-prefixed Sub-tasks', async () => {

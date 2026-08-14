@@ -75,7 +75,10 @@ export async function searchBacklog(category: BacklogCategory, jiraLabels: strin
   // lookup), never as its own pickable backlog row. `subtaskIssueTypes()`
   // excludes every sub-task issue type regardless of its configured name,
   // so this holds even for a custom-named sub-task type.
-  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes()`
+  // Rank ASC matches the manual drag-order the board's own Backlog view
+  // shows and lets you reorder there - same ordering, not just the same
+  // ticket set.
+  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes() ORDER BY Rank ASC`
   const rawIssues = await searchJql(jql, BACKLOG_SEARCH_FIELDS)
   // Defensive backstop for the JQL clause above, keyed off the same
   // `issuetype.subtask` boolean mapIssueToTicketFields itself ignores -
