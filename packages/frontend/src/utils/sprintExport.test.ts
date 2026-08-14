@@ -82,7 +82,16 @@ const capacity: SprintCapacity[] = [
   },
 ]
 
-const entries: SprintPlanEntry[] = [nonSplitEntry('e1', ticket({ jiraKey: 'WOSMVP-100' }), 12, 'acc-vinod')]
+// e1/e3 are actually planned this sprint (Planned > 0); e2/e4 are fully
+// spilled (Plan minus Spill = 0, ADR ".scratch/sprint-plan-spill-estimate")
+// - one for the Dev-role person (Vinod, TL), one for the QA-role person
+// (Asini, QA), so both spill columns get exercised.
+const entries: SprintPlanEntry[] = [
+  nonSplitEntry('e1', ticket({ jiraKey: 'WOSMVP-100' }), 12, 'acc-vinod'),
+  nonSplitEntry('e2', ticket({ jiraKey: 'WOSMVP-200' }), 0, 'acc-vinod'),
+  nonSplitEntry('e3', ticket({ jiraKey: 'WOSMVP-300' }), 8, 'acc-asini'),
+  nonSplitEntry('e4', ticket({ jiraKey: 'WOSMVP-400' }), 0, 'acc-asini'),
+]
 
 const placeholders: PlaceholderTicket[] = [
   { _id: 'ph1', teamId: 't1', sprintId: 's1', personId: 'p2', text: 'on-call', estimateHours: 4 },
@@ -99,13 +108,33 @@ describe('buildSprintExportRows', () => {
   it('formats each person\'s planned tickets and placeholders as KEY(duration)', () => {
     const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
     expect(rows[0].ticketSummary).toBe('WOSMVP-100(1d4h)')
-    expect(rows[1].ticketSummary).toBe('on-call(4h)')
+    expect(rows[1].ticketSummary).toBe('WOSMVP-300(1d), on-call(4h)')
   })
 
-  it('leaves the ticket summary blank for a person with nothing planned', () => {
+  it('routes a 0-planned-hours placement to devSpills/qaSpills (ticket key only) instead of ticketSummary', () => {
+    const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
+    expect(rows[0].ticketSummary).not.toContain('WOSMVP-200')
+    expect(rows[0].devSpills).toBe('WOSMVP-200')
+    expect(rows[0].qaSpills).toBe('')
+
+    expect(rows[1].ticketSummary).not.toContain('WOSMVP-400')
+    expect(rows[1].qaSpills).toBe('WOSMVP-400')
+    expect(rows[1].devSpills).toBe('')
+  })
+
+  it('never routes a placeholder ticket to a spill column, even with a 0-hour estimate', () => {
+    const zeroHourPlaceholder: PlaceholderTicket[] = [
+      { _id: 'ph2', teamId: 't1', sprintId: 's1', personId: 'p1', text: 'stub', estimateHours: 0 },
+    ]
+    const rows = buildSprintExportRows(memberships, capacity, [], zeroHourPlaceholder)
+    expect(rows[0].ticketSummary).toBe('stub(0h)')
+    expect(rows[0].devSpills).toBe('')
+  })
+
+  it('leaves the ticket summary and spill columns blank for a person with nothing planned', () => {
     const rows = buildSprintExportRows(memberships, capacity, [], [])
-    expect(rows[0].ticketSummary).toBe('')
-    expect(rows[1].ticketSummary).toBe('')
+    expect(rows[0]).toMatchObject({ ticketSummary: '', devSpills: '', qaSpills: '' })
+    expect(rows[1]).toMatchObject({ ticketSummary: '', devSpills: '', qaSpills: '' })
   })
 
   it('falls back to zeroed figures when a membership has no matching capacity row', () => {
@@ -128,21 +157,42 @@ describe('computeRoleGroupTotals', () => {
 describe('buildSprintExportSheetData', () => {
   const period: SprintPeriod = { startDate: '2026-08-10', endDate: '2026-08-21', holidays: ['2026-08-17'], workingDays: 10 }
 
-  it('includes the header row, one row per person, group totals, period summary, and breakdown', () => {
+  function findRow(sheet: (string | number)[][], firstCell: string): (string | number)[] | undefined {
+    return sheet.find((row) => row[0] === firstCell)
+  }
+
+  it('includes the header row with the two spill columns', () => {
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
+    expect(sheet[0]).toEqual([
+      'Role',
+      'Name',
+      'Leave',
+      'Total',
+      'Available',
+      'Planned',
+      'Remaining',
+      'Remaining tickets (this sprint)',
+      'Dev spills',
+      'QA spills',
+    ])
+  })
+
+  it('puts each person\'s planned tickets and spilled tickets in the right columns', () => {
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
+    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, 'WOSMVP-100(1d4h)', 'WOSMVP-200', ''])
+    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, 'WOSMVP-300(1d), on-call(4h)', '', 'WOSMVP-400'])
+  })
+
+  it('includes group totals, period summary, and breakdown rows', () => {
     const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
 
-    expect(sheet[0]).toEqual(['Role', 'Name', 'Leave', 'Total', 'Available', 'Planned', 'Remaining', 'Remaining tickets (this sprint)'])
-    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, 'WOSMVP-100(1d4h)'])
-    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, 'on-call(4h)'])
-
-    const flat = sheet.map((row) => row.join('|'))
-    expect(flat).toContain('Total Dev||||40||28|')
-    expect(flat).toContain('Total QA||||64||0|')
-    expect(flat).toContain('Total No. of days|12')
-    expect(flat).toContain('Total No. of holidays|1')
-    expect(flat).toContain('Total No. of Sprint days|10')
-    expect(flat).toContain('Sprint Breakdown')
-    expect(flat).toContain('Type|Hours|Percent')
+    expect(findRow(sheet, 'Total Dev')).toEqual(['Total Dev', '', '', '', 40, '', 28, '', '', ''])
+    expect(findRow(sheet, 'Total QA')).toEqual(['Total QA', '', '', '', 64, '', 0, '', '', ''])
+    expect(findRow(sheet, 'Total No. of days')).toEqual(['Total No. of days', 12])
+    expect(findRow(sheet, 'Total No. of holidays')).toEqual(['Total No. of holidays', 1])
+    expect(findRow(sheet, 'Total No. of Sprint days')).toEqual(['Total No. of Sprint days', 10])
+    expect(findRow(sheet, 'Sprint Breakdown')).toBeDefined()
+    expect(findRow(sheet, 'Type')).toEqual(['Type', 'Hours', 'Percent'])
   })
 
   it('sums the breakdown percentages to 100 across the three buckets plus the total row', () => {
@@ -155,7 +205,6 @@ describe('buildSprintExportSheetData', () => {
 
   it('omits the period summary rows when no sprint period is set', () => {
     const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, null)
-    const flat = sheet.map((row) => row.join('|'))
-    expect(flat.some((line) => line.startsWith('Total No. of days'))).toBe(false)
+    expect(findRow(sheet, 'Total No. of days')).toBeUndefined()
   })
 })

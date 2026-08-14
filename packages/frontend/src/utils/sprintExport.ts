@@ -29,12 +29,30 @@ export interface SprintExportRow {
   available: number
   planned: number
   remaining: number
-  // This sprint's planned tickets/placeholders for this person, "KEY(1d4h)"
-  // per item, comma-separated - the clarified scope for the image's
-  // "Remaining tickets and future tickets" column: this app only tracks one
-  // sprint's plan at a time, so "future tickets" isn't derivable data, and
-  // this is the closest available substitute.
+  // This sprint's planned tickets/placeholders for this person (excluding
+  // any placement that's fully spilled - see devSpills/qaSpills below),
+  // "KEY(1d4h)" per item, comma-separated - the clarified scope for the
+  // image's "Remaining tickets and future tickets" column: this app only
+  // tracks one sprint's plan at a time, so "future tickets" isn't derivable
+  // data, and this is the closest available substitute.
   ticketSummary: string
+  // A SprintPlanEntry placement whose resolved Planned-this-sprint figure
+  // (rolePlannedHours - Plan minus Spill, spec ".scratch/
+  // sprint-plan-spill-estimate/spec.md") is 0 is fully spilled to a future
+  // sprint - it contributes nothing to this sprint's Planned/Available math,
+  // so a duration-tagged entry in ticketSummary above would be misleading
+  // (there's no "1d4h" of it happening this sprint). Ticket key only, no
+  // duration - there's nothing to time-box. Split one column per group
+  // (constants/roles.ts's DEV_ROLES/QA_ROLES) rather than one shared
+  // "Spills" column: every planning row's own role is unambiguously one
+  // group or the other (PO is filtered out upstream, planningMemberships),
+  // so exactly one of this row's two spill fields is ever non-empty -
+  // keeping them separate lets a reader filter/sort the sheet by either
+  // without cross-referencing the Role column. A PlaceholderTicket has no
+  // Plan/Spill concept at all (ADR 0006 is SprintPlanEntry-only), so a
+  // placeholder is never routed here even with a 0-hour estimate.
+  devSpills: string
+  qaSpills: string
 }
 
 // One row per current (non-PO) TeamMembership, in roster order - mirrors
@@ -64,10 +82,18 @@ export function buildSprintExportRows(
     const placements = ticketsByMembershipId.get(membershipId) ?? []
     const personPlaceholders = placeholdersByMembershipId.get(membershipId) ?? []
 
+    const plannedPlacements = placements.filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) > 0)
+    const spilledKeys = placements
+      .filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) === 0)
+      .map((p) => p.entry.ticketId.jiraKey)
+      .join(', ')
+
     const ticketParts = [
-      ...placements.map((p) => `${p.entry.ticketId.jiraKey}(${formatCompactDuration(rolePlannedHours(p.entry, p.role) ?? 0)})`),
+      ...plannedPlacements.map((p) => `${p.entry.ticketId.jiraKey}(${formatCompactDuration(rolePlannedHours(p.entry, p.role) ?? 0)})`),
       ...personPlaceholders.map((p) => `${p.text}(${formatCompactDuration(p.estimateHours)})`),
     ]
+
+    const isDevRole = DEV_ROLES.includes(membership.role)
 
     return {
       role: membership.role,
@@ -78,6 +104,8 @@ export function buildSprintExportRows(
       planned: c?.planned ?? 0,
       remaining: c?.remaining ?? 0,
       ticketSummary: ticketParts.join(', '),
+      devSpills: isDevRole ? spilledKeys : '',
+      qaSpills: isDevRole ? '' : spilledKeys,
     }
   })
 }
@@ -116,7 +144,8 @@ const round2 = (n: number): number => Math.round(n * 100) / 100
 // Assembles the full export as a sheet-ready array-of-arrays (one entry per
 // output row, each a fixed-width array of cell values) - kept pure/testable,
 // separate from the actual XLSX-writing side effect below. Column order:
-// Role, Name, Leave, Total, Available, Planned, Remaining, ticket summary.
+// Role, Name, Leave, Total, Available, Planned, Remaining, ticket summary,
+// Dev spills, QA spills.
 export function buildSprintExportSheetData(
   memberships: TeamMembership[],
   capacity: SprintCapacity[],
@@ -129,10 +158,21 @@ export function buildSprintExportSheetData(
   const breakdown = computeSprintBreakdown(entries, memberships)
 
   const sheet: (string | number)[][] = [
-    ['Role', 'Name', 'Leave', 'Total', 'Available', 'Planned', 'Remaining', 'Remaining tickets (this sprint)'],
-    ...rows.map((r) => [r.role, r.name, r.leaveDays, round2(r.total), round2(r.available), round2(r.planned), round2(r.remaining), r.ticketSummary]),
+    ['Role', 'Name', 'Leave', 'Total', 'Available', 'Planned', 'Remaining', 'Remaining tickets (this sprint)', 'Dev spills', 'QA spills'],
+    ...rows.map((r) => [
+      r.role,
+      r.name,
+      r.leaveDays,
+      round2(r.total),
+      round2(r.available),
+      round2(r.planned),
+      round2(r.remaining),
+      r.ticketSummary,
+      r.devSpills,
+      r.qaSpills,
+    ]),
     [],
-    ...groupTotals.map((t) => [t.label, '', '', '', round2(t.available), '', round2(t.remaining), '']),
+    ...groupTotals.map((t) => [t.label, '', '', '', round2(t.available), '', round2(t.remaining), '', '', '']),
     [],
   ]
 
@@ -187,7 +227,9 @@ export function downloadSprintPlanExcel(
     { wch: 10 },
     { wch: 8 },
     { wch: 10 },
-    { wch: 50 },
+    { wch: 40 },
+    { wch: 20 },
+    { wch: 20 },
   ]
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, sanitizeSheetName(sprintName))
