@@ -21,6 +21,15 @@ function formatCompactDuration(hours: number): string {
   return formatDaysHours(hours, { compact: true })
 }
 
+// Strips a Jira project prefix ("WOSMVP-14802" -> "14802") for display -
+// every ticket reference in this sheet is already scoped to one team's own
+// project, so the repeated prefix is pure clutter, not information (per-
+// project generic rather than hardcoding "WOSMVP-", in case a future team's
+// board uses a different project key).
+function stripProjectPrefix(jiraKey: string): string {
+  return jiraKey.replace(/^[A-Za-z][A-Za-z0-9]*-/, '')
+}
+
 export interface SprintExportRow {
   role: Role
   name: string
@@ -85,11 +94,13 @@ export function buildSprintExportRows(
     const plannedPlacements = placements.filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) > 0)
     const spilledKeys = placements
       .filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) === 0)
-      .map((p) => p.entry.ticketId.jiraKey)
+      .map((p) => stripProjectPrefix(p.entry.ticketId.jiraKey))
       .join(', ')
 
     const ticketParts = [
-      ...plannedPlacements.map((p) => `${p.entry.ticketId.jiraKey}(${formatCompactDuration(rolePlannedHours(p.entry, p.role) ?? 0)})`),
+      ...plannedPlacements.map(
+        (p) => `${stripProjectPrefix(p.entry.ticketId.jiraKey)}(${formatCompactDuration(rolePlannedHours(p.entry, p.role) ?? 0)})`,
+      ),
       ...personPlaceholders.map((p) => `${p.text}(${formatCompactDuration(p.estimateHours)})`),
     ]
 
@@ -112,21 +123,29 @@ export function buildSprintExportRows(
 
 export interface RoleGroupTotal {
   label: string
-  available: number
-  remaining: number
+  // Days, not hours (8h workday) - unlike every other figure in this sheet,
+  // matching the reference sheet's own "Total Dev"/"Total QA" rows (e.g.
+  // "39.125" - a sum of hours-based Available/Remaining that's already been
+  // divided down to days would land on exactly that kind of eighths-of-a-day
+  // fraction). Every other row's Total/Available/Planned/Remaining stays in
+  // hours; only these two group-total rows convert, per the map's Notes.
+  availableDays: number
+  remainingDays: number
 }
 
 // "Total Dev"/"Total QA" summary rows (image's own two rows) - Available/
-// Remaining summed across each row-group's own roles (constants/roles.ts's
-// DEV_ROLES/QA_ROLES), Total/Planned deliberately left out (the image itself
-// only fills Available/Remaining on these two rows).
+// Remaining summed in hours across each row-group's own roles
+// (constants/roles.ts's DEV_ROLES/QA_ROLES) and then converted to days
+// (/8), Total/Planned deliberately left out (the image itself only fills
+// Available/Remaining on these two rows).
 export function computeRoleGroupTotals(rows: SprintExportRow[]): RoleGroupTotal[] {
-  function sum(roles: Role[], key: 'available' | 'remaining'): number {
-    return rows.filter((r) => roles.includes(r.role)).reduce((total, r) => total + r[key], 0)
+  function sumDays(roles: Role[], key: 'available' | 'remaining'): number {
+    const hours = rows.filter((r) => roles.includes(r.role)).reduce((total, r) => total + r[key], 0)
+    return Math.round((hours / 8) * 1000) / 1000
   }
   return [
-    { label: 'Total Dev', available: sum(DEV_ROLES, 'available'), remaining: sum(DEV_ROLES, 'remaining') },
-    { label: 'Total QA', available: sum(QA_ROLES, 'available'), remaining: sum(QA_ROLES, 'remaining') },
+    { label: 'Total Dev', availableDays: sumDays(DEV_ROLES, 'available'), remainingDays: sumDays(DEV_ROLES, 'remaining') },
+    { label: 'Total QA', availableDays: sumDays(QA_ROLES, 'available'), remainingDays: sumDays(QA_ROLES, 'remaining') },
   ]
 }
 
@@ -172,7 +191,7 @@ export function buildSprintExportSheetData(
       r.qaSpills,
     ]),
     [],
-    ...groupTotals.map((t) => [t.label, '', '', '', round2(t.available), '', round2(t.remaining), '', '', '']),
+    ...groupTotals.map((t) => [`${t.label} (days)`, '', '', '', t.availableDays, '', t.remainingDays, '', '', '']),
     [],
   ]
 

@@ -105,20 +105,20 @@ describe('buildSprintExportRows', () => {
     expect(rows[1]).toMatchObject({ role: 'QA', name: 'Asini', leaveDays: 0, total: 80, available: 64, planned: 64, remaining: 0 })
   })
 
-  it('formats each person\'s planned tickets and placeholders as KEY(duration)', () => {
+  it('formats each person\'s planned tickets and placeholders as NUMBER(duration), with the Jira project prefix stripped', () => {
     const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
-    expect(rows[0].ticketSummary).toBe('WOSMVP-100(1d4h)')
-    expect(rows[1].ticketSummary).toBe('WOSMVP-300(1d), on-call(4h)')
+    expect(rows[0].ticketSummary).toBe('100(1d4h)')
+    expect(rows[1].ticketSummary).toBe('300(1d), on-call(4h)')
   })
 
-  it('routes a 0-planned-hours placement to devSpills/qaSpills (ticket key only) instead of ticketSummary', () => {
+  it('routes a 0-planned-hours placement to devSpills/qaSpills (prefix-stripped ticket number only) instead of ticketSummary', () => {
     const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
-    expect(rows[0].ticketSummary).not.toContain('WOSMVP-200')
-    expect(rows[0].devSpills).toBe('WOSMVP-200')
+    expect(rows[0].ticketSummary).not.toContain('200')
+    expect(rows[0].devSpills).toBe('200')
     expect(rows[0].qaSpills).toBe('')
 
-    expect(rows[1].ticketSummary).not.toContain('WOSMVP-400')
-    expect(rows[1].qaSpills).toBe('WOSMVP-400')
+    expect(rows[1].ticketSummary).not.toContain('400')
+    expect(rows[1].qaSpills).toBe('400')
     expect(rows[1].devSpills).toBe('')
   })
 
@@ -144,12 +144,12 @@ describe('buildSprintExportRows', () => {
 })
 
 describe('computeRoleGroupTotals', () => {
-  it('sums Available/Remaining separately across dev vs qa roles', () => {
+  it('sums Available/Remaining (hours) separately across dev vs qa roles, then converts to days (/8)', () => {
     const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
     const totals = computeRoleGroupTotals(rows)
     expect(totals).toEqual([
-      { label: 'Total Dev', available: 40, remaining: 28 },
-      { label: 'Total QA', available: 64, remaining: 0 },
+      { label: 'Total Dev', availableDays: 5, remainingDays: 3.5 },
+      { label: 'Total QA', availableDays: 8, remainingDays: 0 },
     ])
   })
 })
@@ -177,17 +177,17 @@ describe('buildSprintExportSheetData', () => {
     ])
   })
 
-  it('puts each person\'s planned tickets and spilled tickets in the right columns', () => {
+  it('puts each person\'s planned tickets and spilled tickets in the right columns, prefix stripped', () => {
     const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
-    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, 'WOSMVP-100(1d4h)', 'WOSMVP-200', ''])
-    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, 'WOSMVP-300(1d), on-call(4h)', '', 'WOSMVP-400'])
+    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, '100(1d4h)', '200', ''])
+    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, '300(1d), on-call(4h)', '', '400'])
   })
 
-  it('includes group totals, period summary, and breakdown rows', () => {
+  it('includes group totals (in days), period summary, and breakdown rows', () => {
     const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
 
-    expect(findRow(sheet, 'Total Dev')).toEqual(['Total Dev', '', '', '', 40, '', 28, '', '', ''])
-    expect(findRow(sheet, 'Total QA')).toEqual(['Total QA', '', '', '', 64, '', 0, '', '', ''])
+    expect(findRow(sheet, 'Total Dev (days)')).toEqual(['Total Dev (days)', '', '', '', 5, '', 3.5, '', '', ''])
+    expect(findRow(sheet, 'Total QA (days)')).toEqual(['Total QA (days)', '', '', '', 8, '', 0, '', '', ''])
     expect(findRow(sheet, 'Total No. of days')).toEqual(['Total No. of days', 12])
     expect(findRow(sheet, 'Total No. of holidays')).toEqual(['Total No. of holidays', 1])
     expect(findRow(sheet, 'Total No. of Sprint days')).toEqual(['Total No. of Sprint days', 10])
