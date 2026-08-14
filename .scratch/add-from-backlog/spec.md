@@ -6,13 +6,13 @@ Source: synthesized directly from a `/prototype` + `/to-spec` conversation. Thre
 
 ## Problem Statement
 
-Sprint Planning's "Add to plan" bar only lets you add a Jira ticket you already know the number of (type a bare `WOSMVP-` number and hit Add) or create a non-Jira Placeholder ticket. There's no way to *browse* the team's actual backlog and pick something — you have to already know the ticket key, sourced from outside the app (Jira itself, Slack, memory). The team's real backlog lives across three sprints on Jira's **Product Delivery Board**: technical/ops work sits in the **Tech and Ops Backlog** sprint, product work in the **Product Backlog** sprint, and bugs in the **Bug Backlog** sprint — all scoped down to the team's own tickets via the same `Team.jiraLabels` mechanism already used to filter the current sprint's tickets (e.g. a team whose `jiraLabels` includes `"Odyssey"`).
+Sprint Planning's "Add to plan" bar only lets you add a Jira ticket you already know the number of (type a bare `WOSMVP-` number and hit Add) or create a non-Jira Placeholder ticket. There's no way to *browse* the team's actual backlog and pick something — you have to already know the ticket key, sourced from outside the app (Jira itself, Slack, memory). The team's real backlog lives across three sprints on Jira's **Product Delivery Board**: technical/ops work sits in the **Tech and Ops Backlog** sprint, product work in the **Product Backlog** sprint, and bugs in the **Bug backlog** sprint — all scoped down to the team's own tickets via the same `Team.jiraLabels` mechanism already used to filter the current sprint's tickets (e.g. a team whose `jiraLabels` includes `"Odyssey"`).
 
 ## Solution
 
 A third icon-only button, **"Add from backlog"**, sits in `AddToPlanForm` right after the existing "Add placeholder ticket" button. Clicking it opens a small anchored popover (same footprint/shape as `AddSprintPopover`) scoped to the current team:
 
-- Three category tabs — **Technical** (Tech and Ops Backlog), **Product** (Product Backlog), **Bugs** (Bug Backlog) — each a live, uncached query against that named sprint on the Product Delivery Board, filtered server-side to the team's `jiraLabels` (the same scoping every other Planning ticket list already uses — no separate on/off toggle).
+- Three category tabs — **Technical** (Tech and Ops Backlog), **Product** (Product Backlog), **Bugs** (Bug backlog) — each a live, uncached query against that named sprint on the Product Delivery Board, filtered server-side to the team's `jiraLabels` (the same scoping every other Planning ticket list already uses — no separate on/off toggle).
 - A text search box that narrows the currently-selected category's results by key or title.
 - Each result row shows the ticket key, truncated title, and its current Jira assignee(s) as a small round initials avatar (a new, first-of-its-kind avatar component in this app) — two avatars (Dev, QA) for a Story/Bug's resolved Sub-task assignees, one avatar for a Task's plain assignee. An unassigned role/ticket shows a neutral "UN" avatar instead of a name's initials.
 
@@ -45,7 +45,7 @@ Clicking a result **reuses the exact existing add-and-assign pipeline, unchanged
   { key, title, type, labels, dev: { name } | null, qa: { name } | null, assignee: { name } | null }
   ```
 - **New service logic**, alongside `services/sprintSync.ts`/`jiraClient.ts`:
-  - Two new named-sprint constants (**Tech and Ops Backlog**, **Product Backlog**, **Bug Backlog**), resolved on the existing `FUTURE_SPRINTS_BOARD_NAME` ("Product Delivery Board") board the same way `searchJiraSprints()` already resolves that board — by exact sprint name match within `listSprints(boardId)`.
+  - Two new named-sprint constants (**Tech and Ops Backlog**, **Product Backlog**, **Bug backlog**), resolved on the existing `FUTURE_SPRINTS_BOARD_NAME` ("Product Delivery Board") board the same way `searchJiraSprints()` already resolves that board — by exact sprint name match within `listSprints(boardId)`.
   - Per category, build a JQL query scoping to that sprint's id and `labels in (...)` against the requesting `Team.jiraLabels`, and run it through the existing `searchJql()` (paginated) exactly like `lightweightSyncTickets` already does for its own JQL.
   - For each Story/Bug result, resolve its Dev/QA Sub-task assignees by reusing the existing `[Dev]`/`[Test]` title-prefix parsing (the same logic `ticketSync.ts`'s `mapIssueToTicketFields`/subtask handling already applies during a Full sync) — applied read-only here, never persisted to `Ticket`/`TicketDevQaOverride`. A Task's plain `assigneeAccountId`/display name is read directly off the issue, no Sub-task lookup needed.
   - An empty `Team.jiraLabels` yields an empty result set for every category (the `labels in ()` JQL clause naturally matches nothing), not an error — same shape as the existing empty-label edge case on `GET /api/tickets`.

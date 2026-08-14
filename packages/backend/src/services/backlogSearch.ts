@@ -15,7 +15,7 @@ export type BacklogCategory = 'tech-ops' | 'product' | 'bug'
 const CATEGORY_SPRINT_NAMES: Record<BacklogCategory, string> = {
   'tech-ops': 'Tech and Ops Backlog',
   product: 'Product Backlog',
-  bug: 'Bug Backlog',
+  bug: 'Bug backlog',
 }
 
 export interface BacklogTicket {

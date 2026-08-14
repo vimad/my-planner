@@ -47,7 +47,7 @@ const BOARD = { id: 29, name: 'Product Delivery Board', type: 'scrum' }
 const SPRINTS = [
   { id: 501, name: 'Tech and Ops Backlog', state: 'future' },
   { id: 502, name: 'Product Backlog', state: 'future' },
-  { id: 503, name: 'Bug Backlog', state: 'future' },
+  { id: 503, name: 'Bug backlog', state: 'future' },
 ]
 
 describe('searchBacklog', () => {
@@ -80,7 +80,7 @@ describe('searchBacklog', () => {
     expect(searchJql).toHaveBeenCalledWith('sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes()', expect.any(Array))
   })
 
-  it('builds the JQL for the Bug category against the Bug Backlog sprint id', async () => {
+  it('builds the JQL for the Bug category against the Bug backlog sprint id', async () => {
     resolveBoard.mockResolvedValue(BOARD)
     listSprints.mockResolvedValue(SPRINTS)
     searchJql.mockResolvedValue([])
