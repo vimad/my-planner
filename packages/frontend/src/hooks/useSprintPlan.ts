@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getId } from '../utils/getId'
 import type { GanttDragPatch } from '../utils/ganttPlacement'
 import type {
+  BacklogCategory,
+  BacklogTicket,
   LeaveEntry,
   PlaceholderTicket,
   Sprint,
@@ -191,6 +193,29 @@ export interface UseSprintPlanResult {
   // post-add refreshPlan(), to decide whether to auto-open the Dev/QA
   // assignment popup.
   addTicket: (rawInput: string) => Promise<SprintPlanEntry | null>
+
+  // GET /api/tickets/backlog?teamId=&category= (ticket 02 of .scratch/
+  // add-from-backlog) - a live, uncached browse of one category's named
+  // backlog sprint, scoped to the team's jiraLabels server-side. Never
+  // called with a `q` param: AddFromBacklogPopover filters the
+  // already-fetched category client-side instead, so typing a search term
+  // never triggers a fetch (spec's explicit "no extra round-trip per
+  // keystroke" decision). Throws on failure, same convention as every other
+  // action below - the popover's own loading/error state is local to it,
+  // not threaded through this hook (nothing else needs to know about an
+  // in-flight backlog browse).
+  fetchBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
+
+  // Picking a backlog result (ticket 02) - reuses the exact same add
+  // pipeline as the typed "Add" button (addTicket above) verbatim, per the
+  // spec ("no new atomic create-with-assignment endpoint"). The only
+  // behavioral difference - always opening the per-ticket popup once the
+  // entry lands, instead of addTicket's own needs-assignment-gated
+  // auto-open - lives entirely in PlanningView.tsx as a second, separate
+  // pending-open state/effect (pendingBacklogOpenTicketId), since
+  // `popupTicketId` itself is UI state PlanningView already owns (a badge
+  // click can also open it, with no add involved) - not duplicated here.
+  addFromBacklog: (jiraKey: string) => Promise<SprintPlanEntry | null>
 
   // Placeholder tickets (non-Jira, manually-created - see types.ts) - fetched
   // alongside entries above, so they render in the same "Tickets by person"
@@ -653,6 +678,21 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [teamId, selectedSprintId, refreshPlan],
   )
 
+  const fetchBacklog = useCallback(
+    async (category: BacklogCategory): Promise<BacklogTicket[]> => {
+      if (!teamId) return []
+      const res = await fetch(`${API_URL}/api/tickets/backlog?teamId=${teamId}&category=${category}`)
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      return (await res.json()) as BacklogTicket[]
+    },
+    [teamId],
+  )
+
+  // A thin delegate to addTicket - see this action's own comment on
+  // UseSprintPlanResult for why the "always open the popup" behavior is
+  // handled by PlanningView.tsx instead of here.
+  const addFromBacklog = useCallback((jiraKey: string) => addTicket(jiraKey), [addTicket])
+
   const addPlaceholder = useCallback(
     async (body: { personId: string; text: string; estimateHours: number }): Promise<PlaceholderTicket | null> => {
       if (!teamId || !selectedSprintId) return null
@@ -932,6 +972,8 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     addingTicket,
     addTicketError,
     addTicket,
+    fetchBacklog,
+    addFromBacklog,
     placeholders,
     addingPlaceholder,
     addPlaceholderError,

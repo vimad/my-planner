@@ -181,6 +181,28 @@ export interface JiraSprintSearchResult {
   endDate?: string
 }
 
+// GET /api/tickets/backlog's category filter, mirroring the backend's
+// BacklogCategory (services/backlogSearch.ts) exactly - the three named
+// backlog sprints on the Product Delivery Board (spec ".scratch/
+// add-from-backlog/spec.md").
+export type BacklogCategory = 'tech-ops' | 'product' | 'bug'
+
+// One row of GET /api/tickets/backlog - a live, uncached Jira browse result
+// (never a cached Ticket doc), mirrors the backend's BacklogTicket exactly.
+// `dev`/`qa` are populated only for a Split (Story/Bug) result, `assignee`
+// only for a non-split (Task) result - the two never coexist, same
+// "present only for the matching kind" convention as SprintPlanEntry's
+// devQa/assigneeOverridePersonId.
+export interface BacklogTicket {
+  key: string
+  title: string
+  type: string
+  labels: string[]
+  dev: { name: string } | null
+  qa: { name: string } | null
+  assignee: { name: string } | null
+}
+
 // One row of GET /api/tickets/po-assignments - a Story ticket's PO
 // assignment (TicketPoAssignment on the backend), app-side data only, never
 // Jira's real assignee. Backs the Status view's PO board (CLAUDE.md/

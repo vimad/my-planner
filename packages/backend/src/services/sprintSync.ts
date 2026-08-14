@@ -10,7 +10,7 @@ const BOARD_NAME = 'Odyssey'
 // Odyssey (confirmed live: Odyssey doesn't carry them yet) — searchJiraSprints
 // targets this board instead so a future sprint (e.g. the one after the
 // current active one) can actually be found and imported.
-const FUTURE_SPRINTS_BOARD_NAME = 'Product Delivery Board'
+export const FUTURE_SPRINTS_BOARD_NAME = 'Product Delivery Board'
 
 // A board typically starts a new sprint every 1-2 weeks, so the cached
 // Sprint set only needs to be refreshed occasionally, not on every page

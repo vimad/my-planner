@@ -6,7 +6,10 @@ import { TicketAssigneeOverride } from '../models/TicketAssigneeOverride.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import { TicketFeatureOverride } from '../models/TicketFeatureOverride.ts'
 import { TicketPoAssignment } from '../models/TicketPoAssignment.ts'
+import { searchBacklog, type BacklogCategory } from '../services/backlogSearch.ts'
 import { PO_ELIGIBLE_TICKET_TYPE } from '../services/devQaResolution.ts'
+
+const BACKLOG_CATEGORIES: BacklogCategory[] = ['tech-ops', 'product', 'bug']
 
 export const ticketsRouter = Router()
 
@@ -90,6 +93,46 @@ ticketsRouter.get('/po-assignments', async (req: Request, res: Response, next: N
         poEstimateHours: a.poEstimateHours,
       })),
     )
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/tickets/backlog?teamId=&category=tech-ops|product|bug&q= -> a
+// read-only, uncached live Jira browse of one category's named backlog
+// sprint on the Product Delivery Board (services/backlogSearch.ts), scoped
+// to the team's jiraLabels the same way every other ticket list here is.
+// Never writes to Ticket or any Override collection - this is a
+// browsing/search query only, unlike every other route in this file.
+// `q` narrows the already-fetched list by key/title substring, case-
+// insensitively, at this route layer rather than in JQL.
+ticketsRouter.get('/backlog', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { teamId, category, q } = req.query
+
+    if (!teamId || typeof teamId !== 'string') {
+      return res.status(400).json({ error: 'teamId is required' })
+    }
+    if (typeof category !== 'string' || !BACKLOG_CATEGORIES.includes(category as BacklogCategory)) {
+      return res.status(400).json({ error: 'category must be one of tech-ops, product, bug' })
+    }
+
+    const team = await Team.findById(teamId)
+    if (!team) return res.status(404).json({ error: 'Team not found' })
+
+    const tickets = await searchBacklog(category as BacklogCategory, team.jiraLabels)
+    if (tickets === null) {
+      return res.status(502).json({ error: 'Could not resolve the Jira board' })
+    }
+
+    const trimmedQuery = typeof q === 'string' ? q.trim().toLowerCase() : ''
+    const filtered = trimmedQuery
+      ? tickets.filter(
+          (ticket) => ticket.key.toLowerCase().includes(trimmedQuery) || ticket.title.toLowerCase().includes(trimmedQuery),
+        )
+      : tickets
+
+    res.json(filtered)
   } catch (err) {
     next(err)
   }

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { PlanningView } from './PlanningView'
 import { computeWorkingDates } from '../utils/sprintWorkingDates'
 import type {
+  BacklogTicket,
   DevQaRoleResolution,
   Epic,
   LeaveEntry,
@@ -208,6 +209,12 @@ const capacityRow: SprintCapacity = {
 let entriesData: SprintPlanEntry[]
 let capacityData: SprintCapacity[]
 let placeholdersData: PlaceholderTicket[]
+// GET /api/tickets/backlog stub response (ticket 02 of .scratch/
+// add-from-backlog) - a flat list regardless of the requested category,
+// since these PlanningView-level tests only exercise the add-and-open
+// pipeline, not category/search filtering (already covered by
+// AddFromBacklogPopover.test.tsx).
+let backlogData: BacklogTicket[]
 let fetchMock: FetchMock
 let nextPlaceholderId = 0
 
@@ -344,6 +351,7 @@ function stubFetch(): FetchMock {
     if (href.includes('/api/sprints')) return jsonResponse([sprint])
     if (href.includes('/api/team-memberships')) return jsonResponse([membershipAda, membershipGrace])
     if (href.includes('/api/epics')) return jsonResponse([epicRow])
+    if (href.includes('/api/tickets/backlog')) return jsonResponse(backlogData)
 
     if (href.includes('/api/team-sprint-plans')) {
       const patchMatch = href.match(/\/api\/team-sprint-plans\/([^/?]+)$/)
@@ -552,6 +560,7 @@ describe('PlanningView', () => {
     entriesData = [entry('e1', adaTicket, 0), entry('e2', unmappedTicket, 0)]
     capacityData = [capacityRow]
     placeholdersData = []
+    backlogData = []
     nextPlaceholderId = 0
     teamSprintPlanDoc = null
     fetchMock = stubFetch()
@@ -976,6 +985,109 @@ describe('PlanningView', () => {
         expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('700')).toBeInTheDocument(),
       )
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Add from backlog (ticket 02 of .scratch/add-from-backlog)', () => {
+    it('opens the popover and fetches the tech-ops category, scoped to the active team', async () => {
+      backlogData = [
+        {
+          key: 'WOSMVP-500',
+          title: 'Fully resolved add',
+          type: 'Story',
+          labels: [],
+          dev: { name: 'Ada Lovelace' },
+          qa: { name: 'Grace Hopper' },
+          assignee: null,
+        },
+      ]
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining('/api/tickets/backlog?teamId=team-a&category=tech-ops'),
+        ),
+      )
+      expect(await screen.findByText('WOSMVP-500')).toBeInTheDocument()
+    })
+
+    it('picking a backlog result adds it to the plan and always opens its detail popup, even when already fully resolved', async () => {
+      // Same fixture (WOSMVP-500, fully resolved dev+qa via addTicketCatalog)
+      // as the typed-Add flow's own "does not auto-open the popup for a
+      // fully-resolved Split ticket added to the plan" test above - picked
+      // from the backlog popover instead, the popup opens unconditionally,
+      // proving the two pending-open paths are genuinely independent.
+      backlogData = [
+        {
+          key: 'WOSMVP-500',
+          title: 'Fully resolved add',
+          type: 'Story',
+          labels: [],
+          dev: { name: 'Ada Lovelace' },
+          qa: { name: 'Grace Hopper' },
+          assignee: null,
+        },
+      ]
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+      fireEvent.click(await screen.findByText('WOSMVP-500'))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries',
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ teamId: 'team-a', sprintId: 'sprint-1', jiraKey: 'WOSMVP-500' }),
+          }),
+        ),
+      )
+
+      expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-500' })).toBeInTheDocument()
+    })
+
+    it('picking a non-split backlog result adds it to the plan and opens TicketInfoPopup unconditionally', async () => {
+      backlogData = [
+        {
+          key: 'WOSMVP-600',
+          title: 'Non split add',
+          type: 'Task',
+          labels: [],
+          dev: null,
+          qa: null,
+          assignee: { name: 'Ada Lovelace' },
+        },
+      ]
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+      fireEvent.click(await screen.findByText('WOSMVP-600'))
+
+      expect(await screen.findByRole('dialog', { name: 'WOSMVP-600' })).toBeInTheDocument()
+    })
+
+    it('closing the popup without saving leaves the picked ticket as a bare entry, identical to the typed-Add flow', async () => {
+      backlogData = [
+        { key: 'WOSMVP-600', title: 'Non split add', type: 'Task', labels: [], dev: null, qa: null, assignee: { name: 'Ada Lovelace' } },
+      ]
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+      fireEvent.click(await screen.findByText('WOSMVP-600'))
+
+      const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-600' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() =>
+        expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('600')).toBeInTheDocument(),
+      )
     })
   })
 

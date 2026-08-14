@@ -6,6 +6,7 @@ import { StickyNote } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from 'react'
 import { useEpics } from '../hooks/useEpics'
 import { useSprintPlan, type SprintPeriod, type SprintPeriodInput, type SprintPlanEntryOrderPatch } from '../hooks/useSprintPlan'
+import { AddFromBacklogPopover } from './AddFromBacklogPopover'
 import { AddPlaceholderPopup, type AddPlaceholderBody } from './AddPlaceholderPopup'
 import { AddSprintPopover } from './AddSprintPopover'
 import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
@@ -30,7 +31,7 @@ import {
   type PlacedEntry,
 } from '../utils/ticketPlacements'
 import { ticketTypeAccent } from '../utils/ticketType'
-import type { LeaveEntry, PlaceholderTicket, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
+import type { BacklogCategory, BacklogTicket, LeaveEntry, PlaceholderTicket, Sprint, SprintCapacity, SprintPlanEntry, Team } from '../types'
 
 // The same role placement's Original (Effort) - devEstimateHours/
 // qaEstimateHours, or entry.estimateHours for a non-split placement. Used
@@ -456,6 +457,8 @@ function AddToPlanForm({
   loading,
   error,
   onOpenPlaceholder,
+  fetchBacklog,
+  onPickFromBacklog,
 }: {
   value: string
   onChange: (v: string) => void
@@ -466,6 +469,11 @@ function AddToPlanForm({
   // a second icon-only affordance right after the "Add" button, for a
   // non-Jira, manually-created stand-in ticket instead of a real Jira lookup.
   onOpenPlaceholder: () => void
+  // Mounts AddFromBacklogPopover (ticket 02 of .scratch/add-from-backlog) -
+  // a third icon-only affordance right after the placeholder button, for
+  // browsing the team's real Jira backlog instead of typing a known key.
+  fetchBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
+  onPickFromBacklog: (jiraKey: string) => void
 }) {
   return (
     <form
@@ -498,6 +506,7 @@ function AddToPlanForm({
       >
         <StickyNote className="h-4 w-4" />
       </button>
+      <AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={onPickFromBacklog} />
       {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </form>
   )
@@ -931,6 +940,8 @@ export function PlanningView({ team }: { team: Team }) {
     addingTicket,
     addTicketError,
     addTicket,
+    fetchBacklog,
+    addFromBacklog,
     placeholders,
     addingPlaceholder,
     addPlaceholderError,
@@ -975,6 +986,14 @@ export function PlanningView({ team }: { team: Team }) {
   // separate state, since the popup can also be opened directly by clicking
   // a flagged badge with no add-to-plan involved.
   const [pendingAutoOpenTicketId, setPendingAutoOpenTicketId] = useState<string | null>(null)
+  // AddFromBacklogPopover's own pending-open path (ticket 02 of .scratch/
+  // add-from-backlog) - a second, separate piece of state mirroring
+  // pendingAutoOpenTicketId above structurally, but whose effect (below)
+  // always opens the popup once matched instead of gating on
+  // needs-assignment. Kept fully separate from pendingAutoOpenTicketId
+  // (rather than adding a branch to its effect) so the existing typed-Add
+  // flow's conditional behavior (ticket 24) stays provably untouched.
+  const [pendingBacklogOpenTicketId, setPendingBacklogOpenTicketId] = useState<string | null>(null)
   const [popupTicketId, setPopupTicketId] = useState<string | null>(null)
   // Option/Alt+click "pop" (find-the-pair): the single SprintPlanEntry
   // currently popped, keyed by entry id so a Split ticket's dev and qa
@@ -1011,6 +1030,21 @@ export function PlanningView({ team }: { team: Team }) {
     }
   }
 
+  // AddFromBacklogPopover's pick handler (ticket 02) - addFromBacklog
+  // delegates to the same addTicket the typed-Add flow above uses, but
+  // queues the unconditional pending-open path instead of the
+  // needs-assignment-gated one.
+  async function handlePickFromBacklog(jiraKey: string) {
+    try {
+      const created = await addFromBacklog(jiraKey)
+      if (created) setPendingBacklogOpenTicketId(getId(created.ticketId) ?? null)
+    } catch {
+      // addTicketError (shared with the typed-Add flow, since addFromBacklog
+      // delegates to the same addTicket action) already surfaces the
+      // failure - nothing else to do here.
+    }
+  }
+
   // Auto-open trigger (ticket 24): once the just-added ticket reappears in
   // `entries` post-refresh (devQa-decorated), open the popup only if either
   // role is needs-assignment - not for a fully-resolved role, not for an
@@ -1029,6 +1063,20 @@ export function PlanningView({ team }: { team: Team }) {
       setPopupTicketId(pendingAutoOpenTicketId)
     }
   }, [entries, pendingAutoOpenTicketId])
+
+  // AddFromBacklogPopover's own auto-open trigger (ticket 02) - structurally
+  // the same "wait for the just-added ticket to reappear in `entries`" shape
+  // as the effect above, but always opens the popup once matched, regardless
+  // of resolved/needs-assignment/unmapped status (spec: "the popup opens
+  // unconditionally once the newly-added entry reappears in entries").
+  useEffect(() => {
+    if (!pendingBacklogOpenTicketId) return
+    const match = entries.find((e) => getId(e.ticketId) === pendingBacklogOpenTicketId)
+    if (!match) return
+
+    setPendingBacklogOpenTicketId(null)
+    setPopupTicketId(pendingBacklogOpenTicketId)
+  }, [entries, pendingBacklogOpenTicketId])
 
   const popupEntry = useMemo(
     () => (popupTicketId ? (entries.find((e) => getId(e.ticketId) === popupTicketId) ?? null) : null),
@@ -1167,6 +1215,8 @@ export function PlanningView({ team }: { team: Team }) {
             loading={addingTicket}
             error={addTicketError}
             onOpenPlaceholder={() => setPlaceholderPopupOpen(true)}
+            fetchBacklog={fetchBacklog}
+            onPickFromBacklog={handlePickFromBacklog}
           />
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start">

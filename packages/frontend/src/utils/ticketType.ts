@@ -22,3 +22,14 @@ export function ticketTypeAccent(type: string | null): TicketTypeAccent | null {
 export function isPoEligibleTicket(type: string | null | undefined): boolean {
   return type === 'Story'
 }
+
+// Jira's own issuetype.name for a Story or Bug - the two types Planning
+// tracks as independent dev/qa roles rather than one shared assignee (see
+// CONTEXT.md "Split ticket"). Mirrors the backend's devQaResolution.ts::
+// isSplitTicket exactly. Needed frontend-side by AddFromBacklogPopover.tsx
+// (ticket 02 of .scratch/add-from-backlog), since a raw backlog search
+// result has no `devQa` object yet to branch on the way an already-added
+// SprintPlanEntry does.
+export function isSplitTicket(type: string | null | undefined): boolean {
+  return type === 'Story' || type === 'Bug'
+}
