@@ -206,9 +206,9 @@ export function buildSprintExportSheetData(
 
   sheet.push(
     ['Sprint Breakdown'],
-    ['Type', 'Hours', 'Percent'],
-    ...breakdown.slices.map((s) => [s.bucket, round2(s.hours), `${s.percent}%`]),
-    ['Total', round2(breakdown.totalHours), '100%'],
+    ['Type', 'Duration', 'Percent'],
+    ...breakdown.slices.map((s) => [s.bucket, formatDaysHours(s.hours), `${s.percent}%`]),
+    ['Total', formatDaysHours(breakdown.totalHours), '100%'],
   )
 
   return sheet

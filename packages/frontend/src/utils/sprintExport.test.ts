@@ -192,7 +192,17 @@ describe('buildSprintExportSheetData', () => {
     expect(findRow(sheet, 'Total No. of holidays')).toEqual(['Total No. of holidays', 1])
     expect(findRow(sheet, 'Total No. of Sprint days')).toEqual(['Total No. of Sprint days', 10])
     expect(findRow(sheet, 'Sprint Breakdown')).toBeDefined()
-    expect(findRow(sheet, 'Type')).toEqual(['Type', 'Hours', 'Percent'])
+    expect(findRow(sheet, 'Type')).toEqual(['Type', 'Duration', 'Percent'])
+  })
+
+  it('formats breakdown durations as "Xd Yh" instead of raw hours', () => {
+    // Entries e1 (12h, dev-role TL) and e2 (0h spilled, excluded from the
+    // breakdown entirely by rolePlannedHours) are both Task-type ("Technical
+    // items" bucket, sprintBreakdown.ts's bucketFor) - 12h credited, so the
+    // Technical items row and the Total row both read "1d 4h".
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
+    expect(findRow(sheet, 'Technical items')).toEqual(['Technical items', '1d 4h', '100%'])
+    expect(findRow(sheet, 'Total')).toEqual(['Total', '1d 4h', '100%'])
   })
 
   it('sums the breakdown percentages to 100 across the three buckets plus the total row', () => {
