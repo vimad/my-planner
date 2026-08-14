@@ -79,6 +79,15 @@ export function overrideStartValue(p: PlacedEntry): string | null {
   return p.entry[overrideStartField(p)] ?? null
 }
 
+// Keyed lookup from a current TeamMembership's own Person._id to that
+// membership's id - the "resolve a person back to their roster row" half of
+// groupPlacementsByMembership's resolution below, factored out since
+// sprintBreakdown.ts's credit() and utils/sprintExport.ts's row-building both
+// need the exact same lookup independently of the full placement grouping.
+export function buildMembershipIdByPersonId(memberships: TeamMembership[]): Map<string, string> {
+  return new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+}
+
 export interface GroupedPlacements {
   ticketsByMembershipId: Map<string, PlacedEntry[]>
   unmappedPlacements: PlacedEntry[]
@@ -107,7 +116,7 @@ export function groupPlacementsByMembership(entries: SprintPlanEntry[], membersh
     byMembership.set(getId(membership) ?? '', [])
   }
   const membershipIdByAccountId = new Map(memberships.map((m) => [m.personId.jiraAccountId, getId(m) ?? '']))
-  const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+  const membershipIdByPersonId = buildMembershipIdByPersonId(memberships)
 
   const unmapped: PlacedEntry[] = []
   const needsAssignment: PlacedEntry[] = []

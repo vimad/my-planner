@@ -12,6 +12,7 @@ import { DevQaAssignmentPopup } from './DevQaAssignmentPopup'
 import { EpicPillStrip } from './EpicPillStrip'
 import { GanttChartButton } from './SprintGanttChart'
 import { SprintBreakdownCard } from './SprintBreakdownCard'
+import { SprintExportButton } from './SprintExportButton'
 import { SprintLeaveGrid, type SprintLeaveGridColumn } from './SprintLeaveGrid'
 import { SprintSelect } from './SprintSelect'
 import { TicketInfoPopup } from './TicketInfoPopup'
@@ -1174,6 +1175,15 @@ export function PlanningView({ team }: { team: Team }) {
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tickets by person</h2>
                 <div className="flex items-center gap-2">
                   {removeEntryError && <span className="text-xs text-red-600 dark:text-red-400">{removeEntryError}</span>}
+                  <SprintExportButton
+                    teamName={team.name}
+                    sprintName={selectedSprint?.name ?? ''}
+                    memberships={planningMemberships}
+                    capacity={capacity}
+                    entries={entries}
+                    placeholders={placeholders}
+                    sprintPeriod={sprintPeriod}
+                  />
                   <GanttChartButton
                     memberships={planningMemberships}
                     entries={entries}

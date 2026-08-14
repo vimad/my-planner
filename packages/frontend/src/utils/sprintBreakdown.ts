@@ -9,6 +9,7 @@
 // the backend populates (routes/sprintPlanEntries.ts) instead.
 import { DEV_ROLES } from '../constants/roles'
 import { getId } from './getId'
+import { buildMembershipIdByPersonId } from './ticketPlacements'
 import { ticketTypeAccent } from './ticketType'
 import type { SprintPlanEntry, TeamMembership } from '../types'
 
@@ -52,7 +53,7 @@ export interface Breakdown {
 export function computeSprintBreakdown(entries: SprintPlanEntry[], memberships: TeamMembership[]): Breakdown {
   const devMembershipIds = new Set(memberships.filter((m) => DEV_ROLES.includes(m.role)).map((m) => getId(m) ?? ''))
   const membershipIdByAccountId = new Map(memberships.map((m) => [m.personId.jiraAccountId, getId(m) ?? '']))
-  const membershipIdByPersonId = new Map(memberships.map((m) => [getId(m.personId) ?? '', getId(m) ?? '']))
+  const membershipIdByPersonId = buildMembershipIdByPersonId(memberships)
 
   const totals: Record<Bucket, number> = { Features: 0, 'Technical items': 0, Bugs: 0 }
 

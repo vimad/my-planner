@@ -1,0 +1,161 @@
+import { describe, expect, it } from 'vitest'
+import { buildSprintExportRows, buildSprintExportSheetData, computeRoleGroupTotals } from './sprintExport'
+import type { Person, PlaceholderTicket, SprintCapacity, SprintPlanEntry, TeamMembership, Ticket } from '../types'
+import type { SprintPeriod } from '../hooks/useSprintPlan'
+
+const vinod: Person = { _id: 'p1', name: 'Vinod', email: 'vinod@example.com', jiraAccountId: 'acc-vinod' }
+const asini: Person = { _id: 'p2', name: 'Asini', email: 'asini@example.com', jiraAccountId: 'acc-asini' }
+
+const tlMembership: TeamMembership = { _id: 'm1', teamId: 't1', personId: vinod, role: 'TL', capacityPercentOverride: null }
+const qaMembership: TeamMembership = { _id: 'm2', teamId: 't1', personId: asini, role: 'QA', capacityPercentOverride: null }
+const memberships: TeamMembership[] = [tlMembership, qaMembership]
+
+function ticket(overrides: Partial<Ticket> & { jiraKey: string }): Ticket {
+  return {
+    _id: overrides.jiraKey,
+    type: 'Task',
+    title: 'A ticket',
+    status: 'To Do',
+    assigneeAccountId: null,
+    assigneeDisplayName: null,
+    assigneeEmail: null,
+    estimateHours: null,
+    labels: [],
+    stream: null,
+    epicKey: null,
+    parentKey: null,
+    subtaskKind: null,
+    currentSprintKey: null,
+    lastSyncedAt: new Date().toISOString(),
+    ...overrides,
+  }
+}
+
+function nonSplitEntry(id: string, t: Ticket, plannedHours: number, assigneeAccountId: string): SprintPlanEntry {
+  return {
+    _id: id,
+    teamId: 't1',
+    sprintId: 's1',
+    ticketId: { ...t, assigneeAccountId },
+    order: 0,
+    devOrder: null,
+    qaOrder: null,
+    estimateHours: plannedHours,
+    planHours: null,
+    spillHours: null,
+    plannedHours,
+  }
+}
+
+const capacity: SprintCapacity[] = [
+  {
+    teamMembershipId: 'm1',
+    personId: 'p1',
+    personName: 'Vinod',
+    role: 'TL',
+    capacityPercentOverride: null,
+    effectivePercentage: 50,
+    leaveDays: 1,
+    extraHours: 0,
+    capacityEntryId: null,
+    leaveEntries: [{ date: '2026-08-18', portion: 'full' }],
+    total: 72,
+    available: 40,
+    planned: 12,
+    remaining: 28,
+  },
+  {
+    teamMembershipId: 'm2',
+    personId: 'p2',
+    personName: 'Asini',
+    role: 'QA',
+    capacityPercentOverride: null,
+    effectivePercentage: 80,
+    leaveDays: 0,
+    extraHours: 0,
+    capacityEntryId: null,
+    leaveEntries: [],
+    total: 80,
+    available: 64,
+    planned: 64,
+    remaining: 0,
+  },
+]
+
+const entries: SprintPlanEntry[] = [nonSplitEntry('e1', ticket({ jiraKey: 'WOSMVP-100' }), 12, 'acc-vinod')]
+
+const placeholders: PlaceholderTicket[] = [
+  { _id: 'ph1', teamId: 't1', sprintId: 's1', personId: 'p2', text: 'on-call', estimateHours: 4 },
+]
+
+describe('buildSprintExportRows', () => {
+  it('maps each membership to its capacity figures and role', () => {
+    const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ role: 'TL', name: 'Vinod', leaveDays: 1, total: 72, available: 40, planned: 12, remaining: 28 })
+    expect(rows[1]).toMatchObject({ role: 'QA', name: 'Asini', leaveDays: 0, total: 80, available: 64, planned: 64, remaining: 0 })
+  })
+
+  it('formats each person\'s planned tickets and placeholders as KEY(duration)', () => {
+    const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
+    expect(rows[0].ticketSummary).toBe('WOSMVP-100(1d4h)')
+    expect(rows[1].ticketSummary).toBe('on-call(4h)')
+  })
+
+  it('leaves the ticket summary blank for a person with nothing planned', () => {
+    const rows = buildSprintExportRows(memberships, capacity, [], [])
+    expect(rows[0].ticketSummary).toBe('')
+    expect(rows[1].ticketSummary).toBe('')
+  })
+
+  it('falls back to zeroed figures when a membership has no matching capacity row', () => {
+    const rows = buildSprintExportRows(memberships, [], [], [])
+    expect(rows[0]).toMatchObject({ total: 0, available: 0, planned: 0, remaining: 0, leaveDays: 0 })
+  })
+})
+
+describe('computeRoleGroupTotals', () => {
+  it('sums Available/Remaining separately across dev vs qa roles', () => {
+    const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
+    const totals = computeRoleGroupTotals(rows)
+    expect(totals).toEqual([
+      { label: 'Total Dev', available: 40, remaining: 28 },
+      { label: 'Total QA', available: 64, remaining: 0 },
+    ])
+  })
+})
+
+describe('buildSprintExportSheetData', () => {
+  const period: SprintPeriod = { startDate: '2026-08-10', endDate: '2026-08-21', holidays: ['2026-08-17'], workingDays: 10 }
+
+  it('includes the header row, one row per person, group totals, period summary, and breakdown', () => {
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
+
+    expect(sheet[0]).toEqual(['Role', 'Name', 'Leave', 'Total', 'Available', 'Planned', 'Remaining', 'Remaining tickets (this sprint)'])
+    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, 'WOSMVP-100(1d4h)'])
+    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, 'on-call(4h)'])
+
+    const flat = sheet.map((row) => row.join('|'))
+    expect(flat).toContain('Total Dev||||40||28|')
+    expect(flat).toContain('Total QA||||64||0|')
+    expect(flat).toContain('Total No. of days|12')
+    expect(flat).toContain('Total No. of holidays|1')
+    expect(flat).toContain('Total No. of Sprint days|10')
+    expect(flat).toContain('Sprint Breakdown')
+    expect(flat).toContain('Type|Hours|Percent')
+  })
+
+  it('sums the breakdown percentages to 100 across the three buckets plus the total row', () => {
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
+    const breakdownStart = sheet.findIndex((row) => row[0] === 'Type') + 1
+    const bucketRows = sheet.slice(breakdownStart, breakdownStart + 3)
+    const percentSum = bucketRows.reduce((total, row) => total + parseInt(String(row[2]), 10), 0)
+    expect(percentSum).toBe(100)
+  })
+
+  it('omits the period summary rows when no sprint period is set', () => {
+    const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, null)
+    const flat = sheet.map((row) => row.join('|'))
+    expect(flat.some((line) => line.startsWith('Total No. of days'))).toBe(false)
+  })
+})
