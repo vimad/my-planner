@@ -60,6 +60,19 @@ export function rolePlannedHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | un
   return entry.plannedHours ?? null
 }
 
+// A role placement's own raw Spill figure (same spec as rolePlannedHours
+// above) - devSpillHours/qaSpillHours, or spillHours for a non-split
+// placement. Distinct from rolePlannedHours: when a placement is fully
+// spilled (Planned = 0), this is the only field that still carries a
+// non-zero duration - utils/sprintExport.ts's Dev spills/QA spills columns
+// use it instead of Planned so a spilled ticket still shows how much of it
+// moved to a future sprint, rather than reading "(0h)".
+export function roleSpillHours(entry: SprintPlanEntry, role: 'dev' | 'qa' | undefined): number | null {
+  if (role === 'dev') return entry.devSpillHours ?? null
+  if (role === 'qa') return entry.qaSpillHours ?? null
+  return entry.spillHours ?? null
+}
+
 // Sprint Planning Gantt Chart drag-to-reschedule (wayfinder ticket 05/09) -
 // which of SprintPlanEntry's three independent start-date-override fields a
 // placement's saved override lives in (mirrors placementField's order/

@@ -31,7 +31,7 @@ function ticket(overrides: Partial<Ticket> & { jiraKey: string }): Ticket {
   }
 }
 
-function nonSplitEntry(id: string, t: Ticket, plannedHours: number, assigneeAccountId: string): SprintPlanEntry {
+function nonSplitEntry(id: string, t: Ticket, plannedHours: number, assigneeAccountId: string, spillHours = 0): SprintPlanEntry {
   return {
     _id: id,
     teamId: 't1',
@@ -42,7 +42,7 @@ function nonSplitEntry(id: string, t: Ticket, plannedHours: number, assigneeAcco
     qaOrder: null,
     estimateHours: plannedHours,
     planHours: null,
-    spillHours: null,
+    spillHours,
     plannedHours,
   }
 }
@@ -83,14 +83,15 @@ const capacity: SprintCapacity[] = [
 ]
 
 // e1/e3 are actually planned this sprint (Planned > 0); e2/e4 are fully
-// spilled (Plan minus Spill = 0, ADR ".scratch/sprint-plan-spill-estimate")
-// - one for the Dev-role person (Vinod, TL), one for the QA-role person
-// (Asini, QA), so both spill columns get exercised.
+// spilled (Plan minus Spill = 0, ADR ".scratch/sprint-plan-spill-estimate"),
+// each with its own non-zero Spill figure - one for the Dev-role person
+// (Vinod, TL), one for the QA-role person (Asini, QA), so both spill
+// columns get exercised.
 const entries: SprintPlanEntry[] = [
   nonSplitEntry('e1', ticket({ jiraKey: 'WOSMVP-100' }), 12, 'acc-vinod'),
-  nonSplitEntry('e2', ticket({ jiraKey: 'WOSMVP-200' }), 0, 'acc-vinod'),
+  nonSplitEntry('e2', ticket({ jiraKey: 'WOSMVP-200' }), 0, 'acc-vinod', 16),
   nonSplitEntry('e3', ticket({ jiraKey: 'WOSMVP-300' }), 8, 'acc-asini'),
-  nonSplitEntry('e4', ticket({ jiraKey: 'WOSMVP-400' }), 0, 'acc-asini'),
+  nonSplitEntry('e4', ticket({ jiraKey: 'WOSMVP-400' }), 0, 'acc-asini', 4),
 ]
 
 const placeholders: PlaceholderTicket[] = [
@@ -111,14 +112,14 @@ describe('buildSprintExportRows', () => {
     expect(rows[1].ticketSummary).toBe('300(1d), on-call(4h)')
   })
 
-  it('routes a 0-planned-hours placement to devSpills/qaSpills (prefix-stripped ticket number only) instead of ticketSummary', () => {
+  it('routes a 0-planned-hours placement to devSpills/qaSpills as NUMBER(spill duration) instead of ticketSummary', () => {
     const rows = buildSprintExportRows(memberships, capacity, entries, placeholders)
     expect(rows[0].ticketSummary).not.toContain('200')
-    expect(rows[0].devSpills).toBe('200')
+    expect(rows[0].devSpills).toBe('200(2d)')
     expect(rows[0].qaSpills).toBe('')
 
     expect(rows[1].ticketSummary).not.toContain('400')
-    expect(rows[1].qaSpills).toBe('400')
+    expect(rows[1].qaSpills).toBe('400(4h)')
     expect(rows[1].devSpills).toBe('')
   })
 
@@ -177,10 +178,10 @@ describe('buildSprintExportSheetData', () => {
     ])
   })
 
-  it('puts each person\'s planned tickets and spilled tickets in the right columns, prefix stripped', () => {
+  it('puts each person\'s planned tickets and spilled tickets (with spill duration) in the right columns, prefix stripped', () => {
     const sheet = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
-    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, '100(1d4h)', '200', ''])
-    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, '300(1d), on-call(4h)', '', '400'])
+    expect(sheet[1]).toEqual(['TL', 'Vinod', 1, 72, 40, 12, 28, '100(1d4h)', '200(2d)', ''])
+    expect(sheet[2]).toEqual(['QA', 'Asini', 0, 80, 64, 64, 0, '300(1d), on-call(4h)', '', '400(4h)'])
   })
 
   it('includes group totals (in days), period summary, and breakdown rows', () => {

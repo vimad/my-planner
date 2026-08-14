@@ -13,7 +13,7 @@ import { parseLocalDate } from './dateAgenda'
 import { formatDaysHours } from './formatDuration'
 import { getId } from './getId'
 import { computeSprintBreakdown } from './sprintBreakdown'
-import { buildMembershipIdByPersonId, groupPlacementsByMembership, rolePlannedHours } from './ticketPlacements'
+import { buildMembershipIdByPersonId, groupPlacementsByMembership, rolePlannedHours, roleSpillHours } from './ticketPlacements'
 import type { PlaceholderTicket, Role, SprintCapacity, SprintPlanEntry, TeamMembership } from '../types'
 import type { SprintPeriod } from '../hooks/useSprintPlan'
 
@@ -49,12 +49,14 @@ export interface SprintExportRow {
   // (rolePlannedHours - Plan minus Spill, spec ".scratch/
   // sprint-plan-spill-estimate/spec.md") is 0 is fully spilled to a future
   // sprint - it contributes nothing to this sprint's Planned/Available math,
-  // so a duration-tagged entry in ticketSummary above would be misleading
-  // (there's no "1d4h" of it happening this sprint). Ticket key only, no
-  // duration - there's nothing to time-box. Split one column per group
-  // (constants/roles.ts's DEV_ROLES/QA_ROLES) rather than one shared
-  // "Spills" column: every planning row's own role is unambiguously one
-  // group or the other (PO is filtered out upstream, planningMemberships),
+  // so a duration-tagged entry in ticketSummary above (Planned hours) would
+  // be misleading (there's no "1d4h" of it happening this sprint). Instead
+  // "KEY(spill duration)" per item, comma-separated, using roleSpillHours
+  // (the actual Spill field, since Planned is 0 by definition here) - so a
+  // reader can still see how much of the ticket moved out. Split one column
+  // per group (constants/roles.ts's DEV_ROLES/QA_ROLES) rather than one
+  // shared "Spills" column: every planning row's own role is unambiguously
+  // one group or the other (PO is filtered out upstream, planningMemberships),
   // so exactly one of this row's two spill fields is ever non-empty -
   // keeping them separate lets a reader filter/sort the sheet by either
   // without cross-referencing the Role column. A PlaceholderTicket has no
@@ -92,9 +94,9 @@ export function buildSprintExportRows(
     const personPlaceholders = placeholdersByMembershipId.get(membershipId) ?? []
 
     const plannedPlacements = placements.filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) > 0)
-    const spilledKeys = placements
+    const spilledParts = placements
       .filter((p) => (rolePlannedHours(p.entry, p.role) ?? 0) === 0)
-      .map((p) => stripProjectPrefix(p.entry.ticketId.jiraKey))
+      .map((p) => `${stripProjectPrefix(p.entry.ticketId.jiraKey)}(${formatCompactDuration(roleSpillHours(p.entry, p.role) ?? 0)})`)
       .join(', ')
 
     const ticketParts = [
@@ -115,8 +117,8 @@ export function buildSprintExportRows(
       planned: c?.planned ?? 0,
       remaining: c?.remaining ?? 0,
       ticketSummary: ticketParts.join(', '),
-      devSpills: isDevRole ? spilledKeys : '',
-      qaSpills: isDevRole ? '' : spilledKeys,
+      devSpills: isDevRole ? spilledParts : '',
+      qaSpills: isDevRole ? '' : spilledParts,
     }
   })
 }
