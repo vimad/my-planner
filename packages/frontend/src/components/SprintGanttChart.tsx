@@ -308,6 +308,16 @@ function SprintGantt({
         .wx-bar[data-id^=":leave-full-"] { background: #ef4444; border-color: #f87171; }
         .wx-bar[data-id^=":leave-half-"] { background: #f59e0b; border-color: #fcd34d; }
         .wx-bar[data-id^=":dev-"], .wx-bar[data-id^=":qa-"] { border: 2px solid #e879f9; background: rgba(217, 70, 239, 0.35); }
+        /* SVAR still lays out each bar (and a person row whose real
+           sprintPeriod.endDate runs past the 3-week axisRange cap above) at
+           its own true pixel width, uncapped by the start/end/autoScale
+           config - that config only fixes the header/scale, not bar layout
+           - so a spilled placement's bar still widens this container's
+           native scrollable area even though the header stops at 3 weeks.
+           Forcing this clip is what actually removes the horizontal
+           scrollbar: a spilled bar's tail is simply not shown past the
+           3-week window, rather than being reachable by scrolling. */
+        .wx-chart { overflow-x: hidden !important; }
       `}</style>
       <div ref={chartWrapperRef} className="min-h-0 flex-1">
         <WillowDark>
