@@ -18,7 +18,7 @@
 import { Gantt, WillowDark } from '@svar-ui/react-gantt'
 import type { IApi, ITask } from '@svar-ui/react-gantt'
 import '@svar-ui/react-gantt/all.css'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { computeDragPatches, computeGanttRows, type GanttDragPatch, type GanttPlacedBar } from '../utils/ganttPlacement'
 import { buildLeaveDays } from '../utils/ganttLeaveDays'
@@ -35,11 +35,25 @@ import type { SprintPeriod } from '../hooks/useSprintPlan'
 // pair, not shared across files per this codebase's established
 // duplicated-local-date-helper convention (see ganttPlacement.ts's own
 // header comment on toLocalDateString).
-function nextDay(date: Date): Date {
+function addDays(date: Date, days: number): Date {
   const next = new Date(date)
-  next.setDate(next.getDate() + 1)
+  next.setDate(next.getDate() + days)
   return next
 }
+
+function nextDay(date: Date): Date {
+  return addDays(date, 1)
+}
+
+// Sprint planning isn't expected to run beyond three weeks, even accounting
+// for the occasional planned spill - the date axis is capped here rather
+// than left to grow with however far a spilled ticket's bar extends, so the
+// chart gets a fixed, predictable width (see cellWidth sizing in
+// SprintGantt below, which uses this same span to fill the available width
+// with no horizontal scrollbar) instead of shrinking as more weeks of
+// spillover get auto-placed.
+const GANTT_WINDOW_DAYS = 21
+const GANTT_GRID_WIDTH = 160
 
 // Ticket 01's synthetic row-per-person tree: one hidden parent "task" per
 // TeamMembership (`person-<membershipId>`), spanning the sprint's own
@@ -152,6 +166,40 @@ function SprintGantt({
     [sprintPeriod.startDate, sprintPeriod.holidays],
   )
 
+  // Fixed three-week axis (see GANTT_WINDOW_DAYS) - `autoScale={false}` on
+  // the Gantt below stops SVAR from widening the axis to fit a spilled
+  // ticket's bar past this window, per ticket 04/07's "extends past the
+  // sprint's endDate" placement behavior above.
+  const axisRange = useMemo(() => {
+    const start = parseLocalDate(sprintPeriod.startDate)
+    return { start, end: addDays(start, GANTT_WINDOW_DAYS) }
+  }, [sprintPeriod.startDate])
+
+  // Fills the modal's available width with the fixed GANTT_WINDOW_DAYS
+  // column count instead of a constant per-day pixel width, so the chart
+  // never needs its own horizontal scrollbar (and uses the freed-up space
+  // the three-week cap above creates) - ResizeObserver is unavailable in
+  // the jsdom test environment, hence the guard, and irrelevant there since
+  // SprintGanttChart.test.tsx stubs out the real <Gantt>/canvas rendering.
+  const chartWrapperRef = useRef<HTMLDivElement>(null)
+  const [cellWidth, setCellWidth] = useState(32)
+  useEffect(() => {
+    const node = chartWrapperRef.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((observerEntries) => {
+      const width = observerEntries[0]?.contentRect.width
+      if (!width) return
+      const available = width - GANTT_GRID_WIDTH
+      // No floor on the low end - clamping cellWidth up on a narrow window
+      // would make the 21-day timeline wider than `available` again,
+      // reintroducing the exact horizontal scrollbar this sizing exists to
+      // remove. 1px floor only guards against a negative/zero width.
+      setCellWidth(Math.max(1, Math.floor(available / GANTT_WINDOW_DAYS)))
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
   const { tasks, links } = useMemo(() => {
     // Ticket 09: every placement's own saved start-date override now feeds
     // the algorithm's override-aware cursor-continuation branch (ticket 04
@@ -261,13 +309,16 @@ function SprintGantt({
         .wx-bar[data-id^=":leave-half-"] { background: #f59e0b; border-color: #fcd34d; }
         .wx-bar[data-id^=":dev-"], .wx-bar[data-id^=":qa-"] { border: 2px solid #e879f9; background: rgba(217, 70, 239, 0.35); }
       `}</style>
-      <div className="min-h-0 flex-1">
+      <div ref={chartWrapperRef} className="min-h-0 flex-1">
         <WillowDark>
           <Gantt
             tasks={tasks}
             links={links}
-            columns={[{ id: 'text', header: 'Person', width: 160 }]}
-            cellWidth={32}
+            columns={[{ id: 'text', header: 'Person', width: GANTT_GRID_WIDTH }]}
+            start={axisRange.start}
+            end={axisRange.end}
+            autoScale={false}
+            cellWidth={cellWidth}
             cellHeight={30}
             init={handleInit}
           />
