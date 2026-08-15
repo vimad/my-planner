@@ -47,7 +47,14 @@ interface DevQaAssignmentPopupProps {
   poSaving: boolean
   poError: string | null
   onSavePo: (body: PoAssignmentBody) => Promise<void>
+  // Called by Save after a successful save (or a no-op save with nothing
+  // changed) - the entry stays either way.
   onClose: () => void
+  // Called by the Close button - "cancel" (never fired by Save). Separate
+  // from onClose so PlanningView can tell the two apart: closing a popup
+  // that was auto-opened right after an add rolls the add back, closing one
+  // opened by clicking an already-placed badge does not.
+  onCancel: () => void
 }
 
 function initialPersonId(resolution: DevQaRoleResolution): string {
@@ -178,12 +185,15 @@ function PoRow({
 // link, and lets the user fill in or edit a Dev/QA Override (CONTEXT.md).
 // Reachable from PlanningView either by clicking any TicketBadge for a Split
 // ticket (needs-assignment or already-resolved - same component either way)
-// or auto-opened right after AddToPlanForm's submit succeeds when a role is
-// needs-assignment. Each select only offers memberships whose role maps to
-// that slot (constants/roles.ts's DEV_ROLES/QA_ROLES) - reassigning Dev to a
-// QA-only person (or vice versa) isn't offered. Modeled on ConfirmDialog.tsx's
-// archetype-B full modal (docs/ui-conventions.md) rather than inventing a new
-// modal mechanism.
+// or auto-opened unconditionally right after AddToPlanForm's submit (or an
+// Add-from-backlog pick) succeeds. In the latter case, Close (onCancel) rolls
+// the add back instead of just dismissing the form - PlanningView decides
+// which behavior applies, this component only tells the two apart via
+// separate onClose/onCancel props. Each select only offers memberships whose
+// role maps to that slot (constants/roles.ts's DEV_ROLES/QA_ROLES) -
+// reassigning Dev to a QA-only person (or vice versa) isn't offered. Modeled
+// on ConfirmDialog.tsx's archetype-B full modal (docs/ui-conventions.md)
+// rather than inventing a new modal mechanism.
 export function DevQaAssignmentPopup({
   entry,
   memberships,
@@ -197,6 +207,7 @@ export function DevQaAssignmentPopup({
   poError,
   onSavePo,
   onClose,
+  onCancel,
 }: DevQaAssignmentPopupProps) {
   const { dev, qa } = entry.devQa
   const [devPersonId, setDevPersonId] = useState(() => initialPersonId(dev))
@@ -330,7 +341,7 @@ export function DevQaAssignmentPopup({
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={onCancel}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
             >
               Close

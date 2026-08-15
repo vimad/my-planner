@@ -31,7 +31,14 @@ interface TicketInfoPopupProps {
   savingFeatureOverride: boolean
   featureOverrideError: string | null
   onSaveFeature: (isFeature: boolean) => Promise<void>
+  // Called by Save after a successful save (or a no-op save with nothing
+  // changed) - the entry stays either way.
   onClose: () => void
+  // Called by the Close button - "cancel" (never fired by Save). Separate
+  // from onClose so PlanningView can tell the two apart: closing a popup
+  // that was auto-opened right after an add rolls the add back, closing one
+  // opened by clicking an already-placed badge does not.
+  onCancel: () => void
 }
 
 // A non-split ticket (Task/Sub-task, CONTEXT.md "Split ticket") has a single
@@ -56,6 +63,7 @@ export function TicketInfoPopup({
   featureOverrideError,
   onSaveFeature,
   onClose,
+  onCancel,
 }: TicketInfoPopupProps) {
   const ticket = entry.ticketId
   const initialPersonId = entry.assigneeOverridePersonId ?? ''
@@ -158,7 +166,7 @@ export function TicketInfoPopup({
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={onCancel}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
             >
               Close

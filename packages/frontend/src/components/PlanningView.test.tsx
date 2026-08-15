@@ -472,6 +472,15 @@ function stubFetch(): FetchMock {
       return jsonResponse(entriesData.find((e) => e._id === id))
     }
 
+    // removeEntry (the table's own "Remove" button, and - per this test
+    // suite's "Cancel undoes the add" tests below - the popup's Close button
+    // when it was auto-opened right after an add).
+    if (patchMatch && method === 'DELETE') {
+      const id = patchMatch[1]
+      entriesData = entriesData.filter((e) => e._id !== id)
+      return jsonResponse(null, 204)
+    }
+
     if (href.includes('/api/sprint-plan-entries') && method === 'POST') {
       const body = JSON.parse(init?.body ?? '{}')
       const catalogEntry = addTicketCatalog[body.jiraKey] ?? { ticket: newTicket }
@@ -977,6 +986,62 @@ describe('PlanningView', () => {
 
       expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-700' })).toBeInTheDocument()
     })
+
+    it('canceling (Close) the popup that auto-opened after a typed Add undoes the add - the ticket never lands in the plan', async () => {
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.change(screen.getByLabelText('Ticket number to add to plan'), { target: { value: '400' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e-WOSMVP-400',
+          expect.objectContaining({ method: 'DELETE' }),
+        ),
+      )
+      await waitFor(() => expect(screen.queryByText('400')).not.toBeInTheDocument())
+    })
+
+    it('saving the popup that auto-opened after a typed Add keeps the ticket in the plan - no rollback', async () => {
+      render(<PlanningView team={team} />)
+      await screen.findByLabelText('Tickets for Ada Lovelace')
+
+      fireEvent.change(screen.getByLabelText('Ticket number to add to plan'), { target: { value: '400' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries/e-WOSMVP-400',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      const flagRow = screen.getByLabelText('Tickets for Needs dev/qa')
+      await waitFor(() => expect(within(flagRow).getByText('400')).toBeInTheDocument())
+    })
+
+    it("closing the popup for an already-placed ticket, opened by clicking its badge, does not undo anything - it's not a fresh add", async () => {
+      entriesData = [...entriesData, entry('e-needs-qa', needsQaTicket, 1, { devQa: needsQaDevQa })]
+      render(<PlanningView team={team} />)
+
+      const flagButton = await screen.findByRole('button', { name: 'Assign dev/qa for WOSMVP-400' })
+      fireEvent.click(flagButton)
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        'http://localhost:4100/api/sprint-plan-entries/e-needs-qa',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      expect(screen.getByRole('button', { name: 'Assign dev/qa for WOSMVP-400' })).toBeInTheDocument()
+    })
   })
 
   describe('Add from backlog (ticket 02 of .scratch/add-from-backlog)', () => {
@@ -1062,7 +1127,7 @@ describe('PlanningView', () => {
       expect(await screen.findByRole('dialog', { name: 'WOSMVP-600' })).toBeInTheDocument()
     })
 
-    it('closing the popup without saving leaves the picked ticket as a bare entry, identical to the typed-Add flow', async () => {
+    it('closing the popup without saving undoes the pick - the ticket never lands in the plan, identical to the typed-Add flow', async () => {
       backlogData = [
         { key: 'WOSMVP-600', title: 'Non split add', type: 'Task', labels: [], dev: null, qa: null, assignee: { name: 'Ada Lovelace' } },
       ]
@@ -1075,10 +1140,13 @@ describe('PlanningView', () => {
       const dialog = await screen.findByRole('dialog', { name: 'WOSMVP-600' })
       fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
 
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       await waitFor(() =>
-        expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('600')).toBeInTheDocument(),
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/sprint-plan-entries/e-WOSMVP-600',
+          expect.objectContaining({ method: 'DELETE' }),
+        ),
       )
+      await waitFor(() => expect(screen.queryByText('600')).not.toBeInTheDocument())
     })
   })
 

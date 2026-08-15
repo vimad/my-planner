@@ -989,6 +989,13 @@ export function PlanningView({ team }: { team: Team }) {
   // a flagged badge with no add involved.
   const [pendingPopupOpenTicketId, setPendingPopupOpenTicketId] = useState<string | null>(null)
   const [popupTicketId, setPopupTicketId] = useState<string | null>(null)
+  // Whether the currently-open popup was auto-opened right after an add
+  // (typed-Add or Add-from-backlog), as opposed to a click on an
+  // already-placed badge. Only in the former case does the popup's "Close"
+  // button undo the add itself (removeEntry below) - closing a popup opened
+  // by clicking an existing badge must never delete that entry, it's just
+  // dismissing the edit form.
+  const [popupOpenedViaAdd, setPopupOpenedViaAdd] = useState(false)
   // Option/Alt+click "pop" (find-the-pair): the single SprintPlanEntry
   // currently popped, keyed by entry id so a Split ticket's dev and qa
   // placements - which land in two different people's rows - pop together.
@@ -1051,6 +1058,7 @@ export function PlanningView({ team }: { team: Team }) {
     if (!match) return
 
     setPendingPopupOpenTicketId(null)
+    setPopupOpenedViaAdd(true)
     setPopupTicketId(pendingPopupOpenTicketId)
   }, [entries, pendingPopupOpenTicketId])
 
@@ -1058,6 +1066,41 @@ export function PlanningView({ team }: { team: Team }) {
     () => (popupTicketId ? (entries.find((e) => getId(e.ticketId) === popupTicketId) ?? null) : null),
     [entries, popupTicketId],
   )
+
+  // Badge-click open (as opposed to the auto-open effect above) - always
+  // clears popupOpenedViaAdd, since this popup is now about an
+  // already-placed entry regardless of how it originally got there.
+  function handleOpenPopup(ticketId: string) {
+    setPopupOpenedViaAdd(false)
+    setPopupTicketId(ticketId)
+  }
+
+  // "Close" without saving. For a popup opened via the auto-open effect
+  // (popupOpenedViaAdd), this is the "Cancel" case the user asked for -
+  // "until I click save don't add it to the plan, if I cancel it won't add
+  // to the plan" - so the just-created entry is deleted, same as the
+  // table's own Remove button (removeEntry, fire-and-forget, errors surface
+  // via the shared removeEntryError banner). For a popup opened by clicking
+  // an already-placed badge, this only dismisses the form - nothing to
+  // undo.
+  function handlePopupCancel() {
+    if (popupOpenedViaAdd) {
+      const entryId = getId(popupEntry)
+      if (entryId) removeEntry(entryId).catch(() => {})
+    }
+    closePopup()
+  }
+
+  // Close after a successful Save (or a no-op Save with nothing changed) -
+  // the entry is meant to stay either way, so never rolls back the add.
+  function handlePopupSaved() {
+    closePopup()
+  }
+
+  function closePopup() {
+    setPopupTicketId(null)
+    setPopupOpenedViaAdd(false)
+  }
 
   // One bucket of PlacedEntry per current TeamMembership, keyed by that
   // membership's Person.jiraAccountId for a non-split entry's single
@@ -1237,7 +1280,7 @@ export function PlanningView({ team }: { team: Team }) {
                       name={membership.personId.name}
                       placements={ticketsByMembershipId.get(getId(membership) ?? '') ?? []}
                       placeholders={placeholdersByMembershipId.get(getId(membership) ?? '') ?? []}
-                      onOpenPopup={setPopupTicketId}
+                      onOpenPopup={handleOpenPopup}
                       onReorder={reorderEntries}
                       onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                       removingEntryId={removingEntryId}
@@ -1251,7 +1294,7 @@ export function PlanningView({ team }: { team: Team }) {
                     name="Unmapped"
                     placements={unmappedPlacements}
                     variant="unmapped"
-                    onOpenPopup={setPopupTicketId}
+                    onOpenPopup={handleOpenPopup}
                     onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                     removingEntryId={removingEntryId}
                     poppedEntryId={poppedEntryId}
@@ -1261,7 +1304,7 @@ export function PlanningView({ team }: { team: Team }) {
                     name="Needs dev/qa"
                     placements={needsAssignmentPlacements}
                     variant="needsAssignment"
-                    onOpenPopup={setPopupTicketId}
+                    onOpenPopup={handleOpenPopup}
                     onRemove={(entryId) => removeEntry(entryId).catch(() => {})}
                     removingEntryId={removingEntryId}
                     poppedEntryId={poppedEntryId}
@@ -1289,7 +1332,8 @@ export function PlanningView({ team }: { team: Team }) {
             poSaving={savingPoAssignment}
             poError={poAssignmentError}
             onSavePo={(body) => savePoAssignment(getId(popupEntry.ticketId) ?? '', body)}
-            onClose={() => setPopupTicketId(null)}
+            onClose={handlePopupSaved}
+            onCancel={handlePopupCancel}
           />
         ) : (
           <TicketInfoPopup
@@ -1304,7 +1348,8 @@ export function PlanningView({ team }: { team: Team }) {
             savingFeatureOverride={savingFeatureOverride}
             featureOverrideError={featureOverrideError}
             onSaveFeature={(isFeature) => saveFeatureOverride(getId(popupEntry.ticketId) ?? '', isFeature)}
-            onClose={() => setPopupTicketId(null)}
+            onClose={handlePopupSaved}
+            onCancel={handlePopupCancel}
           />
         ))}
 
