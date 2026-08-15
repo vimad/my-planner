@@ -34,6 +34,7 @@ interface JiraSubtaskRef {
 
 interface JiraIssueTypeRef {
   subtask?: boolean
+  name?: string
 }
 
 // Fields the Jira search itself needs - just enough for mapIssueToTicketFields
@@ -74,16 +75,22 @@ export async function searchBacklog(category: BacklogCategory, jiraLabels: strin
   // below as a Story/Bug's resolved Dev/QA (via its own bulkFetchIssues
   // lookup), never as its own pickable backlog row. `subtaskIssueTypes()`
   // excludes every sub-task issue type regardless of its configured name,
-  // so this holds even for a custom-named sub-task type.
+  // so this holds even for a custom-named sub-task type. Epics are excluded
+  // too - a sprint plan assigns individual Story/Bug/Task work, never a
+  // whole Epic.
   // Rank ASC matches the manual drag-order the board's own Backlog view
   // shows and lets you reorder there - same ordering, not just the same
   // ticket set.
-  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes() ORDER BY Rank ASC`
+  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes() AND issuetype != Epic ORDER BY Rank ASC`
   const rawIssues = await searchJql(jql, BACKLOG_SEARCH_FIELDS)
   // Defensive backstop for the JQL clause above, keyed off the same
   // `issuetype.subtask` boolean mapIssueToTicketFields itself ignores -
-  // never trust a live Jira query alone to have excluded every Sub-task.
-  const issues = rawIssues.filter((issue) => !(issue.fields.issuetype as JiraIssueTypeRef | undefined)?.subtask)
+  // never trust a live Jira query alone to have excluded every Sub-task or
+  // Epic.
+  const issues = rawIssues.filter((issue) => {
+    const issuetype = issue.fields.issuetype as JiraIssueTypeRef | undefined
+    return !issuetype?.subtask && issuetype?.name !== 'Epic'
+  })
 
   const syncedAt = new Date()
   const mapped = issues.map((issue) => ({ issue, fields: mapIssueToTicketFields(issue, syncedAt) }))
