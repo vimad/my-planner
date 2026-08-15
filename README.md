@@ -41,6 +41,32 @@ Open http://localhost:5173 — it should show "Value from database: vinod".
 
 Stop the database with `pnpm db:down` when done.
 
+## Desktop app (macOS)
+
+`packages/desktop` wraps the same frontend in a native Mac app via Tauri — no changes to `packages/frontend`/`packages/backend`, and the backend/MongoDB are still started manually, same as the web version.
+
+One-time setup: install the Rust toolchain (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then `pnpm install`.
+
+**Daily use (the built app):**
+
+```bash
+pnpm db:up
+pnpm dev:backend
+pnpm build:desktop
+open "packages/desktop/src-tauri/target/release/bundle/macos/My Planner.app"
+```
+
+First launch: right-click the `.app` → Open, to bypass Gatekeeper (it's unsigned). After that it opens normally.
+
+**While developing** (hot-reload, native window):
+
+```bash
+pnpm dev            # terminal 1 — backend + frontend dev server
+pnpm dev:desktop    # terminal 2 — attaches to the running dev server on :5173
+```
+
+The window remembers its size/position across launches.
+
 ## Tests
 
 ```bash
