@@ -35,6 +35,7 @@ function issue(key: string, fields: Record<string, unknown> = {}): JiraIssue {
     fields: {
       summary: 'Some ticket title',
       issuetype: { name: 'Story', subtask: false },
+      status: { name: 'To Do' },
       labels: [],
       assignee: null,
       subtasks: [],
@@ -65,7 +66,7 @@ describe('searchBacklog', () => {
     expect(resolveBoard).toHaveBeenCalledWith('WOSMVP', 'Product Delivery Board')
     expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
     expect(searchJql).toHaveBeenCalledWith(
-      'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic ORDER BY Rank ASC',
+      'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic AND status != Done ORDER BY Rank ASC',
       expect.arrayContaining(['summary', 'issuetype', 'labels', 'assignee', 'subtasks']),
     )
   })
@@ -78,7 +79,7 @@ describe('searchBacklog', () => {
     await searchBacklog('product', ['Odyssey', 'Other'])
 
     expect(searchJql).toHaveBeenCalledWith(
-      'sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic ORDER BY Rank ASC',
+      'sprint = 502 AND labels in ("Odyssey", "Other") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic AND status != Done ORDER BY Rank ASC',
       expect.any(Array),
     )
   })
@@ -91,7 +92,7 @@ describe('searchBacklog', () => {
     await searchBacklog('bug', ['Odyssey'])
 
     expect(searchJql).toHaveBeenCalledWith(
-      'sprint = 503 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic ORDER BY Rank ASC',
+      'sprint = 503 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic AND status != Done ORDER BY Rank ASC',
       expect.any(Array),
     )
   })
@@ -250,6 +251,25 @@ describe('searchBacklog', () => {
     searchJql.mockResolvedValue([
       issue('WOSMVP-300', { summary: 'A task', issuetype: { name: 'Task', subtask: false } }),
       issue('WOSMVP-400', { summary: 'An epic', issuetype: { name: 'Epic', subtask: false } }),
+    ])
+
+    const result = await searchBacklog('tech-ops', ['Odyssey'])
+
+    expect(result).toEqual([
+      { key: 'WOSMVP-300', title: 'A task', type: 'Task', labels: [], dev: null, qa: null, assignee: null },
+    ])
+  })
+
+  it('excludes a Done ticket that itself matches the sprint+label search from the results', async () => {
+    resolveBoard.mockResolvedValue(BOARD)
+    listSprints.mockResolvedValue(SPRINTS)
+    searchJql.mockResolvedValue([
+      issue('WOSMVP-300', { summary: 'A task', issuetype: { name: 'Task', subtask: false } }),
+      issue('WOSMVP-500', {
+        summary: 'A done task',
+        issuetype: { name: 'Task', subtask: false },
+        status: { name: 'Done' },
+      }),
     ])
 
     const result = await searchBacklog('tech-ops', ['Odyssey'])

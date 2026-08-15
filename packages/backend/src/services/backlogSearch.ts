@@ -37,10 +37,15 @@ interface JiraIssueTypeRef {
   name?: string
 }
 
+interface JiraStatusRef {
+  name?: string
+}
+
 // Fields the Jira search itself needs - just enough for mapIssueToTicketFields
 // to derive title/type/labels/assignee, plus the raw Sub-task refs (not part
-// of TicketDoc) used below to fetch each Story/Bug's own Sub-tasks.
-const BACKLOG_SEARCH_FIELDS = ['summary', 'issuetype', 'labels', 'assignee', 'subtasks']
+// of TicketDoc) used below to fetch each Story/Bug's own Sub-tasks, plus
+// status for the Done-exclusion backstop below.
+const BACKLOG_SEARCH_FIELDS = ['summary', 'issuetype', 'labels', 'assignee', 'subtasks', 'status']
 
 function roleFromSubtask(fields: ReturnType<typeof mapIssueToTicketFields> | undefined): { name: string } | null {
   return fields?.assigneeDisplayName ? { name: fields.assigneeDisplayName } : null
@@ -77,19 +82,22 @@ export async function searchBacklog(category: BacklogCategory, jiraLabels: strin
   // excludes every sub-task issue type regardless of its configured name,
   // so this holds even for a custom-named sub-task type. Epics are excluded
   // too - a sprint plan assigns individual Story/Bug/Task work, never a
-  // whole Epic.
+  // whole Epic. A ticket already in Done is excluded as well - it's already
+  // completed, so there's nothing left to plan.
   // Rank ASC matches the manual drag-order the board's own Backlog view
   // shows and lets you reorder there - same ordering, not just the same
   // ticket set.
-  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes() AND issuetype != Epic ORDER BY Rank ASC`
+  const jql = `sprint = ${sprint.id} AND labels in (${labelClause}) AND issuetype not in subtaskIssueTypes() AND issuetype != Epic AND status != Done ORDER BY Rank ASC`
   const rawIssues = await searchJql(jql, BACKLOG_SEARCH_FIELDS)
   // Defensive backstop for the JQL clause above, keyed off the same
   // `issuetype.subtask` boolean mapIssueToTicketFields itself ignores -
-  // never trust a live Jira query alone to have excluded every Sub-task or
-  // Epic.
+  // never trust a live Jira query alone to have excluded every Sub-task,
+  // Epic, or Done ticket. Matches epics.ts's own `status === 'Done'` string
+  // comparison against the raw status name.
   const issues = rawIssues.filter((issue) => {
     const issuetype = issue.fields.issuetype as JiraIssueTypeRef | undefined
-    return !issuetype?.subtask && issuetype?.name !== 'Epic'
+    const status = issue.fields.status as JiraStatusRef | undefined
+    return !issuetype?.subtask && issuetype?.name !== 'Epic' && status?.name !== 'Done'
   })
 
   const syncedAt = new Date()
