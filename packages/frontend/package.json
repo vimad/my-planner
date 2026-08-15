@@ -18,6 +18,8 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@svar-ui/react-gantt": "^2.7.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@tiptap/core": "^3.29.0",
     "@tiptap/extension-link": "3.29.0",
     "@tiptap/extension-list": "^3.29.0",

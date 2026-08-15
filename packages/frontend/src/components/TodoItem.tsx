@@ -2,6 +2,7 @@ import { Pin } from 'lucide-react'
 import { boardItemKey } from '../utils/boardItemKey'
 import { getId } from '../utils/getId'
 import { linkify } from '../utils/linkify'
+import { ExternalLink } from './ExternalLink'
 import type { BoardQuickAddState, Category, Todo, TodoPriority } from '../types'
 
 const PRIORITY_BADGE_STYLES: Record<TodoPriority, string> = {
@@ -61,16 +62,14 @@ export function TodoItem({ todo, isDueToday, category, onToggle, onDelete, onOpe
       <span className="flex-1 text-sm text-slate-900 dark:text-slate-100">
         {linkify(todo.title).map((segment, i) =>
           segment.href ? (
-            <a
+            <ExternalLink
               key={i}
               href={segment.href}
-              target="_blank"
-              rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className="text-fuchsia-600 hover:text-fuchsia-700 hover:underline dark:text-fuchsia-300 dark:hover:text-fuchsia-200"
             >
               {segment.text}
-            </a>
+            </ExternalLink>
           ) : (
             <span key={i}>{segment.text}</span>
           ),

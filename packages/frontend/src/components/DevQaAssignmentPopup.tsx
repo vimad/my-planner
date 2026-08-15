@@ -4,6 +4,7 @@ import { DEV_ROLES, QA_ROLES } from '../constants/roles'
 import { getId } from '../utils/getId'
 import { isPoEligibleTicket } from '../utils/ticketType'
 import { initialPlanSpillPair, PlanSpillTrio, type PlanSpillPair } from './PlanSpillTrio'
+import { ExternalLink } from './ExternalLink'
 import type { DevQaRoleResolution, SprintPlanEntry, TeamMembership } from '../types'
 
 // PUT /api/tickets/:ticketId/dev-qa-override's body (ticket 23) - only the
@@ -289,14 +290,12 @@ export function DevQaAssignmentPopup({
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
         <div className="flex items-start justify-between gap-2">
           <h2 className="text-lg font-semibold">{entry.ticketId.jiraKey}</h2>
-          <a
+          <ExternalLink
             href={`${JIRA_BASE_URL}/browse/${entry.ticketId.jiraKey}`}
-            target="_blank"
-            rel="noreferrer"
             className="shrink-0 text-xs text-fuchsia-600 hover:underline dark:text-fuchsia-300"
           >
             Open in Jira ↗
-          </a>
+          </ExternalLink>
         </div>
         <p className="mb-4 truncate text-xs text-slate-500 dark:text-slate-400">{entry.ticketId.title}</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

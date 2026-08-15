@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { JIRA_BASE_URL } from '../constants/jira'
 import { getId } from '../utils/getId'
+import { ExternalLink } from './ExternalLink'
 import type { Epic } from '../types'
 
 function EpicPill({ epic, onClick }: { epic: Epic; onClick: () => void }) {
@@ -41,14 +42,12 @@ function EpicModal({ epic, onClose }: { epic: Epic; onClose: () => void }) {
           {epic.status} &middot; {epic.doneCount}/{epic.childCount} child tickets done
         </p>
         <div className="mt-4 flex justify-end gap-2">
-          <a
+          <ExternalLink
             href={`${JIRA_BASE_URL}/browse/${epic.jiraKey}`}
-            target="_blank"
-            rel="noreferrer"
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
           >
             Open in Jira ↗
-          </a>
+          </ExternalLink>
           <button
             type="button"
             onClick={onClose}
