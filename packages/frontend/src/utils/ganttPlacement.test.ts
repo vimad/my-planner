@@ -298,6 +298,15 @@ describe('computeGanttRows', () => {
     expect(bobRow[1].start).toBe('2026-08-11')
   })
 
+  it('excludes a placement with zero planned hours from the rendered row, while still placing others', () => {
+    const t1 = ticket({ jiraKey: 'PROJ-8' })
+    const t2 = ticket({ jiraKey: 'PROJ-9' })
+    const zeroEntry = nonSplitEntry('e8', t1, 0, 0, 'acc-ada')
+    const realEntry = nonSplitEntry('e9', t2, 1, 8, 'acc-ada')
+    const rows = computeGanttRows([zeroEntry, realEntry], [adaMembership], [capacityFor(adaMembership)], window)
+    expect(rows.get('m1')).toEqual([{ key: 'e9-main', start: '2026-08-11', end: '2026-08-12', entry: realEntry, role: undefined, membershipId: 'm1' }])
+  })
+
   it('gives each membership its own independent walk-forward cursor', () => {
     const t1 = ticket({ jiraKey: 'PROJ-6' })
     const t2 = ticket({ jiraKey: 'PROJ-7' })

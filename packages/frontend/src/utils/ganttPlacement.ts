@@ -244,11 +244,17 @@ export function computeGanttRows(
     }))
     const bars = placePersonBars(items, personCapacity, window)
     const barByKey = new Map(bars.map((b) => [b.key, b]))
+    const hoursByKey = new Map(items.map((i) => [i.key, i.hours]))
 
     const placedBars: GanttPlacedBar[] = placements
       .map((p): GanttPlacedBar | null => {
         const bar = barByKey.get(placementKey(p))
         if (!bar) return null
+        // A ticket with no (or zero) planned-this-sprint hours still occupies a
+        // minimum one-day-wide bar in the walk-forward cursor above (so it
+        // doesn't distort later placements' start dates), but has nothing
+        // meaningful to show - excluded from the rendered row entirely.
+        if ((hoursByKey.get(bar.key) ?? 0) <= 0) return null
         return { ...bar, entry: p.entry, role: p.role, membershipId }
       })
       .filter((b): b is GanttPlacedBar => b !== null)
