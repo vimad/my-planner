@@ -64,7 +64,7 @@ describe('searchBacklog', () => {
     await searchBacklog('tech-ops', ['Odyssey'])
 
     expect(resolveBoard).toHaveBeenCalledWith('WOSMVP', 'Product Delivery Board')
-    expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
+    expect(listSprints).toHaveBeenCalledWith(29, ['future'])
     expect(searchJql).toHaveBeenCalledWith(
       'sprint = 501 AND labels in ("Odyssey") AND issuetype not in subtaskIssueTypes() AND issuetype != Epic AND status != Done ORDER BY Rank ASC',
       expect.arrayContaining(['summary', 'issuetype', 'labels', 'assignee', 'subtasks']),
