@@ -53,6 +53,14 @@ function nextDay(date: Date): Date {
 // with no horizontal scrollbar) instead of shrinking as more weeks of
 // spillover get auto-placed.
 const GANTT_WINDOW_DAYS = 21
+// A person's earliest bar starts right at the sprint's own start date, i.e.
+// at the very left edge of the chart - SVAR's dependency-link connector
+// (the Dev/QA `s2s` link's elbow routing) needs a little chart area to the
+// LEFT of a bar to loop through, and with zero room there the connector was
+// rendering clipped/invisible against that edge. A couple of blank lead-in
+// days before the axis's real start gives it that room.
+const GANTT_LEAD_IN_DAYS = 2
+const GANTT_VISIBLE_DAYS = GANTT_WINDOW_DAYS + GANTT_LEAD_IN_DAYS
 const GANTT_GRID_WIDTH = 160
 
 // Ticket 01's synthetic row-per-person tree: one hidden parent "task" per
@@ -166,20 +174,23 @@ function SprintGantt({
     [sprintPeriod.startDate, sprintPeriod.holidays],
   )
 
-  // Fixed three-week axis (see GANTT_WINDOW_DAYS) - `autoScale={false}` on
-  // the Gantt below stops SVAR from widening the axis to fit a spilled
-  // ticket's bar past this window, per ticket 04/07's "extends past the
-  // sprint's endDate" placement behavior above.
+  // Fixed three-week axis (see GANTT_WINDOW_DAYS), plus GANTT_LEAD_IN_DAYS of
+  // blank space before the sprint's own start date for link-connector room
+  // (see that constant's comment) - `autoScale={false}` on the Gantt below
+  // stops SVAR from widening the axis to fit a spilled ticket's bar past
+  // this window, per ticket 04/07's "extends past the sprint's endDate"
+  // placement behavior above.
   const axisRange = useMemo(() => {
-    const start = parseLocalDate(sprintPeriod.startDate)
-    return { start, end: addDays(start, GANTT_WINDOW_DAYS) }
+    const sprintStart = parseLocalDate(sprintPeriod.startDate)
+    return { start: addDays(sprintStart, -GANTT_LEAD_IN_DAYS), end: addDays(sprintStart, GANTT_WINDOW_DAYS) }
   }, [sprintPeriod.startDate])
 
-  // Fills the modal's available width with the fixed GANTT_WINDOW_DAYS
-  // column count instead of a constant per-day pixel width, so the chart
-  // never needs its own horizontal scrollbar (and uses the freed-up space
-  // the three-week cap above creates) - ResizeObserver is unavailable in
-  // the jsdom test environment, hence the guard, and irrelevant there since
+  // Fills the modal's available width with the fixed GANTT_VISIBLE_DAYS
+  // column count (the three-week window plus its lead-in) instead of a
+  // constant per-day pixel width, so the chart never needs its own
+  // horizontal scrollbar (and uses the freed-up space the three-week cap
+  // above creates) - ResizeObserver is unavailable in the jsdom test
+  // environment, hence the guard, and irrelevant there since
   // SprintGanttChart.test.tsx stubs out the real <Gantt>/canvas rendering.
   const chartWrapperRef = useRef<HTMLDivElement>(null)
   const [cellWidth, setCellWidth] = useState(32)
@@ -191,10 +202,10 @@ function SprintGantt({
       if (!width) return
       const available = width - GANTT_GRID_WIDTH
       // No floor on the low end - clamping cellWidth up on a narrow window
-      // would make the 21-day timeline wider than `available` again,
-      // reintroducing the exact horizontal scrollbar this sizing exists to
-      // remove. 1px floor only guards against a negative/zero width.
-      setCellWidth(Math.max(1, Math.floor(available / GANTT_WINDOW_DAYS)))
+      // would make the timeline wider than `available` again, reintroducing
+      // the exact horizontal scrollbar this sizing exists to remove. 1px
+      // floor only guards against a negative/zero width.
+      setCellWidth(Math.max(1, Math.floor(available / GANTT_VISIBLE_DAYS)))
     })
     observer.observe(node)
     return () => observer.disconnect()
