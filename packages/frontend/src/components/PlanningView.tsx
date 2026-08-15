@@ -458,6 +458,7 @@ function AddToPlanForm({
   error,
   onOpenPlaceholder,
   fetchBacklog,
+  refreshBacklog,
   onPickFromBacklog,
 }: {
   value: string
@@ -473,6 +474,7 @@ function AddToPlanForm({
   // a third icon-only affordance right after the placeholder button, for
   // browsing the team's real Jira backlog instead of typing a known key.
   fetchBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
+  refreshBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
   onPickFromBacklog: (jiraKey: string) => void
 }) {
   return (
@@ -506,7 +508,7 @@ function AddToPlanForm({
       >
         <StickyNote className="h-4 w-4" />
       </button>
-      <AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={onPickFromBacklog} />
+      <AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={refreshBacklog} onPick={onPickFromBacklog} />
       {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </form>
   )
@@ -941,6 +943,7 @@ export function PlanningView({ team }: { team: Team }) {
     addTicketError,
     addTicket,
     fetchBacklog,
+    refreshBacklog,
     addFromBacklog,
     placeholders,
     addingPlaceholder,
@@ -1235,6 +1238,7 @@ export function PlanningView({ team }: { team: Team }) {
             error={addTicketError}
             onOpenPlaceholder={() => setPlaceholderPopupOpen(true)}
             fetchBacklog={fetchBacklog}
+            refreshBacklog={refreshBacklog}
             onPickFromBacklog={handlePickFromBacklog}
           />
 

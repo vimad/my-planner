@@ -1,4 +1,4 @@
-import { Inbox } from 'lucide-react'
+import { Inbox, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar } from './Avatar'
 import { isSplitTicket } from '../utils/ticketType'
@@ -14,8 +14,15 @@ interface AddFromBacklogPopoverProps {
   // Wraps GET /api/tickets/backlog (useSprintPlan.ts) - deliberately never
   // called with a `q` param here: the search box below filters the
   // already-fetched category client-side, so typing never triggers an
-  // extra round-trip (spec ".scratch/add-from-backlog/spec.md").
+  // extra round-trip (spec ".scratch/add-from-backlog/spec.md"). Server-side
+  // this is served from a cache, populated from Jira only the first time a
+  // category is browsed - see refreshBacklog below for forcing a re-fetch.
   fetchBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
+  // Wraps POST /api/tickets/backlog/refresh - forces a live Jira re-fetch
+  // for the current category and replaces the server-side cache, so a
+  // ticket added/reordered/removed on the real Jira backlog shows up here
+  // without waiting on anything else to invalidate the cache first.
+  refreshBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
   // Reuses the exact existing add-and-assign pipeline (useSprintPlan.ts's
   // addFromBacklog, which delegates to addTicket) - this component's own
   // job ends at "which ticket was picked", not the add itself.
@@ -27,12 +34,13 @@ interface AddFromBacklogPopoverProps {
 // as AddSprintPopover.tsx. Browses the team's Jira backlog (Technical/
 // Product/Bugs tabs, scoped to Team.jiraLabels server-side) so a ticket can
 // be added without already knowing its key.
-export function AddFromBacklogPopover({ fetchBacklog, onPick }: AddFromBacklogPopoverProps) {
+export function AddFromBacklogPopover({ fetchBacklog, refreshBacklog, onPick }: AddFromBacklogPopoverProps) {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<BacklogCategory>('tech-ops')
   const [query, setQuery] = useState('')
   const [tickets, setTickets] = useState<BacklogTicket[]>([])
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -85,6 +93,23 @@ export function AddFromBacklogPopover({ fetchBacklog, onPick }: AddFromBacklogPo
     onPick(ticket.key)
   }
 
+  // Forces a live Jira re-fetch for the current category, replacing the
+  // server-side cache and the list shown here - unlike the open/category
+  // effect above, this is only ever triggered by an explicit click, never
+  // automatically.
+  async function handleRefresh() {
+    setRefreshing(true)
+    setError(null)
+    try {
+      const data = await refreshBacklog(category)
+      setTickets(data)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const trimmedQuery = query.trim().toLowerCase()
   const filteredTickets = trimmedQuery
     ? tickets.filter(
@@ -108,7 +133,7 @@ export function AddFromBacklogPopover({ fetchBacklog, onPick }: AddFromBacklogPo
 
       {open && (
         <div className="absolute left-0 top-[calc(100%+4px)] z-10 w-96 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-[#1a1229]">
-          <div className="flex gap-1 px-3 pb-2 pt-1">
+          <div className="flex items-center gap-1 px-3 pb-2 pt-1">
             {CATEGORY_TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -123,6 +148,16 @@ export function AddFromBacklogPopover({ fetchBacklog, onPick }: AddFromBacklogPo
                 {tab.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              aria-label="Refresh backlog from Jira"
+              title="Refresh backlog from Jira"
+              className="ml-auto shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
           </div>
 
           <div className="px-3 pb-1">

@@ -44,10 +44,18 @@ function stubFetchBacklog() {
   })
 }
 
+function stubRefreshBacklog() {
+  return vi.fn(async (category: string) => {
+    if (category === 'tech-ops') return techOpsTickets
+    if (category === 'product') return productTickets
+    return []
+  })
+}
+
 describe('AddFromBacklogPopover', () => {
   it('fetches nothing until opened, then fetches the default (Technical) category', async () => {
     const fetchBacklog = stubFetchBacklog()
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     expect(fetchBacklog).not.toHaveBeenCalled()
 
@@ -60,7 +68,7 @@ describe('AddFromBacklogPopover', () => {
 
   it('re-fetches when the active category tab changes', async () => {
     const fetchBacklog = stubFetchBacklog()
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
@@ -75,7 +83,7 @@ describe('AddFromBacklogPopover', () => {
 
   it('typing in search narrows the already-fetched list without an extra fetch', async () => {
     const fetchBacklog = stubFetchBacklog()
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
@@ -90,7 +98,7 @@ describe('AddFromBacklogPopover', () => {
 
   it('matches by ticket key too, not just title', async () => {
     const fetchBacklog = stubFetchBacklog()
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
@@ -109,7 +117,7 @@ describe('AddFromBacklogPopover', () => {
           resolveFetch = resolve
         }),
     )
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
     expect(screen.getByText('Loading backlog…')).toBeInTheDocument()
@@ -121,7 +129,7 @@ describe('AddFromBacklogPopover', () => {
 
   it("surfaces the backend's error message", async () => {
     const fetchBacklog = vi.fn().mockRejectedValue(new Error('Could not resolve the Jira board'))
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={vi.fn()} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
 
@@ -131,7 +139,7 @@ describe('AddFromBacklogPopover', () => {
   it('clicking a result closes the popover and invokes onPick with that ticket key', async () => {
     const fetchBacklog = stubFetchBacklog()
     const onPick = vi.fn()
-    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={onPick} />)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={onPick} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
@@ -142,12 +150,46 @@ describe('AddFromBacklogPopover', () => {
     expect(screen.queryByLabelText('Search backlog')).not.toBeInTheDocument()
   })
 
+  it('clicking the refresh icon calls refreshBacklog for the active category and replaces the list', async () => {
+    const fetchBacklog = stubFetchBacklog()
+    const refreshedTickets: BacklogTicket[] = [
+      { key: 'WOSMVP-999', title: 'Newly ranked in from Jira', type: 'Task', labels: ['Odyssey'], dev: null, qa: null, assignee: null },
+    ]
+    const refreshBacklog = vi.fn().mockResolvedValue(refreshedTickets)
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={refreshBacklog} onPick={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh backlog from Jira' }))
+
+    await waitFor(() => expect(screen.getByText('WOSMVP-999')).toBeInTheDocument())
+    expect(refreshBacklog).toHaveBeenCalledTimes(1)
+    expect(refreshBacklog).toHaveBeenCalledWith('tech-ops')
+    expect(screen.queryByText('WOSMVP-100')).not.toBeInTheDocument()
+    // The regular fetch never re-runs as a side effect of refreshing.
+    expect(fetchBacklog).toHaveBeenCalledTimes(1)
+  })
+
+  it("surfaces the backend's error message when the refresh itself fails", async () => {
+    const fetchBacklog = stubFetchBacklog()
+    const refreshBacklog = vi.fn().mockRejectedValue(new Error('Could not resolve the Jira board'))
+    render(<AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={refreshBacklog} onPick={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add from backlog' }))
+    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh backlog from Jira' }))
+
+    await waitFor(() => expect(screen.getByText('Error: Could not resolve the Jira board')).toBeInTheDocument())
+  })
+
   it('closes on outside click without picking anything', async () => {
     const fetchBacklog = stubFetchBacklog()
     const onPick = vi.fn()
     render(
       <div>
-        <AddFromBacklogPopover fetchBacklog={fetchBacklog} onPick={onPick} />
+        <AddFromBacklogPopover fetchBacklog={fetchBacklog} refreshBacklog={stubRefreshBacklog()} onPick={onPick} />
         <button type="button">Outside</button>
       </div>,
     )

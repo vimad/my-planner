@@ -6,7 +6,8 @@ import { TicketAssigneeOverride } from '../models/TicketAssigneeOverride.ts'
 import { TicketDevQaOverride } from '../models/TicketDevQaOverride.ts'
 import { TicketFeatureOverride } from '../models/TicketFeatureOverride.ts'
 import { TicketPoAssignment } from '../models/TicketPoAssignment.ts'
-import { searchBacklog, type BacklogCategory } from '../services/backlogSearch.ts'
+import { getBacklog, refreshBacklog } from '../services/backlogCache.ts'
+import type { BacklogCategory } from '../services/backlogSearch.ts'
 import { PO_ELIGIBLE_TICKET_TYPE } from '../services/devQaResolution.ts'
 
 const BACKLOG_CATEGORIES: BacklogCategory[] = ['tech-ops', 'product', 'bug']
@@ -99,13 +100,15 @@ ticketsRouter.get('/po-assignments', async (req: Request, res: Response, next: N
 })
 
 // GET /api/tickets/backlog?teamId=&category=tech-ops|product|bug&q= -> a
-// read-only, uncached live Jira browse of one category's named backlog
-// sprint on the Product Delivery Board (services/backlogSearch.ts), scoped
-// to the team's jiraLabels the same way every other ticket list here is.
-// Never writes to Ticket or any Override collection - this is a
-// browsing/search query only, unlike every other route in this file.
-// `q` narrows the already-fetched list by key/title substring, case-
-// insensitively, at this route layer rather than in JQL.
+// cache-first browse of one category's named backlog sprint on the Product
+// Delivery Board (services/backlogCache.ts), scoped to the team's
+// jiraLabels the same way every other ticket list here is. Only hits Jira
+// live the first time a (teamId, category) pair is browsed - every request
+// after that is served from BacklogTicketCache until the refresh route
+// below is explicitly called. Never writes to Ticket or any Override
+// collection - this is a browsing/search query only, unlike every other
+// route in this file. `q` narrows the already-fetched list by key/title
+// substring, case-insensitively, at this route layer rather than in JQL.
 ticketsRouter.get('/backlog', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, category, q } = req.query
@@ -120,7 +123,7 @@ ticketsRouter.get('/backlog', async (req: Request, res: Response, next: NextFunc
     const team = await Team.findById(teamId)
     if (!team) return res.status(404).json({ error: 'Team not found' })
 
-    const tickets = await searchBacklog(category as BacklogCategory, team.jiraLabels)
+    const tickets = await getBacklog(teamId, category as BacklogCategory, team.jiraLabels)
     if (tickets === null) {
       return res.status(502).json({ error: 'Could not resolve the Jira board' })
     }
@@ -133,6 +136,38 @@ ticketsRouter.get('/backlog', async (req: Request, res: Response, next: NextFunc
       : tickets
 
     res.json(filtered)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/tickets/backlog/refresh -> body { teamId, category }. Forces a
+// live Jira re-fetch of one category's backlog and replaces its
+// BacklogTicketCache wholesale (services/backlogCache.ts's refreshBacklog) -
+// what the "Add from backlog" panel's refresh icon calls, since GET
+// /backlog above never re-hits Jira on its own once a category has been
+// cached. A POST (not a GET) because it's a deliberate cache-invalidating
+// action, not an idempotent read.
+ticketsRouter.post('/backlog/refresh', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { teamId, category } = req.body as { teamId?: string; category?: string }
+
+    if (!teamId || typeof teamId !== 'string') {
+      return res.status(400).json({ error: 'teamId is required' })
+    }
+    if (typeof category !== 'string' || !BACKLOG_CATEGORIES.includes(category as BacklogCategory)) {
+      return res.status(400).json({ error: 'category must be one of tech-ops, product, bug' })
+    }
+
+    const team = await Team.findById(teamId)
+    if (!team) return res.status(404).json({ error: 'Team not found' })
+
+    const tickets = await refreshBacklog(teamId, category as BacklogCategory, team.jiraLabels)
+    if (tickets === null) {
+      return res.status(502).json({ error: 'Could not resolve the Jira board' })
+    }
+
+    res.json(tickets)
   } catch (err) {
     next(err)
   }

@@ -206,6 +206,12 @@ export interface UseSprintPlanResult {
   // in-flight backlog browse).
   fetchBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
 
+  // Forces a fresh Jira fetch for one category, replacing the server-side
+  // cache fetchBacklog above reads from - what the popover's refresh icon
+  // calls. Same "throws on failure, no local loading/error state here"
+  // convention as fetchBacklog.
+  refreshBacklog: (category: BacklogCategory) => Promise<BacklogTicket[]>
+
   // Picking a backlog result (ticket 02) - reuses the exact same add
   // pipeline as the typed "Add" button (addTicket above) verbatim, per the
   // spec ("no new atomic create-with-assignment endpoint"). Both flows open
@@ -686,6 +692,24 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     [teamId],
   )
 
+  // Forces a live Jira re-fetch of one category's backlog, replacing its
+  // server-side cache (POST /api/tickets/backlog/refresh) - what
+  // AddFromBacklogPopover's refresh icon calls, since fetchBacklog above is
+  // served from that cache once a category has been browsed once.
+  const refreshBacklog = useCallback(
+    async (category: BacklogCategory): Promise<BacklogTicket[]> => {
+      if (!teamId) return []
+      const res = await fetch(`${API_URL}/api/tickets/backlog/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId, category }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      return (await res.json()) as BacklogTicket[]
+    },
+    [teamId],
+  )
+
   // A thin delegate to addTicket - see this action's own comment on
   // UseSprintPlanResult for why the "always open the popup" behavior is
   // handled by PlanningView.tsx instead of here.
@@ -971,6 +995,7 @@ export function useSprintPlan(teamId: string | null): UseSprintPlanResult {
     addTicketError,
     addTicket,
     fetchBacklog,
+    refreshBacklog,
     addFromBacklog,
     placeholders,
     addingPlaceholder,

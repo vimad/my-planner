@@ -6,10 +6,13 @@ interface MockedTeamModel {
 }
 
 vi.mock('../src/models/Team.ts', () => ({ Team: { findById: vi.fn() } }))
-vi.mock('../src/services/backlogSearch.ts', () => ({ searchBacklog: vi.fn() }))
+vi.mock('../src/services/backlogCache.ts', () => ({ getBacklog: vi.fn(), refreshBacklog: vi.fn() }))
 
 const { Team } = (await import('../src/models/Team.ts')) as unknown as { Team: MockedTeamModel }
-const { searchBacklog } = (await import('../src/services/backlogSearch.ts')) as unknown as { searchBacklog: Mock }
+const { getBacklog, refreshBacklog } = (await import('../src/services/backlogCache.ts')) as unknown as {
+  getBacklog: Mock
+  refreshBacklog: Mock
+}
 const { createApp } = await import('../src/app.ts')
 
 const BACKLOG_TICKETS = [
@@ -26,21 +29,21 @@ describe('GET /api/tickets/backlog', () => {
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ category: 'tech-ops' })
     expect(res.status).toBe(400)
-    expect(searchBacklog).not.toHaveBeenCalled()
+    expect(getBacklog).not.toHaveBeenCalled()
   })
 
   it('rejects a missing category', async () => {
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ teamId: 't1' })
     expect(res.status).toBe(400)
-    expect(searchBacklog).not.toHaveBeenCalled()
+    expect(getBacklog).not.toHaveBeenCalled()
   })
 
   it('rejects a category outside the known three values', async () => {
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ teamId: 't1', category: 'nonsense' })
     expect(res.status).toBe(400)
-    expect(searchBacklog).not.toHaveBeenCalled()
+    expect(getBacklog).not.toHaveBeenCalled()
   })
 
   it('returns 404 when the team does not exist', async () => {
@@ -50,21 +53,21 @@ describe('GET /api/tickets/backlog', () => {
     expect(res.status).toBe(404)
   })
 
-  it("calls searchBacklog with the category and the team's jiraLabels, returning its result", async () => {
+  it("calls getBacklog with the teamId, category, and the team's jiraLabels, returning its result", async () => {
     Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
-    searchBacklog.mockResolvedValue(BACKLOG_TICKETS)
+    getBacklog.mockResolvedValue(BACKLOG_TICKETS)
 
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ teamId: 't1', category: 'tech-ops' })
 
     expect(res.status).toBe(200)
-    expect(searchBacklog).toHaveBeenCalledWith('tech-ops', ['Odyssey'])
+    expect(getBacklog).toHaveBeenCalledWith('t1', 'tech-ops', ['Odyssey'])
     expect(res.body).toEqual(BACKLOG_TICKETS)
   })
 
   it('filters the result by key or title substring, case-insensitively, when q is given', async () => {
     Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
-    searchBacklog.mockResolvedValue(BACKLOG_TICKETS)
+    getBacklog.mockResolvedValue(BACKLOG_TICKETS)
 
     const app = createApp()
     const res = await request(app)
@@ -77,7 +80,7 @@ describe('GET /api/tickets/backlog', () => {
 
   it('matches q against the ticket key too', async () => {
     Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
-    searchBacklog.mockResolvedValue(BACKLOG_TICKETS)
+    getBacklog.mockResolvedValue(BACKLOG_TICKETS)
 
     const app = createApp()
     const res = await request(app)
@@ -88,9 +91,9 @@ describe('GET /api/tickets/backlog', () => {
     expect(res.body).toEqual([BACKLOG_TICKETS[1]])
   })
 
-  it('returns 502 when searchBacklog cannot resolve the board/sprint', async () => {
+  it('returns 502 when getBacklog cannot resolve the board/sprint', async () => {
     Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
-    searchBacklog.mockResolvedValue(null)
+    getBacklog.mockResolvedValue(null)
 
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ teamId: 't1', category: 'tech-ops' })
@@ -100,12 +103,61 @@ describe('GET /api/tickets/backlog', () => {
 
   it('returns an empty list (not an error) for a team with no jiraLabels', async () => {
     Team.findById.mockResolvedValue({ jiraLabels: [] })
-    searchBacklog.mockResolvedValue([])
+    getBacklog.mockResolvedValue([])
 
     const app = createApp()
     const res = await request(app).get('/api/tickets/backlog').query({ teamId: 't1', category: 'product' })
 
     expect(res.status).toBe(200)
     expect(res.body).toEqual([])
+  })
+})
+
+describe('POST /api/tickets/backlog/refresh', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejects a missing teamId', async () => {
+    const app = createApp()
+    const res = await request(app).post('/api/tickets/backlog/refresh').send({ category: 'tech-ops' })
+    expect(res.status).toBe(400)
+    expect(refreshBacklog).not.toHaveBeenCalled()
+  })
+
+  it('rejects a category outside the known three values', async () => {
+    const app = createApp()
+    const res = await request(app).post('/api/tickets/backlog/refresh').send({ teamId: 't1', category: 'nonsense' })
+    expect(res.status).toBe(400)
+    expect(refreshBacklog).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the team does not exist', async () => {
+    Team.findById.mockResolvedValue(null)
+    const app = createApp()
+    const res = await request(app).post('/api/tickets/backlog/refresh').send({ teamId: 't1', category: 'tech-ops' })
+    expect(res.status).toBe(404)
+  })
+
+  it("calls refreshBacklog with the teamId, category, and the team's jiraLabels, returning its result", async () => {
+    Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
+    refreshBacklog.mockResolvedValue(BACKLOG_TICKETS)
+
+    const app = createApp()
+    const res = await request(app).post('/api/tickets/backlog/refresh').send({ teamId: 't1', category: 'tech-ops' })
+
+    expect(res.status).toBe(200)
+    expect(refreshBacklog).toHaveBeenCalledWith('t1', 'tech-ops', ['Odyssey'])
+    expect(res.body).toEqual(BACKLOG_TICKETS)
+  })
+
+  it('returns 502 when refreshBacklog cannot resolve the board/sprint', async () => {
+    Team.findById.mockResolvedValue({ jiraLabels: ['Odyssey'] })
+    refreshBacklog.mockResolvedValue(null)
+
+    const app = createApp()
+    const res = await request(app).post('/api/tickets/backlog/refresh').send({ teamId: 't1', category: 'tech-ops' })
+
+    expect(res.status).toBe(502)
   })
 })
