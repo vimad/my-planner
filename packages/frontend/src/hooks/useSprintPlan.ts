@@ -208,13 +208,11 @@ export interface UseSprintPlanResult {
 
   // Picking a backlog result (ticket 02) - reuses the exact same add
   // pipeline as the typed "Add" button (addTicket above) verbatim, per the
-  // spec ("no new atomic create-with-assignment endpoint"). The only
-  // behavioral difference - always opening the per-ticket popup once the
-  // entry lands, instead of addTicket's own needs-assignment-gated
-  // auto-open - lives entirely in PlanningView.tsx as a second, separate
-  // pending-open state/effect (pendingBacklogOpenTicketId), since
-  // `popupTicketId` itself is UI state PlanningView already owns (a badge
-  // click can also open it, with no add involved) - not duplicated here.
+  // spec ("no new atomic create-with-assignment endpoint"). Both flows open
+  // the same per-ticket popup once the entry lands; that pending-open
+  // state/effect lives entirely in PlanningView.tsx, since `popupTicketId`
+  // itself is UI state PlanningView already owns (a badge click can also
+  // open it, with no add involved) - not duplicated here.
   addFromBacklog: (jiraKey: string) => Promise<SprintPlanEntry | null>
 
   // Placeholder tickets (non-Jira, manually-created - see types.ts) - fetched

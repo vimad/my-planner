@@ -938,7 +938,7 @@ describe('PlanningView', () => {
       await waitFor(() => expect(within(graceRow).getByText('400')).toBeInTheDocument())
     })
 
-    it('auto-opens the popup right after add-to-plan when the newly-added Split ticket has a needs-assignment role', async () => {
+    it('always opens the popup right after add-to-plan for a Split ticket with a needs-assignment role', async () => {
       render(<PlanningView team={team} />)
       await screen.findByLabelText('Tickets for Ada Lovelace')
 
@@ -948,43 +948,34 @@ describe('PlanningView', () => {
       expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-400' })).toBeInTheDocument()
     })
 
-    it('does not auto-open the popup for a fully-resolved Split ticket added to the plan', async () => {
+    it('always opens the popup for a fully-resolved Split ticket added to the plan, so estimates can be set right away', async () => {
       render(<PlanningView team={team} />)
       await screen.findByLabelText('Tickets for Ada Lovelace')
 
       fireEvent.change(screen.getByLabelText('Ticket number to add to plan'), { target: { value: '500' } })
       fireEvent.click(screen.getByRole('button', { name: 'Add' }))
 
-      await waitFor(() =>
-        expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('500')).toBeInTheDocument(),
-      )
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-500' })).toBeInTheDocument()
     })
 
-    it('does not auto-open the popup for a non-split ticket added to the plan', async () => {
+    it('always opens the popup for a non-split ticket added to the plan', async () => {
       render(<PlanningView team={team} />)
       await screen.findByLabelText('Tickets for Ada Lovelace')
 
       fireEvent.change(screen.getByLabelText('Ticket number to add to plan'), { target: { value: '600' } })
       fireEvent.click(screen.getByRole('button', { name: 'Add' }))
 
-      await waitFor(() =>
-        expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('600')).toBeInTheDocument(),
-      )
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'WOSMVP-600' })).toBeInTheDocument()
     })
 
-    it("does not auto-open the popup when a Split ticket's only unresolved role is unmapped, not needs-assignment", async () => {
+    it("always opens the popup when a Split ticket's only unresolved role is unmapped, not needs-assignment", async () => {
       render(<PlanningView team={team} />)
       await screen.findByLabelText('Tickets for Ada Lovelace')
 
       fireEvent.change(screen.getByLabelText('Ticket number to add to plan'), { target: { value: '700' } })
       fireEvent.click(screen.getByRole('button', { name: 'Add' }))
 
-      await waitFor(() =>
-        expect(within(screen.getByLabelText('Tickets for Ada Lovelace')).getByText('700')).toBeInTheDocument(),
-      )
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(await screen.findByRole('dialog', { name: 'Assign dev/qa for WOSMVP-700' })).toBeInTheDocument()
     })
   })
 
@@ -1016,10 +1007,10 @@ describe('PlanningView', () => {
 
     it('picking a backlog result adds it to the plan and always opens its detail popup, even when already fully resolved', async () => {
       // Same fixture (WOSMVP-500, fully resolved dev+qa via addTicketCatalog)
-      // as the typed-Add flow's own "does not auto-open the popup for a
+      // as the typed-Add flow's own "always opens the popup for a
       // fully-resolved Split ticket added to the plan" test above - picked
-      // from the backlog popover instead, the popup opens unconditionally,
-      // proving the two pending-open paths are genuinely independent.
+      // from the backlog popover instead, exercising the same shared
+      // pending-open path from its other trigger.
       backlogData = [
         {
           key: 'WOSMVP-500',

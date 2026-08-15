@@ -979,21 +979,15 @@ export function PlanningView({ team }: { team: Team }) {
   const selectedSprint = useMemo(() => sprints.find((s) => getId(s) === selectedSprintId) ?? null, [sprints, selectedSprintId])
 
   const [entryValue, setEntryValue] = useState('')
-  // Ticket id of a just-added Split ticket, watched for below until it
-  // reappears in `entries` (devQa-decorated, since only GET inlines devQa -
-  // see routes/sprintPlanEntries.ts) so we can decide whether to auto-open
-  // the popup. `popupTicketId` is the actually-open popup's ticket id -
+  // Ticket id of a just-added ticket - via either the typed "Add" flow or
+  // AddFromBacklogPopover - watched for below until it reappears in
+  // `entries` post-refresh, so its detail popup (the same one a clicked
+  // badge opens) can be opened automatically. That lets assignee/estimates
+  // be set right in the adding phase instead of requiring a separate click
+  // afterwards. `popupTicketId` is the actually-open popup's ticket id -
   // separate state, since the popup can also be opened directly by clicking
-  // a flagged badge with no add-to-plan involved.
-  const [pendingAutoOpenTicketId, setPendingAutoOpenTicketId] = useState<string | null>(null)
-  // AddFromBacklogPopover's own pending-open path (ticket 02 of .scratch/
-  // add-from-backlog) - a second, separate piece of state mirroring
-  // pendingAutoOpenTicketId above structurally, but whose effect (below)
-  // always opens the popup once matched instead of gating on
-  // needs-assignment. Kept fully separate from pendingAutoOpenTicketId
-  // (rather than adding a branch to its effect) so the existing typed-Add
-  // flow's conditional behavior (ticket 24) stays provably untouched.
-  const [pendingBacklogOpenTicketId, setPendingBacklogOpenTicketId] = useState<string | null>(null)
+  // a flagged badge with no add involved.
+  const [pendingPopupOpenTicketId, setPendingPopupOpenTicketId] = useState<string | null>(null)
   const [popupTicketId, setPopupTicketId] = useState<string | null>(null)
   // Option/Alt+click "pop" (find-the-pair): the single SprintPlanEntry
   // currently popped, keyed by entry id so a Split ticket's dev and qa
@@ -1023,7 +1017,7 @@ export function PlanningView({ team }: { team: Team }) {
     try {
       const created = await addTicket(entryValue)
       setEntryValue('')
-      if (created) setPendingAutoOpenTicketId(getId(created.ticketId) ?? null)
+      if (created) setPendingPopupOpenTicketId(getId(created.ticketId) ?? null)
     } catch {
       // addTicketError already surfaces the failure - keep the typed value
       // so the user can correct/retry without retyping it.
@@ -1031,13 +1025,12 @@ export function PlanningView({ team }: { team: Team }) {
   }
 
   // AddFromBacklogPopover's pick handler (ticket 02) - addFromBacklog
-  // delegates to the same addTicket the typed-Add flow above uses, but
-  // queues the unconditional pending-open path instead of the
-  // needs-assignment-gated one.
+  // delegates to the same addTicket the typed-Add flow above uses, and
+  // queues the same pending-open path.
   async function handlePickFromBacklog(jiraKey: string) {
     try {
       const created = await addFromBacklog(jiraKey)
-      if (created) setPendingBacklogOpenTicketId(getId(created.ticketId) ?? null)
+      if (created) setPendingPopupOpenTicketId(getId(created.ticketId) ?? null)
     } catch {
       // addTicketError (shared with the typed-Add flow, since addFromBacklog
       // delegates to the same addTicket action) already surfaces the
@@ -1045,38 +1038,21 @@ export function PlanningView({ team }: { team: Team }) {
     }
   }
 
-  // Auto-open trigger (ticket 24): once the just-added ticket reappears in
-  // `entries` post-refresh (devQa-decorated), open the popup only if either
-  // role is needs-assignment - not for a fully-resolved role, not for an
-  // unmapped-but-fine role (per the ticket's grilled decision: unmapped
-  // does NOT auto-interrupt, only needs-assignment does), and never at all
-  // for a non-split ticket (`devQa` absent). Runs once per add - the
-  // pending id is cleared as soon as a match is found either way, so it
-  // never re-triggers on a later unrelated refresh.
+  // Auto-open trigger, shared by both add flows above: once the just-added
+  // ticket reappears in `entries` post-refresh (devQa-decorated for Split
+  // tickets), unconditionally open its detail popup - the same one a
+  // clicked badge opens - so assignee/estimates can be set right in the
+  // adding phase instead of requiring a separate click afterwards. Runs
+  // once per add - the pending id is cleared as soon as a match is found,
+  // so it never re-triggers on a later unrelated refresh.
   useEffect(() => {
-    if (!pendingAutoOpenTicketId) return
-    const match = entries.find((e) => getId(e.ticketId) === pendingAutoOpenTicketId)
+    if (!pendingPopupOpenTicketId) return
+    const match = entries.find((e) => getId(e.ticketId) === pendingPopupOpenTicketId)
     if (!match) return
 
-    setPendingAutoOpenTicketId(null)
-    if (match.devQa && (match.devQa.dev.status === 'needs-assignment' || match.devQa.qa.status === 'needs-assignment')) {
-      setPopupTicketId(pendingAutoOpenTicketId)
-    }
-  }, [entries, pendingAutoOpenTicketId])
-
-  // AddFromBacklogPopover's own auto-open trigger (ticket 02) - structurally
-  // the same "wait for the just-added ticket to reappear in `entries`" shape
-  // as the effect above, but always opens the popup once matched, regardless
-  // of resolved/needs-assignment/unmapped status (spec: "the popup opens
-  // unconditionally once the newly-added entry reappears in entries").
-  useEffect(() => {
-    if (!pendingBacklogOpenTicketId) return
-    const match = entries.find((e) => getId(e.ticketId) === pendingBacklogOpenTicketId)
-    if (!match) return
-
-    setPendingBacklogOpenTicketId(null)
-    setPopupTicketId(pendingBacklogOpenTicketId)
-  }, [entries, pendingBacklogOpenTicketId])
+    setPendingPopupOpenTicketId(null)
+    setPopupTicketId(pendingPopupOpenTicketId)
+  }, [entries, pendingPopupOpenTicketId])
 
   const popupEntry = useMemo(
     () => (popupTicketId ? (entries.find((e) => getId(e.ticketId) === popupTicketId) ?? null) : null),
