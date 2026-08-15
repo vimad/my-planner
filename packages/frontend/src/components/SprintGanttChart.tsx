@@ -59,7 +59,7 @@ const GANTT_WINDOW_DAYS = 21
 // LEFT of a bar to loop through, and with zero room there the connector was
 // rendering clipped/invisible against that edge. A couple of blank lead-in
 // days before the axis's real start gives it that room.
-const GANTT_LEAD_IN_DAYS = 2
+const GANTT_LEAD_IN_DAYS = 1
 const GANTT_VISIBLE_DAYS = GANTT_WINDOW_DAYS + GANTT_LEAD_IN_DAYS
 const GANTT_GRID_WIDTH = 160
 
