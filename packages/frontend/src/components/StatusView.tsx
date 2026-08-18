@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Shuffle } from 'lucide-react'
+import { Copy, Shuffle } from 'lucide-react'
 import { useStatusView } from '../hooks/useStatusView'
 import { SprintSelect } from './SprintSelect'
 import { ExternalLink } from './ExternalLink'
-import { JIRA_BASE_URL } from '../constants/jira'
+import { jiraIssueUrl } from '../constants/jira'
 import { getId } from '../utils/getId'
 import { isPoEligibleTicket, ticketTypeAccent } from '../utils/ticketType'
 import type { Team, TeamMembership, Ticket, TicketPoAssignmentSummary } from '../types'
@@ -76,7 +76,7 @@ function cardAccentClasses(type: string | null): string {
 function ParentStrip({ parentKey, parent }: { parentKey: string; parent: Ticket | undefined }) {
   return (
     <ExternalLink
-      href={`${JIRA_BASE_URL}/browse/${parentKey}`}
+      href={jiraIssueUrl(parentKey)}
       title={parent ? `Parent: ${parent.title}` : `Open parent ${parentKey} in Jira`}
       className="mb-1.5 flex items-center gap-1 border-b border-slate-200 pb-1.5 text-[11px] text-slate-500 hover:text-fuchsia-600 dark:border-white/10 dark:text-slate-400 dark:hover:text-fuchsia-300"
     >
@@ -94,6 +94,48 @@ function ParentStrip({ parentKey, parent }: { parentKey: string; parent: Ticket 
 function accentTypeFor(ticket: Ticket, parentTicket: Ticket | undefined): string | null {
   if (ticket.parentKey && parentTicket) return parentTicket.type
   return ticket.type
+}
+
+// A small icon button next to the ticket key that copies its full Jira URL
+// (not just the bare key) so the clipboard contents are pasteable straight
+// into Slack/etc. as a working link. "Copied!" only shows once the write
+// actually resolves (see docs/ui-conventions.md's "click-triggered variant"
+// of the hover-tooltip archetype for the confirmation styling).
+function CopyLinkButton({ jiraKey }: { jiraKey: string }) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1200)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard
+            .writeText(jiraIssueUrl(jiraKey))
+            .then(() => setCopied(true))
+            .catch(() => {})
+        }}
+        aria-label={`Copy link to ${jiraKey}`}
+        title="Copy Jira link"
+        className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+      >
+        <Copy size={11} />
+      </button>
+      {copied && (
+        <span
+          role="status"
+          className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-normal normal-case text-slate-700 shadow-lg dark:border-white/10 dark:bg-[#1a1229] dark:text-slate-200"
+        >
+          Copied!
+        </span>
+      )}
+    </span>
+  )
 }
 
 // `estimateHours` is only ever passed for a PO's board (StatusView's
@@ -116,11 +158,14 @@ function TicketCard({
     >
       {ticket.parentKey && <ParentStrip parentKey={ticket.parentKey} parent={parentTicket} />}
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
-          {ticket.jiraKey}
-        </span>
+        <div className="flex items-center gap-0.5">
+          <span className="font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">
+            {ticket.jiraKey}
+          </span>
+          <CopyLinkButton jiraKey={ticket.jiraKey} />
+        </div>
         <ExternalLink
-          href={`${JIRA_BASE_URL}/browse/${ticket.jiraKey}`}
+          href={jiraIssueUrl(ticket.jiraKey)}
           aria-label={`Open ${ticket.jiraKey} in Jira`}
           title="Open in Jira"
           className="shrink-0 rounded-full px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"

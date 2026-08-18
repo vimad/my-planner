@@ -2,3 +2,7 @@
 // - kept as one constant rather than each component re-reading the env var,
 // so the fallback default can't drift between call sites.
 export const JIRA_BASE_URL = import.meta.env.VITE_JIRA_BASE_URL ?? 'https://wealthos.atlassian.net'
+
+export function jiraIssueUrl(jiraKey: string): string {
+  return `${JIRA_BASE_URL}/browse/${jiraKey}`
+}

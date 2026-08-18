@@ -196,3 +196,5 @@ tooltip:  pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-
 ```
 
 Reference: `PlanningView.tsx`'s `TicketBadge`.
+
+**Click-triggered variant**: for a confirmation that should appear after a discrete action (e.g. "Copied!" after a copy-to-clipboard click) rather than on hover, reuse the same tooltip box but drop the `group`/`opacity-0`/`group-hover` machinery — conditionally render the tooltip on the action's own state instead. There's no rapid-toggle/flicker concern to guard against (a click is discrete, not a hover stream), and conditional rendering gets a free `aria-live` announcement via `role="status"` without extra ARIA plumbing. Reference: `StatusView.tsx`'s `CopyLinkButton`.

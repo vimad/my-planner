@@ -326,6 +326,44 @@ describe('StatusView', () => {
     expect(link).toHaveAttribute('target', '_blank')
   })
 
+  it('copies the full Jira link (not just the bare key) when the copy button is clicked', async () => {
+    ticketsData = [ticket({ jiraKey: 'WOSMVP-300', assigneeAccountId: 'acc-1', status: 'To Do' })]
+    fetchMock = stubFetch()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    const copyButton = within(board).getByRole('button', { name: 'Copy link to WOSMVP-300' })
+
+    expect(within(board).queryByText('Copied!')).not.toBeInTheDocument()
+    fireEvent.click(copyButton)
+
+    expect(writeText).toHaveBeenCalledWith('https://wealthos.atlassian.net/browse/WOSMVP-300')
+    expect(await within(board).findByText('Copied!')).toBeInTheDocument()
+  })
+
+  it('does not claim success when the clipboard write fails', async () => {
+    ticketsData = [ticket({ jiraKey: 'WOSMVP-301', assigneeAccountId: 'acc-1', status: 'To Do' })]
+    fetchMock = stubFetch()
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    render(<StatusView team={team} />)
+
+    const board = await screen.findByLabelText("Ada Lovelace's board")
+    const copyButton = within(board).getByRole('button', { name: 'Copy link to WOSMVP-301' })
+    fireEvent.click(copyButton)
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    // Flush the rejected promise's .catch() before asserting the negative -
+    // otherwise this would trivially pass even if the code wrongly showed
+    // "Copied!" a tick later, since nothing here waits for that tick.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(within(board).queryByText('Copied!')).not.toBeInTheDocument()
+  })
+
   it('shuffles the roster order client-side on click, with no server call', async () => {
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
 
