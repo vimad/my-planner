@@ -1,5 +1,6 @@
 import { getSprint, listSprints, resolveBoard, type JiraSprint } from './jiraClient.ts'
 import { Sprint, type SprintDoc } from '../models/Sprint.ts'
+import { SprintSearchCache } from '../models/SprintSearchCache.ts'
 
 // Phase 1 targets one Jira project/board for every team — matches
 // routes/sprints.ts and the recorded board id (235) in README.md.
@@ -17,6 +18,15 @@ export const FUTURE_SPRINTS_BOARD_NAME = 'Product Delivery Board'
 // load — this TTL is what makes getSprints() fast on the common path
 // (previously a live Jira round trip on every single GET /api/sprints).
 const CACHE_TTL_MS = 10 * 60 * 1000
+
+// searchJiraSprints exists specifically to surface a sprint Jira knows about
+// that the (up to 10-minute-stale) Sprint cache above hasn't picked up yet,
+// so this TTL is deliberately much shorter than CACHE_TTL_MS - it trades away
+// only a couple of minutes of that freshness in exchange for not re-running a
+// full paginated board scan (jiraClient.ts's listSprints, up to
+// MAX_SPRINT_PAGES requests) on every debounced keystroke in the "add
+// sprint" popover.
+const SEARCH_CACHE_TTL_MS = 2 * 60 * 1000
 
 // Shared field-mapping for both the board-wide sync below and importSprint's
 // single-sprint import — the unique index on jiraSprintId (models/Sprint.ts)
@@ -72,18 +82,37 @@ export async function getSprints(): Promise<SprintDoc[] | null> {
   return Sprint.find().sort({ startDate: -1 })
 }
 
-// Live Jira search (never the cache) — lets a user find a sprint Jira
-// already knows about (e.g. a future sprint the 10-minute TTL hasn't picked
-// up yet) without waiting for or forcing a full cache refresh. Jira's Agile
-// API has no server-side "search sprints by name", so this lists every
-// sprint on the board and filters client-side; a blank query returns the
-// board's full sprint list as-is. Returns null when the board itself can't
-// be resolved (mirrors getSprints' null convention).
+// Cache-first per-board sprint list backing searchJiraSprints, keyed on
+// boardId in models/SprintSearchCache.ts (a separate collection from Sprint:
+// this board's sprints aren't referenced by any SprintPlanEntry, so unlike
+// Sprint there's nothing wrong with quietly overwriting stale rows wholesale
+// on every refresh).
+async function getBoardSprintsForSearch(boardId: number): Promise<JiraSprint[]> {
+  const cached = await SprintSearchCache.findOne({ boardId })
+  const isStale = !cached || Date.now() - cached.fetchedAt.getTime() > SEARCH_CACHE_TTL_MS
+  if (!isStale) return cached.sprints
+
+  const jiraSprints = await listSprints(boardId, ['active', 'future', 'closed'])
+  await SprintSearchCache.findOneAndUpdate(
+    { boardId },
+    { boardId, sprints: jiraSprints, fetchedAt: new Date() },
+    { upsert: true },
+  )
+  return jiraSprints
+}
+
+// Search the "add sprint" board via the short-TTL cache above rather than a
+// live Jira call on every keystroke — see SEARCH_CACHE_TTL_MS for the
+// freshness/latency tradeoff. Jira's Agile API has no server-side "search
+// sprints by name", so this lists every sprint on the board and filters
+// client-side; a blank query returns the board's full sprint list as-is.
+// Returns null when the board itself can't be resolved (mirrors getSprints'
+// null convention).
 export async function searchJiraSprints(query: string): Promise<JiraSprint[] | null> {
   const board = await resolveBoard(PROJECT_KEY, FUTURE_SPRINTS_BOARD_NAME)
   if (!board) return null
 
-  const jiraSprints = await listSprints(board.id, ['active', 'future', 'closed'])
+  const jiraSprints = await getBoardSprintsForSearch(board.id)
   const trimmed = query.trim().toLowerCase()
   return trimmed ? jiraSprints.filter((sprint) => sprint.name.toLowerCase().includes(trimmed)) : jiraSprints
 }

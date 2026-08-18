@@ -38,10 +38,12 @@ sprintsRouter.get('/', async (req: Request, res: Response, next: NextFunction) =
   }
 })
 
-// GET /api/sprints/search?teamId=&q= -> live Jira search (bypasses the
-// cache/TTL entirely) so a sprint that exists in Jira but hasn't been
-// synced yet (e.g. a future sprint) can be found right away. `q` blank or
-// omitted returns the board's full sprint list.
+// GET /api/sprints/search?teamId=&q= -> searches the Jira board via
+// sprintSync.ts's own short-TTL cache (SEARCH_CACHE_TTL_MS), a much
+// fresher/separate cache than GET /api/sprints' 10-minute one, so a sprint
+// that's not yet synced (e.g. a future sprint) can be found without waiting
+// on that longer TTL. `q` blank or omitted returns the board's full sprint
+// list.
 sprintsRouter.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { teamId, q } = req.query
