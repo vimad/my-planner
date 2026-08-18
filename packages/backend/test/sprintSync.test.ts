@@ -139,11 +139,11 @@ describe('searchJiraSprints', () => {
     )
   })
 
-  it('serves the search cache without calling Jira when it is fresh', async () => {
+  it('serves the search cache without calling Jira once it has been populated, no matter how old it is', async () => {
     resolveBoard.mockResolvedValue({ id: 29, name: 'Product Delivery Board', type: 'scrum' })
     SprintSearchCache.findOne.mockResolvedValue({
       boardId: 29,
-      fetchedAt: new Date(),
+      fetchedAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
       sprints: [{ id: 133, name: 'WOSMVP Sprint 133', state: 'future' }],
     })
 
@@ -152,21 +152,6 @@ describe('searchJiraSprints', () => {
     expect(listSprints).not.toHaveBeenCalled()
     expect(SprintSearchCache.findOneAndUpdate).not.toHaveBeenCalled()
     expect(result).toEqual([{ id: 133, name: 'WOSMVP Sprint 133', state: 'future' }])
-  })
-
-  it('re-fetches from Jira and refreshes the search cache once it is older than its TTL', async () => {
-    resolveBoard.mockResolvedValue({ id: 29, name: 'Product Delivery Board', type: 'scrum' })
-    SprintSearchCache.findOne.mockResolvedValue({
-      boardId: 29,
-      fetchedAt: new Date(Date.now() - 3 * 60 * 1000),
-      sprints: [{ id: 130, name: 'WOSMVP Sprint 130', state: 'closed' }],
-    })
-    listSprints.mockResolvedValue([{ id: 134, name: 'WOSMVP Sprint 134', state: 'future' }])
-
-    const result = await searchJiraSprints('')
-
-    expect(listSprints).toHaveBeenCalledWith(29, ['active', 'future', 'closed'])
-    expect(result).toEqual([{ id: 134, name: 'WOSMVP Sprint 134', state: 'future' }])
   })
 
   it('returns every board sprint for a blank query', async () => {
