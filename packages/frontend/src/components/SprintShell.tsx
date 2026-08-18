@@ -40,7 +40,7 @@ function SprintIndex({ teams, loading, activeTeamId }: { teams: Team[]; loading:
 
 // Everything under /sprint/:teamSlug/* - just whichever view the route
 // segment selects (the sub-nav pill row itself now lives in the header's
-// right-hand cluster, next to TeamSwitcher - see SprintShell below). Owns
+// left-hand cluster, next to WorkspaceSwitcher - see SprintShell below). Owns
 // adopting the URL's team as the active one (mirrors AppShell's URL -> state
 // sync for profiles) so the header's TeamSwitcher stays in sync with a
 // bookmarked/back-navigated URL.
@@ -125,33 +125,35 @@ export function SprintShell() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         workspaceSwitcher={
-          <WorkspaceSwitcher current="sprint" onNavigate={(target) => target === 'planner' && navigate('/')} />
+          <>
+            <WorkspaceSwitcher current="sprint" onNavigate={(target) => target === 'planner' && navigate('/')} />
+            {activeTeam && (
+              <div
+                role="tablist"
+                aria-label="Sprint view"
+                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+              >
+                {SPRINT_TABS.map((sprintTab) => (
+                  <button
+                    key={sprintTab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === sprintTab.key}
+                    onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug)}/${sprintTab.key}`)}
+                    className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                      activeTab === sprintTab.key
+                        ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                        : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                    }`}
+                  >
+                    {sprintTab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         }
       >
-        {activeTeam && (
-          <div
-            role="tablist"
-            aria-label="Sprint view"
-            className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
-          >
-            {SPRINT_TABS.map((sprintTab) => (
-              <button
-                key={sprintTab.key}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === sprintTab.key}
-                onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug)}/${sprintTab.key}`)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-                  activeTab === sprintTab.key
-                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-                }`}
-              >
-                {sprintTab.label}
-              </button>
-            ))}
-          </div>
-        )}
         {!loading && (
           <TeamSwitcher
             teams={teams}
