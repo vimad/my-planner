@@ -14,12 +14,13 @@ interface HeaderProps {
   // Rendered right next to the title/subtitle block, not in the far-right
   // cluster - it answers "which app am I in", the same question the title
   // text itself answers, so it sits beside it rather than off with the
-  // profile/theme controls. SprintShell also tucks its Planning/Status tab
-  // row in here, right after the switcher itself.
+  // profile/theme controls. Both shells also tuck their own tab row in here,
+  // right after the switcher itself: AppShell's Todos/Notes/Boards, and
+  // SprintShell's Planning/Status.
   workspaceSwitcher?: ReactNode
   // Rendered in the header's right-hand cluster, before the theme toggle -
-  // AppShell passes its Todos/Notes/Boards tab row and ProfileSwitcher;
-  // SprintShell mirrors that with just its TeamSwitcher.
+  // AppShell passes its ProfileSwitcher; SprintShell mirrors that with its
+  // TeamSwitcher.
   children?: ReactNode
 }
 

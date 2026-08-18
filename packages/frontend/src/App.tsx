@@ -1018,41 +1018,43 @@ function AppShell() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         workspaceSwitcher={
-          <WorkspaceSwitcher current="planner" onNavigate={(target) => target === 'sprint' && navigate('/sprint')} />
+          <>
+            <WorkspaceSwitcher current="planner" onNavigate={(target) => target === 'sprint' && navigate('/sprint')} />
+            <div
+              role="tablist"
+              aria-label="View"
+              className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+            >
+              {(
+                [
+                  { key: 'todos', label: 'Todos' },
+                  { key: 'notes', label: 'Notes' },
+                  { key: 'boards', label: 'Boards' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.key}
+                  onClick={() => activeProfileSlug && navigate(`/${encodeURIComponent(activeProfileSlug)}/${tab.key}`)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    activeTab === tab.key
+                      ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                      : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                  }`}
+                >
+                  {tab.key === 'boards' ? (
+                    <BoardsTabBadge ref={badgeRef} label={tab.label} count={activeBoard?.items.length ?? 0} bumped={badgeBumped} />
+                  ) : (
+                    tab.label
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
         }
       >
-        <div
-          role="tablist"
-          aria-label="View"
-          className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
-        >
-          {(
-            [
-              { key: 'todos', label: 'Todos' },
-              { key: 'notes', label: 'Notes' },
-              { key: 'boards', label: 'Boards' },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              onClick={() => activeProfileSlug && navigate(`/${encodeURIComponent(activeProfileSlug)}/${tab.key}`)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-                activeTab === tab.key
-                  ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
-                  : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
-              }`}
-            >
-              {tab.key === 'boards' ? (
-                <BoardsTabBadge ref={badgeRef} label={tab.label} count={activeBoard?.items.length ?? 0} bumped={badgeBumped} />
-              ) : (
-                tab.label
-              )}
-            </button>
-          ))}
-        </div>
         {!profilesLoading && profiles.length > 0 && (
           <ProfileSwitcher
             profiles={profiles}
