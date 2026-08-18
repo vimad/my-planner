@@ -7,6 +7,9 @@
 // pure data-building half (this file's exported functions, unit-tested) and
 // a thin XLSX-writing wrapper (downloadSprintPlanExcel) that isn't - it just
 // hands the built AOA to the `xlsx` package.
+import { isTauri } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
+import { writeFile } from '@tauri-apps/plugin-fs'
 import * as XLSX from 'xlsx'
 import { DEV_ROLES, QA_ROLES } from '../constants/roles'
 import { parseLocalDate } from './dateAgenda'
@@ -229,7 +232,14 @@ function sanitizeSheetName(name: string): string {
 // triggers the browser's normal download flow. Not unit-tested (would just
 // be re-testing the `xlsx` library); buildSprintExportSheetData above is
 // where the actual formatting/aggregation logic lives and is covered.
-export function downloadSprintPlanExcel(
+//
+// The desktop app's webview (WKWebView on macOS) doesn't support downloading
+// blob: URLs via <a download>, which is how XLSX.writeFile triggers a save in
+// a regular browser - there it silently does nothing. So in the desktop
+// shell, route through the Tauri save dialog + fs plugin instead (same
+// isTauri() branching pattern as ExternalLink.tsx uses for its own
+// webview-can't-do-that gap).
+export async function downloadSprintPlanExcel(
   teamName: string,
   sprintName: string,
   memberships: TeamMembership[],
@@ -237,7 +247,7 @@ export function downloadSprintPlanExcel(
   entries: SprintPlanEntry[],
   placeholders: PlaceholderTicket[],
   period: SprintPeriod | null,
-): void {
+): Promise<void> {
   const data = buildSprintExportSheetData(memberships, capacity, entries, placeholders, period)
   const worksheet = XLSX.utils.aoa_to_sheet(data)
   worksheet['!cols'] = [
@@ -254,5 +264,15 @@ export function downloadSprintPlanExcel(
   ]
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, sanitizeSheetName(sprintName))
-  XLSX.writeFile(workbook, `${sanitizeSheetName(`${teamName} ${sprintName} plan`)}.xlsx`)
+  const fileName = `${sanitizeSheetName(`${teamName} ${sprintName} plan`)}.xlsx`
+
+  if (isTauri()) {
+    const filePath = await save({ defaultPath: fileName, filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] })
+    if (!filePath) return
+    const bytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
+    await writeFile(filePath, new Uint8Array(bytes))
+    return
+  }
+
+  XLSX.writeFile(workbook, fileName)
 }

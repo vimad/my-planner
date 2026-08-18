@@ -39,7 +39,7 @@ export function SprintExportButton({
     <button
       type="button"
       disabled={disabled}
-      onClick={() => downloadSprintPlanExcel(teamName, sprintName, memberships, capacity, entries, placeholders, sprintPeriod)}
+      onClick={() => void downloadSprintPlanExcel(teamName, sprintName, memberships, capacity, entries, placeholders, sprintPeriod)}
       title={disabled ? "Set this sprint's period before exporting." : undefined}
       className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
     >
