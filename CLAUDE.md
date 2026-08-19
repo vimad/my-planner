@@ -18,6 +18,8 @@ pnpm workspace with two packages:
 
 The Jira instance this app connects to is the user's **production** Jira. For now, all Jira operations must be **read-only** — never create, edit, comment on, transition, delete, or otherwise mutate anything in Jira. Only reading/searching/fetching Jira data is allowed.
 
+**Data flows one way only: Jira → app, never app → Jira.** Any feature that syncs or mirrors Jira data into this app's own storage (e.g. Atlas's epic/task tree) pulls fields in and stores them locally — it never writes app-side data (status overrides, dates, notes, risk flags, edits made in this app, etc.) back out to Jira, at any level, under any circumstance. There is no such thing as a "sync back to Jira" in this codebase; if a feature seems to call for one, stop and confirm with the user first rather than building it.
+
 - This applies to both app code (API calls the backend/frontend make to Jira) and anything you do directly (e.g. via MCP tools or scripts) — no write/mutate calls to Jira, ever, unless the user explicitly says otherwise in the moment.
 - Workflow for Jira-related features: implement the change, then tell the user how to manually test it themselves against their real Jira instance. The user will do the testing and report back feedback — do not attempt to test Jira-writing behavior yourself, even against seemingly safe/sandbox-looking tickets.
 
