@@ -12,10 +12,10 @@ function todo(overrides: Partial<Todo> & { title: string }): Todo {
 }
 
 describe('buildTodosExportSheets', () => {
-  it('includes the Description/Notes header row in both tabs', () => {
+  it('returns empty row lists for both tabs when there are no todos', () => {
     const sheets = buildTodosExportSheets([])
-    expect(sheets.inProgress[0]).toEqual(['Description', 'Notes'])
-    expect(sheets.completed[0]).toEqual(['Description', 'Notes'])
+    expect(sheets.inProgress).toEqual([])
+    expect(sheets.completed).toEqual([])
   })
 
   it('routes a completed todo to the completed sheet and a not-completed todo to the in-progress sheet', () => {
@@ -24,8 +24,8 @@ describe('buildTodosExportSheets', () => {
       todo({ title: 'Write spec', completed: false }),
     ]
     const sheets = buildTodosExportSheets(todos)
-    expect(sheets.completed.slice(1)).toEqual([['Finish report', '']])
-    expect(sheets.inProgress.slice(1)).toEqual([['Write spec', '']])
+    expect(sheets.completed).toEqual([{ description: 'Finish report', notes: '' }])
+    expect(sheets.inProgress).toEqual([{ description: 'Write spec', notes: '' }])
   })
 
   it('formats a dated notes body into the Notes column via formatNotesForExport', () => {
@@ -37,11 +37,11 @@ describe('buildTodosExportSheets', () => {
       ],
     }
     const sheets = buildTodosExportSheets([todo({ title: 'Ship feature', body })])
-    expect(sheets.inProgress[1]).toEqual(['Ship feature', 'Aug 15, 2026: did the thing'])
+    expect(sheets.inProgress).toEqual([{ description: 'Ship feature', notes: 'Aug 15, 2026: did the thing' }])
   })
 
   it('leaves the Notes cell empty for a todo with no notes body', () => {
     const sheets = buildTodosExportSheets([todo({ title: 'Bare todo' })])
-    expect(sheets.inProgress[1]).toEqual(['Bare todo', ''])
+    expect(sheets.inProgress).toEqual([{ description: 'Bare todo', notes: '' }])
   })
 })
