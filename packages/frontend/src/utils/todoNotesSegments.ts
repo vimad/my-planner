@@ -20,6 +20,17 @@ function dateBadgeAttr(node: JSONContent): string | undefined {
   return typeof attrs?.date === 'string' ? attrs.date : undefined
 }
 
+// "Aug 19, 2026" - the one date format used everywhere in the export output,
+// whether a date badge opens a segment (formatNotesForExport's own line
+// prefix) or shows up inline mid-sentence (parseDateSegments/
+// tiptapToPlainText below). Without this, an inline badge's raw ISO
+// attribute value ("2026-08-19") would land in the exported text next to
+// other segments' human-formatted dates, reading as a copy-paste artifact
+// rather than deliberate content.
+function formatBadgeDate(iso: string): string {
+  return parseLocalDate(iso).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 // A block node is "badge-only" when its content is exactly one child and
 // that child is a dateBadge - see weeklySummarySegments.ts's identical rule
 // for why a badge alongside other content doesn't open a new segment.
@@ -52,7 +63,7 @@ export function parseDateSegments(body: JSONContent | null | undefined): DateSeg
 
     const inlineDate = dateBadgeAttr(node)
     if (inlineDate !== undefined && segments.length > 0) {
-      segments[segments.length - 1].parts.push(inlineDate)
+      segments[segments.length - 1].parts.push(formatBadgeDate(inlineDate))
       return
     }
 
@@ -77,7 +88,7 @@ export function tiptapToPlainText(body: JSONContent | null | undefined): string 
   function walk(node: JSONContent): void {
     if (typeof node.text === 'string') parts.push(node.text)
     const badgeDate = dateBadgeAttr(node)
-    if (badgeDate !== undefined) parts.push(badgeDate)
+    if (badgeDate !== undefined) parts.push(formatBadgeDate(badgeDate))
     if (Array.isArray(node.content)) {
       for (const child of node.content) walk(child)
     }
@@ -86,10 +97,6 @@ export function tiptapToPlainText(body: JSONContent | null | undefined): string 
   walk(body)
 
   return parts.join(' ').trim()
-}
-
-function formatSegmentDate(iso: string): string {
-  return parseLocalDate(iso).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 // Renders a todo's notes as a single multi-line string for the Excel export
@@ -108,7 +115,7 @@ export function formatNotesForExport(body: JSONContent | null | undefined): stri
   let previousDate: string | null = null
   for (const segment of segments) {
     if (previousDate !== null && segment.date !== previousDate) lines.push('')
-    lines.push(`${formatSegmentDate(segment.date)}: ${segment.text}`)
+    lines.push(`${formatBadgeDate(segment.date)}: ${segment.text}`)
     previousDate = segment.date
   }
   return lines.join('\n')

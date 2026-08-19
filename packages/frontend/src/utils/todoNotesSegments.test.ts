@@ -35,6 +35,31 @@ describe('parseDateSegments', () => {
     ])
   })
 
+  it('formats an inline date badge (sitting alongside other text in the same block) the same way as a segment header date, not as raw ISO', () => {
+    // Mirrors a real note: a segment-opening badge, then a line mixing text
+    // with a second, incidental badge (e.g. a link shared alongside a date)
+    // - that second badge doesn't open a new segment (see badgeOnlyDate),
+    // but its date should still read like "Aug 19, 2026" in the exported
+    // text, not the raw "2026-08-19" attribute value.
+    const doc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'dateBadge', attrs: { date: '2026-08-11' } }] },
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Sandasi shared a sheet.' },
+            { type: 'dateBadge', attrs: { date: '2026-08-19' } },
+            { type: 'text', text: 'https://docs.google.com/spreadsheets/d/abc' },
+          ],
+        },
+      ],
+    }
+    expect(parseDateSegments(doc)).toEqual([
+      { date: '2026-08-11', text: 'Sandasi shared a sheet. Aug 19, 2026 https://docs.google.com/spreadsheets/d/abc' },
+    ])
+  })
+
   it('yields an empty-text segment for a badge-only block with nothing logged under it', () => {
     const doc = {
       type: 'doc',
@@ -67,14 +92,14 @@ describe('tiptapToPlainText', () => {
     expect(tiptapToPlainText(doc)).toBe('Just some notes more notes')
   })
 
-  it('includes a dateBadge\'s own date inline, in document order', () => {
+  it('includes a dateBadge\'s own date inline, formatted the same way as a segment header date rather than as raw ISO', () => {
     const doc = {
       type: 'doc',
       content: [
         { type: 'paragraph', content: [{ type: 'text', text: 'Deadline is' }, { type: 'dateBadge', attrs: { date: '2026-08-14' } }] },
       ],
     }
-    expect(tiptapToPlainText(doc)).toBe('Deadline is 2026-08-14')
+    expect(tiptapToPlainText(doc)).toBe('Deadline is Aug 14, 2026')
   })
 })
 
