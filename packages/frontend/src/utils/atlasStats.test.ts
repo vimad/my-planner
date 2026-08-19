@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBlockedByLookup, epicStats, flattenTasks, formatDateRange } from './atlasStats'
+import { buildBlockedByCandidates, buildBlockedByLookup, epicStats, flattenTasks, formatDateRange } from './atlasStats'
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 
 function task(overrides: Partial<AtlasTaskNode> = {}): AtlasTaskNode {
@@ -15,7 +15,9 @@ function task(overrides: Partial<AtlasTaskNode> = {}): AtlasTaskNode {
     startDate: null,
     endDate: null,
     atRisk: false,
-    notes: '',
+    atRiskOverride: false,
+    notes: null,
+    notesText: '',
     blockedBy: [],
     archived: false,
     subtasks: [],
@@ -143,5 +145,47 @@ describe('buildBlockedByLookup', () => {
   it('leaves an unresolvable id out of the map', () => {
     const lookup = buildBlockedByLookup([epic({ tasks: [task({ _id: 't1' })] })])
     expect(lookup.get('does-not-exist')).toBeUndefined()
+  })
+})
+
+describe('buildBlockedByCandidates', () => {
+  it('includes tasks and sub-tasks across every non-archived epic, with title + owning epic key', () => {
+    const epics: AtlasEpic[] = [
+      epic({
+        _id: 'e1',
+        jiraKey: 'WOSMVP-1',
+        tasks: [
+          task({ _id: 't1', jiraKey: 'WOSMVP-100', title: 'Do the thing', subtasks: [task({ _id: 't1a', jiraKey: 'WOSMVP-101', title: 'Sub-thing' })] }),
+        ],
+      }),
+      epic({ _id: 'e2', jiraKey: 'WOSMVP-2', tasks: [task({ _id: 't2', jiraKey: 'WOSMVP-200', title: 'Other epic task' })] }),
+    ]
+    const candidates = buildBlockedByCandidates(epics)
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        { taskId: 't1', jiraKey: 'WOSMVP-100', title: 'Do the thing', epicId: 'e1', epicKey: 'WOSMVP-1' },
+        { taskId: 't1a', jiraKey: 'WOSMVP-101', title: 'Sub-thing', epicId: 'e1', epicKey: 'WOSMVP-1' },
+        { taskId: 't2', jiraKey: 'WOSMVP-200', title: 'Other epic task', epicId: 'e2', epicKey: 'WOSMVP-2' },
+      ]),
+    )
+    expect(candidates).toHaveLength(3)
+  })
+
+  it('excludes tasks belonging to an archived epic', () => {
+    const epics: AtlasEpic[] = [
+      epic({ _id: 'e1', jiraKey: 'WOSMVP-1', archived: true, tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] }),
+    ]
+    expect(buildBlockedByCandidates(epics)).toEqual([])
+  })
+
+  it('excludes an archived task even within a non-archived epic', () => {
+    const epics: AtlasEpic[] = [
+      epic({
+        _id: 'e1',
+        jiraKey: 'WOSMVP-1',
+        tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', archived: true }), task({ _id: 't2', jiraKey: 'WOSMVP-200' })],
+      }),
+    ]
+    expect(buildBlockedByCandidates(epics).map((c) => c.taskId)).toEqual(['t2'])
   })
 })

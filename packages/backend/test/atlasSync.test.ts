@@ -244,7 +244,7 @@ describe('trackAndSyncEpic', () => {
     expect(Object.keys(update.$set)).not.toContain('archived')
   })
 
-  it('only $set-updates Jira-sourced fields on a task upsert, leaving startDate/endDate/atRisk/notes/blockedBy/archived to $setOnInsert defaults', async () => {
+  it('only $set-updates Jira-sourced fields on a task upsert, leaving startDate/endDate/atRisk/atRiskOverride/notes/notesText/blockedBy/archived to $setOnInsert defaults', async () => {
     bulkFetchIssues.mockResolvedValueOnce({
       issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' } })],
       issueErrors: [],
@@ -257,8 +257,52 @@ describe('trackAndSyncEpic', () => {
     expect(Object.keys(update.$set)).toEqual(
       expect.arrayContaining(['epicId', 'parentTaskId', 'title', 'jiraUrl', 'assigneeAccountId', 'status']),
     )
-    for (const localOnly of ['startDate', 'endDate', 'atRisk', 'notes', 'blockedBy', 'archived']) {
+    // atRisk/atRiskOverride specifically: this is what makes a manual
+    // at-risk override (ticket 09, spec §5.1) survive this resync - see
+    // utils/atlasRisk.ts's resolveAtRisk for how the two are combined.
+    for (const localOnly of [
+      'startDate',
+      'endDate',
+      'atRisk',
+      'atRiskOverride',
+      'notes',
+      'notesText',
+      'blockedBy',
+      'archived',
+    ]) {
       expect(Object.keys(update.$set)).not.toContain(localOnly)
     }
+  })
+
+  it("a manual at-risk override on an already-tracked task survives a resync (ticket 09's acceptance criterion)", async () => {
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' } })],
+      issueErrors: [],
+    })
+    searchJql.mockResolvedValue([issue('WOSMVP-100', { status: { statusCategory: { key: 'new' } } })])
+    // Simulates Mongo's real findOneAndUpdate semantics for an *existing*
+    // doc: only $set's keys are applied on top of whatever was already
+    // there - a manually-overridden atRisk/atRiskOverride from a prior
+    // PATCH (routes/atlasTasks.ts) is untouched since upsertAtlasTask's
+    // $set never includes either field (see the test above).
+    AtlasTask.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `task-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      startDate: null,
+      endDate: '2026-01-01',
+      atRisk: true,
+      atRiskOverride: true,
+      notes: null,
+      notesText: '',
+      blockedBy: [],
+      archived: false,
+      ...update.$set,
+    }))
+
+    const result = await trackAndSyncEpic('WOSMVP-8262')
+
+    const task = result.tasks.find((t: any) => t.jiraKey === 'WOSMVP-100')
+    expect(task?.atRisk).toBe(true)
+    expect(task?.atRiskOverride).toBe(true)
   })
 })

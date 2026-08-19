@@ -605,7 +605,12 @@ export interface BoardQuickAddState {
 // level deep - depth hard-floors at Sub-task, see backend's
 // services/atlasSync.ts buildTaskTree) and mirrors backend models/
 // AtlasTask.ts plus the `subtasks` nesting GET /api/atlas/epics computes
-// server-side.
+// server-side. `atRisk` is the *effective* value the server already
+// resolved (utils/atlasRisk.ts's resolveAtRisk) - the frontend never needs
+// to run the auto-risk rule itself. `atRiskOverride` is included for
+// completeness (it's part of the raw doc GET returns) but the ticket-09 UI
+// doesn't need to branch on it directly - toggling at-risk always just
+// PATCHes atRisk, which the backend turns into a sticky override.
 export interface AtlasTaskNode {
   _id?: string
   id?: string
@@ -619,7 +624,13 @@ export interface AtlasTaskNode {
   startDate: string | null
   endDate: string | null
   atRisk: boolean
-  notes: string
+  atRiskOverride: boolean
+  // Rich text (Tiptap JSON) - same convention as Todo.body/Note.body.
+  notes: JSONContent | null
+  // Denormalized plain-text extract of `notes`, maintained server-side -
+  // used for the Dashboard's "non-empty notes" indicator (ticket 08) since
+  // Tiptap JSON is never itself truthy/falsy-checkable for "has content".
+  notesText: string
   blockedBy: string[]
   archived: boolean
   subtasks: AtlasTaskNode[]

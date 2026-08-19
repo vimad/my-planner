@@ -104,3 +104,32 @@ export function buildBlockedByLookup(epics: AtlasEpic[]): Map<string, BlockedByR
   }
   return lookup
 }
+
+export interface BlockedByCandidate extends BlockedByRef {
+  title: string
+}
+
+// Search universe for the "blocked by" picker (ticket 09; spec §5.2's link
+// can point at "any task in any epic, not scoped to the same epic"). Unlike
+// buildBlockedByLookup above (which resolves *existing* links for display,
+// deliberately including archived epics/tasks so an old link never shows as
+// broken), this is narrower - only non-archived tasks in non-archived
+// epics - per spec §6's picker copy: "a picker searching across all
+// tracked, non-archived tasks". An already-linked blocker that happens to
+// sit in an archived epic still renders fine via the lookup; it just isn't
+// offered again through this picker.
+export function buildBlockedByCandidates(epics: AtlasEpic[]): BlockedByCandidate[] {
+  const candidates: BlockedByCandidate[] = []
+  for (const epic of epics) {
+    if (epic.archived) continue
+    const epicId = getId(epic)
+    if (!epicId) continue
+    for (const task of flattenTasks(epic.tasks)) {
+      if (task.archived) continue
+      const taskId = getId(task)
+      if (!taskId) continue
+      candidates.push({ taskId, jiraKey: task.jiraKey, title: task.title, epicId, epicKey: epic.jiraKey })
+    }
+  }
+  return candidates
+}

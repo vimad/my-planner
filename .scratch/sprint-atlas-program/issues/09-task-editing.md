@@ -11,11 +11,11 @@ None of this writes anything back to Jira — dates, notes, risk, and blocked-by
 
 **Blocked by:** Dashboard view (read-only) ([08](08-dashboard-view.md))
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Editing a task's start/end date persists and is reflected in the row immediately (and in the epic's date-range roll-up)
-- [ ] Editing a task's notes uses the existing rich-text editor and the notes indicator (ticket 08) reflects non-empty state
-- [ ] A task whose end date has passed and whose status isn't Done shows as at-risk automatically, without any manual action
-- [ ] Manually toggling at-risk overrides the auto-computed value and survives a re-sync of that epic
-- [ ] A task can be linked as "blocked by" a task in a different epic, and the row shows the cross-epic blocker chip (per ticket 08's epic-suffix format)
-- [ ] Creating a circular blocked-by chain (A blocks B, B blocks A) is allowed without error or warning
+- [x] Editing a task's start/end date persists and is reflected in the row immediately (and in the epic's date-range roll-up)
+- [x] Editing a task's notes uses the existing rich-text editor and the notes indicator (ticket 08) reflects non-empty state
+- [x] A task whose end date has passed and whose status isn't Done shows as at-risk automatically, without any manual action
+- [x] Manually toggling at-risk overrides the auto-computed value and survives a re-sync of that epic
+- [x] A task can be linked as "blocked by" a task in a different epic, and the row shows the cross-epic blocker chip (per ticket 08's epic-suffix format)
+- [x] Creating a circular blocked-by chain (A blocks B, B blocks A) is allowed without error or warning

@@ -1,4 +1,5 @@
 import mongoose, { Schema, type Types } from 'mongoose'
+import type { TiptapNode } from '../utils/tiptapText.ts'
 
 // To Do / In Progress / Done — collapsed from Jira's
 // fields.status.statusCategory.key ('new'/'indeterminate'/'done') by
@@ -24,15 +25,38 @@ export interface AtlasTaskDoc {
   // Ticket.assigneeAccountId).
   assigneeAccountId: string | null
   status: AtlasTaskStatus
-  // Manual, set in Atlas — independent of Jira (ticket 09). Null until then.
-  startDate: Date | null
-  endDate: Date | null
-  // Auto-computed (once today passes endDate while status isn't Done) but
-  // manually overridable — an explicit stored flag, not a derived value, so
-  // an override persists across resyncs (ticket 09). False until then.
+  // Manual, set in Atlas — independent of Jira. Opaque local-calendar-day
+  // strings ('YYYY-MM-DD'), same convention as Todo.dueDate — deliberately
+  // never a Date/timestamp, to avoid the day-shift bug a bare Date would
+  // introduce when a value like "2026-07-01" gets UTC-cast then rendered
+  // back in the browser's local timezone (see routes/todos.ts's own
+  // comment on dueDate). Null until set.
+  startDate: string | null
+  endDate: string | null
+  // The *effective* at-risk flag, as last written — auto-seeded false, then
+  // either recomputed fresh at read time (utils/atlasRisk.ts's
+  // resolveAtRisk) while atRiskOverride is false, or held sticky at
+  // whatever a manual PATCH last set once atRiskOverride flips true. Stored
+  // (rather than purely derived) specifically so a manual override survives
+  // a later Jira resync — atlasSync.ts's $setOnInsert-only handling of both
+  // this and atRiskOverride is what makes that persistence work (spec §5.1).
   atRisk: boolean
-  // Rich text, Atlas-local only (ticket 09). Empty until then.
-  notes: string
+  // Whether a human has ever manually toggled at-risk for this task (via
+  // PATCH /api/atlas/tasks/:id). false (the default) means `atRisk` is not
+  // meaningful on its own — resolveAtRisk recomputes the auto rule fresh on
+  // every read instead of trusting this stored value. Sticky once true:
+  // nothing (including a resync) ever resets it back to false.
+  atRiskOverride: boolean
+  // Rich text (Tiptap JSON), Atlas-local only — same Schema.Types.Mixed
+  // convention as Todo.body/Note.body. Null until the notes editor (ticket
+  // 09) has ever been saved.
+  notes: TiptapNode | null
+  // Denormalized plain-text extract of `notes`, maintained by the PATCH
+  // route whenever `notes` is set (mirrors Todo.bodyText/tiptapText.ts) —
+  // used for the Dashboard's "non-empty notes" indicator (ticket 08) since
+  // Tiptap JSON isn't directly truthy/falsy-checkable the way a plain
+  // string was before this ticket.
+  notesText: string
   // Refs to other AtlasTask docs, any epic — no cycle validation (ticket
   // 09). Empty until then.
   blockedBy: Types.ObjectId[]
@@ -49,10 +73,12 @@ const atlasTaskSchema = new Schema<AtlasTaskDoc>({
   jiraUrl: { type: String, required: true },
   assigneeAccountId: { type: String, default: null },
   status: { type: String, enum: ['To Do', 'In Progress', 'Done'], required: true },
-  startDate: { type: Date, default: null },
-  endDate: { type: Date, default: null },
+  startDate: { type: String, default: null },
+  endDate: { type: String, default: null },
   atRisk: { type: Boolean, default: false },
-  notes: { type: String, default: '' },
+  atRiskOverride: { type: Boolean, default: false },
+  notes: { type: Schema.Types.Mixed, default: null },
+  notesText: { type: String, default: '' },
   blockedBy: { type: [{ type: Schema.Types.ObjectId, ref: 'AtlasTask' }], default: [] },
   archived: { type: Boolean, default: false },
 })

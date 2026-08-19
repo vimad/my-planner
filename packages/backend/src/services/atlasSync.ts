@@ -83,12 +83,19 @@ function issueTitle(issue: JiraIssue): string {
 
 // Upserts one AtlasTask doc for a synced issue. Only ever $set's
 // Jira-sourced fields (epicId/parentTaskId/title/jiraUrl/assigneeAccountId/
-// status) — startDate/endDate/atRisk/notes/blockedBy/archived are
-// Atlas-local (spec §2) and are left to $setOnInsert defaults so a resync
-// never clobbers a manual edit made in ticket 09/10's UI. Setting
-// epicId/parentTaskId from the *current* fetch on every sync is also what
-// implements the "Jira-side reparent just moves the task" rule (spec §4.6)
-// for free — no separate reparent-detection code needed.
+// status) — startDate/endDate/atRisk/atRiskOverride/notes/notesText/
+// blockedBy/archived are Atlas-local (spec §2) and are left to
+// $setOnInsert defaults so a resync never clobbers a manual edit made in
+// ticket 09/10's UI. Setting epicId/parentTaskId from the *current* fetch on
+// every sync is also what implements the "Jira-side reparent just moves the
+// task" rule (spec §4.6) for free — no separate reparent-detection code
+// needed.
+//
+// atRisk/atRiskOverride specifically: leaving both to $setOnInsert (never
+// touched on an existing doc) is what lets a manual at-risk override
+// survive forever across resyncs (spec §5.1) — see utils/atlasRisk.ts's
+// resolveAtRisk for how the *effective* value is actually computed at read
+// time from these two fields.
 async function upsertAtlasTask(
   issue: JiraIssue,
   epicId: unknown,
@@ -111,7 +118,9 @@ async function upsertAtlasTask(
         startDate: null,
         endDate: null,
         atRisk: false,
-        notes: '',
+        atRiskOverride: false,
+        notes: null,
+        notesText: '',
         blockedBy: [],
         archived: false,
       },

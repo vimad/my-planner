@@ -1,3 +1,4 @@
+import type { JSONContent } from '@tiptap/core'
 import { useCallback, useEffect, useState } from 'react'
 import type { AtlasEpic } from '../types'
 
@@ -25,6 +26,24 @@ export interface UseAtlasEpicsResult {
   // a rejected key (unresolvable/non-Epic) - trackError is set either way,
   // never thrown, so a component doesn't need its own try/catch.
   trackEpic: (jiraKey: string) => Promise<boolean>
+  // Ticket 09's task-editing PATCH: partial-update a single task's
+  // dates/notes/at-risk-override/blocked-by, then re-fetch the whole list
+  // (same "re-GET rather than splice locally" rationale as trackEpic above -
+  // the row-level caller doesn't need to reconstruct the nested tree shape
+  // itself). Throws on failure (network or non-2xx) rather than swallowing
+  // it into a hook-level error field, since edits happen row-by-row and
+  // inline - the calling row is what owns showing its own save error, not
+  // one shared hook-wide slot that many simultaneously-open rows would fight
+  // over.
+  updateTask: (taskId: string, patch: UpdateAtlasTaskPatch) => Promise<void>
+}
+
+export interface UpdateAtlasTaskPatch {
+  startDate?: string | null
+  endDate?: string | null
+  notes?: JSONContent | null
+  atRisk?: boolean
+  blockedBy?: string[]
 }
 
 // Backs AtlasView's tracked-epics list (GET /api/atlas/epics) and its
@@ -84,5 +103,18 @@ export function useAtlasEpics(): UseAtlasEpicsResult {
     [refresh],
   )
 
-  return { epics, loading, loadError, tracking, trackError, trackEpic }
+  const updateTask = useCallback(
+    async (taskId: string, patch: UpdateAtlasTaskPatch) => {
+      const res = await fetch(`${API_URL}/api/atlas/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await refresh()
+    },
+    [refresh],
+  )
+
+  return { epics, loading, loadError, tracking, trackError, trackEpic, updateTask }
 }

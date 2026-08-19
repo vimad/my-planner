@@ -2,6 +2,8 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { AtlasEpic } from '../models/AtlasEpic.ts'
 import { AtlasTask } from '../models/AtlasTask.ts'
 import { buildTaskTree, EpicNotFoundError, NotAnEpicError, trackAndSyncEpic } from '../services/atlasSync.ts'
+import { resolveAtRisk } from '../utils/atlasRisk.ts'
+import { toLocalDateString } from '../utils/localDate.ts'
 
 export const atlasEpicsRouter = Router()
 
@@ -44,14 +46,26 @@ atlasEpicsRouter.post(
 // parentTaskId (buildTaskTree). Progress/status-bucket counts and date range
 // are deliberately not computed here - they're the Dashboard's job (ticket
 // 08), derived at render time from each epic's tasks (spec §2).
+//
+// Each task's `atRisk` is overwritten here with its *effective* value
+// (utils/atlasRisk.ts's resolveAtRisk) before the response is built - not a
+// database write, purely a per-request projection, so the auto-risk rule
+// stays reactive (flips the moment today crosses endDate) without needing a
+// sync or any stored recompute step (ticket 09; see resolveAtRisk's own
+// comment for the full rationale).
 atlasEpicsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const epics = await AtlasEpic.find().sort({ jiraKey: 1 })
+    const today = toLocalDateString(new Date())
 
     const withTasks = await Promise.all(
       epics.map(async (epic) => {
         const tasks = await AtlasTask.find({ epicId: epic._id })
-        return { ...epic.toObject(), tasks: buildTaskTree(tasks.map((task) => task.toObject())) }
+        const resolvedTasks = tasks.map((task) => {
+          const obj = task.toObject()
+          return { ...obj, atRisk: resolveAtRisk(obj, today) }
+        })
+        return { ...epic.toObject(), tasks: buildTaskTree(resolvedTasks) }
       }),
     )
 

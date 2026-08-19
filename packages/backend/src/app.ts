@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { atlasEpicsRouter } from './routes/atlasEpics.ts'
+import { atlasTasksRouter } from './routes/atlasTasks.ts'
 import { boardsRouter } from './routes/boards.ts'
 import { capacityRouter } from './routes/capacity.ts'
 import { capacityEntriesRouter } from './routes/capacityEntries.ts'
@@ -40,6 +41,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   })
 
   app.use('/api/atlas/epics', atlasEpicsRouter)
+  app.use('/api/atlas/tasks', atlasTasksRouter)
   app.use('/api/boards', boardsRouter)
   app.use('/api/capacity-entries', capacityEntriesRouter)
   app.use('/api/capacity-lookup', capacityLookupRouter)
