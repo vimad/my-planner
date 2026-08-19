@@ -11,9 +11,9 @@ Follow `docs/ui-conventions.md` for color/border/radius/shadow/spacing conventio
 
 **Blocked by:** Track & sync an epic ([07](07-track-sync-epic.md))
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Dashboard lists every tracked, non-archived epic as an overview row with progress bar, status/at-risk pills, date range, and Jira link, matching real synced data
-- [ ] Clicking an epic row expands its task tree inline (not a drawer/modal), showing every task and sub-task recursively with correct indentation
-- [ ] Each task/sub-task row shows status badge, dates, a notes indicator when notes exist, and blocked-by chips (epic-suffixed when cross-epic) when present
-- [ ] Layout and styling follow `docs/ui-conventions.md`'s existing conventions for the matched archetype
+- [x] Dashboard lists every tracked, non-archived epic as an overview row with progress bar, status/at-risk pills, date range, and Jira link, matching real synced data
+- [x] Clicking an epic row expands its task tree inline (not a drawer/modal), showing every task and sub-task recursively with correct indentation
+- [x] Each task/sub-task row shows status badge, dates, a notes indicator when notes exist, and blocked-by chips (epic-suffixed when cross-epic) when present
+- [x] Layout and styling follow `docs/ui-conventions.md`'s existing conventions for the matched archetype
