@@ -1,6 +1,17 @@
 import type { JSONContent } from '@tiptap/core'
 import { useMemo, useRef, useState, type FormEvent } from 'react'
-import { AlertTriangle, ArrowUpRight, ChevronDown, ChevronRight, Pencil, StickyNote, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  RefreshCw,
+  StickyNote,
+  X,
+} from 'lucide-react'
 import { useAtlasEpics, type UpdateAtlasTaskPatch } from '../hooks/useAtlasEpics'
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 import { jiraIssueUrl } from '../constants/jira'
@@ -23,7 +34,11 @@ import type { RichTextEditorHandle } from './RichTextEditor'
 // atlas-dashboard-ui-variants, VariantB.tsx; see .scratch/sprint-atlas-
 // program/issues/04-dashboard-ui.md's Answer) - plus ticket 09's in-place
 // task editing (dates/notes/at-risk override/blocked-by) layered onto the
-// same recursive AtlasTaskRow. Sync now/archive/restore is still ticket 10.
+// same recursive AtlasTaskRow, and ticket 10's epic-level lifecycle actions
+// (per-epic/global "Sync now", un-track/archive, restore, epic notes)
+// layered onto AtlasEpicRow/AtlasView. Per spec §4.2, "Sync now" (here or
+// the global one) is the *only* way data ever updates after a track/prior
+// sync - there is no lazy/background auto-refresh anywhere in this file.
 
 // A single "Blocked by" chip - same shape whether same-epic or cross-epic,
 // just with or without the ` · <epicKey>` suffix (spec §6's task row line
@@ -339,7 +354,9 @@ function AtlasTaskRow({
           </button>
         )}
       </div>
-      {task.subtasks.map((sub) => (
+      {task.subtasks
+        .filter((sub) => !sub.archived)
+        .map((sub) => (
         <AtlasTaskRow
           key={getId(sub) ?? sub.jiraKey}
           task={sub}
@@ -355,6 +372,96 @@ function AtlasTaskRow({
   )
 }
 
+// Epic-level notes (ticket 10, spec §2/§6): the same edit-then-Save,
+// staged-local-state pattern as TaskEditPanel above, just scoped to one
+// field. Shown once, under the epic row's divider, above the task rows.
+// Read-only for an archived epic's drill-down (no `onSave` call site passes
+// an edit affordance there - see AtlasEpicRow's `dimmed` branch below),
+// matching the rest of that row's "still expandable, read-only" treatment.
+function EpicNotesEditor({
+  epic,
+  readOnly,
+  onSave,
+}: {
+  epic: AtlasEpic
+  readOnly?: boolean
+  onSave: (notes: JSONContent | null) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const notesRef = useRef<RichTextEditorHandle>(null)
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const notes = notesRef.current?.getJSON() ?? epic.notes ?? null
+      await onSave(notes as JSONContent | null)
+      setEditing(false)
+    } catch (err) {
+      setSaveError((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="mb-2 flex items-start justify-between gap-2">
+        {epic.notesText ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">{epic.notesText}</p>
+        ) : (
+          <p className="text-xs italic text-slate-400 dark:text-slate-500">No epic notes yet.</p>
+        )}
+        {!readOnly && (
+          <button
+            type="button"
+            aria-label={`Edit ${epic.jiraKey} notes`}
+            title="Edit epic notes"
+            onClick={() => setEditing(true)}
+            className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-2 flex flex-col gap-2 rounded-lg border border-fuchsia-400/30 bg-fuchsia-50/40 p-3 dark:border-fuchsia-400/20 dark:bg-fuchsia-500/5">
+      <ExpandableNotesEditor
+        ref={notesRef}
+        content={epic.notes}
+        savedContent={epic.notes}
+        editable
+        toolbar
+        className="min-h-[70px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+        contentClassName="max-h-[30vh] overflow-y-auto [&_.tiptap]:min-h-[50px]"
+      />
+      {saveError && <p className="text-xs text-red-600 dark:text-red-400">Error: {saveError}</p>}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={handleSave}
+          className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function StatCell({ count, className }: { count: number; className: string }) {
   return (
     <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${className}`}>
@@ -364,8 +471,17 @@ function StatCell({ count, className }: { count: number; className: string }) {
 }
 
 // One row of the epic overview table (spec §6) - key/title, progress bar,
-// status/at-risk pills, date range, Jira link. Clicking it toggles the
+// status/at-risk pills, date range, Jira link, plus ticket 10's lifecycle
+// actions (Sync now, archive/restore). Clicking the row body toggles the
 // inline task-tree accordion beneath it.
+//
+// The row body and its trailing actions are deliberately *siblings* inside
+// a wrapping <div>, not one action nested inside another <button> - nesting
+// interactive elements is invalid HTML and (unlike the pre-existing "Open in
+// Jira" <a>, which browsers tolerate inside a <button>) a real nested
+// <button> gets hoisted out by the HTML parser, breaking layout. Same
+// sibling-button shape NotesView.tsx's TreeRow/LinkedTodoCard already use
+// for "clickable row + row actions".
 function AtlasEpicRow({
   epic,
   expanded,
@@ -373,6 +489,10 @@ function AtlasEpicRow({
   blockedByLookup,
   blockerCandidates,
   onUpdateTask,
+  onSync,
+  onArchive,
+  onRestore,
+  onUpdateNotes,
   dimmed,
 }: {
   epic: AtlasEpic
@@ -381,55 +501,125 @@ function AtlasEpicRow({
   blockedByLookup: Map<string, BlockedByRef>
   blockerCandidates: BlockedByCandidate[]
   onUpdateTask: (taskId: string, patch: UpdateAtlasTaskPatch) => Promise<void>
+  onSync: () => Promise<void>
+  onArchive: () => Promise<void>
+  onRestore: () => Promise<void>
+  onUpdateNotes: (notes: JSONContent | null) => Promise<void>
   dimmed?: boolean
 }) {
   const stats = epicStats(epic)
   const epicId = getId(epic) ?? epic.jiraKey
+  // Jira-side deletes (spec §4.5) archive an AtlasTask rather than removing
+  // it, so its notes/dates/risk/blocked-by survive a resync - but it should
+  // still disappear from the Dashboard's drill-down, same as an archived
+  // epic disappears from the main list. There's no per-task restore UI
+  // (only epics get the "Show N archived / restore" treatment - ticket 10's
+  // scope), so this is a display-only filter; the doc and its annotations
+  // stay in Mongo regardless.
+  const visibleTasks = epic.tasks.filter((task) => !task.archived)
+  const [syncing, setSyncing] = useState(false)
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  async function handleSync() {
+    setSyncing(true)
+    setActionError(null)
+    try {
+      await onSync()
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleArchiveOrRestore() {
+    setArchiveBusy(true)
+    setActionError(null)
+    try {
+      await (dimmed ? onRestore() : onArchive())
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
   return (
     <div className={`rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-white/5 ${dimmed ? 'opacity-60' : ''}`}>
-      <button type="button" onClick={onToggle} className="flex w-full items-center gap-3 px-3 py-2.5 text-left">
-        {expanded ? (
-          <ChevronDown size={14} className="shrink-0 text-slate-400" />
-        ) : (
-          <ChevronRight size={14} className="shrink-0 text-slate-400" />
-        )}
-        <div className="w-40 shrink-0">
-          <span className="block font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
-          <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
-        </div>
-        <div className="flex w-28 shrink-0 items-center gap-2">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${stats.progressPct}%` }} />
+      <div className="flex w-full items-center gap-3 px-3 py-2.5">
+        <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          {expanded ? (
+            <ChevronDown size={14} className="shrink-0 text-slate-400" />
+          ) : (
+            <ChevronRight size={14} className="shrink-0 text-slate-400" />
+          )}
+          <div className="w-40 shrink-0">
+            <span className="block font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+            <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
           </div>
-          <span className="w-8 shrink-0 text-right text-[10px] text-slate-400 dark:text-slate-500">{stats.progressPct}%</span>
+          <div className="flex w-28 shrink-0 items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${stats.progressPct}%` }} />
+            </div>
+            <span className="w-8 shrink-0 text-right text-[10px] text-slate-400 dark:text-slate-500">{stats.progressPct}%</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <StatCell count={stats.todo} className={STATUS_BADGE['To Do']} />
+            <StatCell count={stats.inProgress} className={STATUS_BADGE['In Progress']} />
+            <StatCell count={stats.done} className={STATUS_BADGE.Done} />
+            {stats.atRisk > 0 && <StatCell count={stats.atRisk} className={AT_RISK_BADGE} />}
+          </div>
+          <span className="flex-1 truncate text-right text-xs text-slate-500 dark:text-slate-400">
+            {formatDateRange(stats.startDate, stats.endDate)}
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!dimmed && (
+            <button
+              type="button"
+              aria-label={`Sync ${epic.jiraKey} now`}
+              title="Sync now"
+              disabled={syncing}
+              onClick={handleSync}
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            >
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label={dimmed ? `Restore ${epic.jiraKey}` : `Un-track ${epic.jiraKey}`}
+            title={dimmed ? 'Restore' : 'Un-track (archive)'}
+            disabled={archiveBusy}
+            onClick={handleArchiveOrRestore}
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          >
+            {dimmed ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+          </button>
+          <a
+            href={jiraIssueUrl(epic.jiraKey)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in Jira"
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          >
+            <ArrowUpRight size={14} />
+          </a>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <StatCell count={stats.todo} className={STATUS_BADGE['To Do']} />
-          <StatCell count={stats.inProgress} className={STATUS_BADGE['In Progress']} />
-          <StatCell count={stats.done} className={STATUS_BADGE.Done} />
-          {stats.atRisk > 0 && <StatCell count={stats.atRisk} className={AT_RISK_BADGE} />}
-        </div>
-        <span className="flex-1 truncate text-right text-xs text-slate-500 dark:text-slate-400">
-          {formatDateRange(stats.startDate, stats.endDate)}
-        </span>
-        <a
-          href={jiraIssueUrl(epic.jiraKey)}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
-          title="Open in Jira"
-          className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
-        >
-          <ArrowUpRight size={14} />
-        </a>
-      </button>
+      </div>
+      {actionError && (
+        <p className="border-t border-slate-200 px-3 py-1 text-xs text-red-600 dark:border-white/10 dark:text-red-400">
+          Error: {actionError}
+        </p>
+      )}
       {expanded && (
         <div className="border-t border-slate-200 px-3 py-2 dark:border-white/10">
-          {epic.notes && <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">{epic.notes}</p>}
-          {epic.tasks.length === 0 ? (
+          <EpicNotesEditor epic={epic} readOnly={dimmed} onSave={onUpdateNotes} />
+          {visibleTasks.length === 0 ? (
             <p className="py-2 text-xs text-slate-400 dark:text-slate-500">No tasks synced yet.</p>
           ) : (
-            epic.tasks.map((task) => (
+            visibleTasks.map((task) => (
               <AtlasTaskRow
                 key={getId(task) ?? task.jiraKey}
                 task={task}
@@ -465,8 +655,15 @@ function AtlasEpicRow({
 // universe (blockerCandidates, built once here and threaded down through
 // every AtlasEpicRow/AtlasTaskRow).
 export function AtlasView() {
-  const { epics, loading, loadError, tracking, trackError, trackEpic, updateTask } = useAtlasEpics()
+  const { epics, loading, loadError, tracking, trackError, trackEpic, updateTask, updateEpic, syncEpic, syncAll } =
+    useAtlasEpics()
   const [epicKey, setEpicKey] = useState('')
+  // Ticket 10's global "Sync all" - local state, not lifted into the hook,
+  // matching every other mutation's "the calling UI owns its own busy/error
+  // state" convention in this file (see TaskEditPanel/EpicNotesEditor/
+  // AtlasEpicRow's own sync/archive state above).
+  const [syncingAll, setSyncingAll] = useState(false)
+  const [syncAllError, setSyncAllError] = useState<string | null>(null)
   // One epic open by default - the first row in the active (non-archived)
   // list, unless the user has explicitly toggled that particular epic - not
   // exclusive-enforced, so more than one can stay open at once (spec §6's
@@ -499,6 +696,18 @@ export function AtlasView() {
     if (!key) return
     const ok = await trackEpic(key)
     if (ok) setEpicKey('')
+  }
+
+  async function handleSyncAll() {
+    setSyncingAll(true)
+    setSyncAllError(null)
+    try {
+      await syncAll()
+    } catch (err) {
+      setSyncAllError((err as Error).message)
+    } finally {
+      setSyncingAll(false)
+    }
   }
 
   return (
@@ -539,6 +748,21 @@ export function AtlasView() {
       {loadError && <p className="text-sm text-red-600 dark:text-red-400">Error: {loadError}</p>}
 
       {!loading && active.length > 0 && (
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            disabled={syncingAll}
+            onClick={handleSyncAll}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+          >
+            <RefreshCw size={12} className={syncingAll ? 'animate-spin' : ''} />
+            {syncingAll ? 'Syncing all…' : 'Sync all'}
+          </button>
+          {syncAllError && <span className="text-xs text-red-600 dark:text-red-400">Error: {syncAllError}</span>}
+        </div>
+      )}
+
+      {!loading && active.length > 0 && (
         <div className="flex flex-col gap-2">
           {active.map((epic, index) => {
             const id = getId(epic) ?? epic.jiraKey
@@ -552,6 +776,10 @@ export function AtlasView() {
                 blockedByLookup={blockedByLookup}
                 blockerCandidates={blockerCandidates}
                 onUpdateTask={updateTask}
+                onSync={() => syncEpic(id)}
+                onArchive={() => updateEpic(id, { archived: true })}
+                onRestore={() => updateEpic(id, { archived: false })}
+                onUpdateNotes={(notes) => updateEpic(id, { notes })}
               />
             )
           })}
@@ -580,6 +808,10 @@ export function AtlasView() {
                     blockedByLookup={blockedByLookup}
                     blockerCandidates={blockerCandidates}
                     onUpdateTask={updateTask}
+                    onSync={() => syncEpic(id)}
+                    onArchive={() => updateEpic(id, { archived: true })}
+                    onRestore={() => updateEpic(id, { archived: false })}
+                    onUpdateNotes={(notes) => updateEpic(id, { notes })}
                     dimmed
                   />
                 )

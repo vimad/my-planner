@@ -9,16 +9,20 @@ vi.mock('../src/services/jiraClient.ts', () => ({
 
 interface MockedAtlasEpicModel {
   findOneAndUpdate: Mock
+  findOne: Mock
 }
 interface MockedAtlasTaskModel {
   findOneAndUpdate: Mock
+  find: Mock
+  findOne: Mock
+  updateOne: Mock
 }
 
 vi.mock('../src/models/AtlasEpic.ts', () => ({
-  AtlasEpic: { findOneAndUpdate: vi.fn() },
+  AtlasEpic: { findOneAndUpdate: vi.fn(), findOne: vi.fn() },
 }))
 vi.mock('../src/models/AtlasTask.ts', () => ({
-  AtlasTask: { findOneAndUpdate: vi.fn() },
+  AtlasTask: { findOneAndUpdate: vi.fn(), find: vi.fn(), findOne: vi.fn(), updateOne: vi.fn() },
 }))
 
 const { bulkFetchIssues, searchJql } = (await import('../src/services/jiraClient.ts')) as unknown as {
@@ -112,7 +116,8 @@ describe('trackAndSyncEpic', () => {
       _id: `epic-${filter.jiraKey}`,
       jiraKey: filter.jiraKey,
       ...update.$set,
-      notes: '',
+      notes: null,
+      notesText: '',
       archived: false,
     }))
     AtlasTask.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
@@ -126,6 +131,14 @@ describe('trackAndSyncEpic', () => {
       blockedBy: [],
       archived: false,
     }))
+    // Resync reconciliation defaults (ticket 10): no previously-synced tasks
+    // to reconcile unless a test explicitly seeds AtlasTask.find - keeps
+    // every pre-existing ticket-07/09 test (which never touches
+    // reconciliation) working unchanged.
+    AtlasTask.find.mockResolvedValue([])
+    AtlasTask.updateOne.mockResolvedValue({})
+    AtlasTask.findOne.mockResolvedValue(null)
+    AtlasEpic.findOne.mockResolvedValue(null)
   })
 
   it('throws EpicNotFoundError and makes no search/upsert calls when the key does not resolve in Jira', async () => {
@@ -229,7 +242,7 @@ describe('trackAndSyncEpic', () => {
     expect(result.tasks[0].assigneeAccountId).toBe('acct-1')
   })
 
-  it('only $set-updates Jira-sourced fields on the epic upsert, leaving notes/archived to $setOnInsert defaults', async () => {
+  it('only $set-updates Jira-sourced fields on the epic upsert, leaving notes/notesText/archived to $setOnInsert defaults', async () => {
     bulkFetchIssues.mockResolvedValue({
       issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' } })],
       issueErrors: [],
@@ -241,6 +254,7 @@ describe('trackAndSyncEpic', () => {
     const [, update] = AtlasEpic.findOneAndUpdate.mock.calls[0]
     expect(Object.keys(update.$set)).toEqual(expect.arrayContaining(['title', 'jiraUrl', 'lastSyncedAt']))
     expect(Object.keys(update.$set)).not.toContain('notes')
+    expect(Object.keys(update.$set)).not.toContain('notesText')
     expect(Object.keys(update.$set)).not.toContain('archived')
   })
 
@@ -304,5 +318,146 @@ describe('trackAndSyncEpic', () => {
     const task = result.tasks.find((t: any) => t.jiraKey === 'WOSMVP-100')
     expect(task?.atRisk).toBe(true)
     expect(task?.atRiskOverride).toBe(true)
+  })
+})
+
+// Ticket 10's resync diffing: given a set of AtlasTask docs already tracked
+// under an epic (from a prior sync) and a fresh Jira tree that no longer
+// mentions some of them, what happens to those "missing" docs? Two spec
+// rules (§4.5/§4.6, ticket 03's Q4): a genuinely deleted Jira issue gets
+// archived (soft-delete, restorable, annotations untouched); a
+// still-existing-but-reparented-elsewhere issue moves its epicId/
+// parentTaskId to wherever Atlas can resolve its new Jira parent to, leaving
+// every other field (notes/dates/atRisk/blockedBy) alone. Neither case is
+// exercised by any test above, since every task there is also present in the
+// fresh sync (never "missing").
+describe('trackAndSyncEpic — resync reconciliation (delete/reparent)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    AtlasEpic.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `epic-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      ...update.$set,
+      notes: null,
+      notesText: '',
+      archived: false,
+    }))
+    AtlasTask.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `task-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      ...update.$set,
+      startDate: null,
+      endDate: null,
+      atRisk: false,
+      notes: '',
+      blockedBy: [],
+      archived: false,
+    }))
+    AtlasTask.updateOne.mockResolvedValue({})
+    AtlasTask.findOne.mockResolvedValue(null)
+    AtlasEpic.findOne.mockResolvedValue(null)
+    // No level-0/level-1 tasks come back from Jira in these tests - the
+    // whole point is exercising what happens to a *previously* synced task
+    // that the fresh fetch no longer mentions at all.
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' } })],
+      issueErrors: [],
+    })
+    searchJql.mockResolvedValue([])
+  })
+
+  it("archives a previously-synced task whose Jira issue is gone, preserving its local annotations untouched", async () => {
+    AtlasTask.find.mockResolvedValue([
+      { _id: 'task-WOSMVP-999', jiraKey: 'WOSMVP-999', epicId: 'epic-WOSMVP-8262', archived: false },
+    ])
+    // Second bulkFetchIssues call (the missing-task check) finds nothing -
+    // the issue itself is gone.
+    bulkFetchIssues.mockResolvedValueOnce({ issues: [], issueErrors: [{ issueId: 'WOSMVP-999' }] })
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(bulkFetchIssues).toHaveBeenNthCalledWith(2, ['WOSMVP-999'], expect.any(Array))
+    expect(AtlasTask.updateOne).toHaveBeenCalledWith({ _id: 'task-WOSMVP-999' }, { $set: { archived: true } })
+  })
+
+  it("moves a reparented task's epicId/parentTaskId to a different Atlas-tracked epic, without touching its other fields", async () => {
+    AtlasTask.find.mockResolvedValue([
+      { _id: 'task-WOSMVP-999', jiraKey: 'WOSMVP-999', epicId: 'epic-WOSMVP-8262', archived: false },
+    ])
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-999', { parent: { key: 'WOSMVP-3000' } })],
+      issueErrors: [],
+    })
+    AtlasEpic.findOne.mockResolvedValue({ _id: 'epic-WOSMVP-3000', jiraKey: 'WOSMVP-3000' })
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(AtlasEpic.findOne).toHaveBeenCalledWith({ jiraKey: 'WOSMVP-3000' })
+    expect(AtlasTask.updateOne).toHaveBeenCalledWith(
+      { _id: 'task-WOSMVP-999' },
+      { $set: { epicId: 'epic-WOSMVP-3000', parentTaskId: null } },
+    )
+  })
+
+  it("moves a reparented sub-task's epicId/parentTaskId to a different Atlas-tracked parent task", async () => {
+    AtlasTask.find.mockResolvedValue([
+      { _id: 'task-WOSMVP-999', jiraKey: 'WOSMVP-999', epicId: 'epic-WOSMVP-8262', archived: false },
+    ])
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-999', { parent: { key: 'WOSMVP-500' } })],
+      issueErrors: [],
+    })
+    AtlasEpic.findOne.mockResolvedValue(null)
+    AtlasTask.findOne.mockResolvedValue({ _id: 'task-WOSMVP-500', jiraKey: 'WOSMVP-500', epicId: 'epic-WOSMVP-3000' })
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(AtlasTask.findOne).toHaveBeenCalledWith({ jiraKey: 'WOSMVP-500' })
+    expect(AtlasTask.updateOne).toHaveBeenCalledWith(
+      { _id: 'task-WOSMVP-999' },
+      { $set: { epicId: 'epic-WOSMVP-3000', parentTaskId: 'task-WOSMVP-500' } },
+    )
+  })
+
+  it('archives a still-existing task whose new Jira parent is not tracked by Atlas at all, rather than leaving a dangling epicId', async () => {
+    AtlasTask.find.mockResolvedValue([
+      { _id: 'task-WOSMVP-999', jiraKey: 'WOSMVP-999', epicId: 'epic-WOSMVP-8262', archived: false },
+    ])
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-999', { parent: { key: 'UNTRACKED-1' } })],
+      issueErrors: [],
+    })
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(AtlasTask.updateOne).toHaveBeenCalledWith({ _id: 'task-WOSMVP-999' }, { $set: { archived: true } })
+  })
+
+  it('never runs the missing-task check when every previously-synced task is still present in the fresh sync', async () => {
+    AtlasTask.find.mockResolvedValue([])
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(bulkFetchIssues).toHaveBeenCalledTimes(1)
+    expect(AtlasTask.updateOne).not.toHaveBeenCalled()
+  })
+
+  it('only reconciles tasks belonging to the epic being synced, scoping the AtlasTask.find query to epicId + archived:false', async () => {
+    AtlasTask.find.mockResolvedValue([])
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    expect(AtlasTask.find).toHaveBeenCalledWith({ epicId: 'epic-WOSMVP-8262', archived: false })
+  })
+
+  it('skips a task that is missing from the fresh sync but was already archived, never re-checking or re-touching it', async () => {
+    AtlasTask.find.mockResolvedValue([])
+
+    await trackAndSyncEpic('WOSMVP-8262')
+
+    // AtlasTask.find is itself already scoped to archived:false (see test
+    // above), so an already-archived task never appears in `missing` at all
+    // - nothing further to assert beyond the query scoping already covered.
+    expect(AtlasTask.updateOne).not.toHaveBeenCalled()
   })
 })

@@ -1,3 +1,4 @@
+import type { Types } from 'mongoose'
 import { bulkFetchIssues, issueUrl, searchJql, type JiraIssue } from './jiraClient.ts'
 import { AtlasEpic, type AtlasEpicDoc } from '../models/AtlasEpic.ts'
 import { AtlasTask, type AtlasTaskDoc, type AtlasTaskStatus } from '../models/AtlasTask.ts'
@@ -9,6 +10,12 @@ const EPIC_FIELDS = ['summary', 'issuetype']
 // populate AtlasTask's Jira-sourced fields; subtasks is read to discover the
 // next hierarchy level down (never fetched for its own sake).
 const TASK_FIELDS = ['summary', 'status', 'assignee', 'subtasks']
+// Fields requested for ticket 10's "missing task" reconciliation check
+// (reconcileMissingTasks below) — `parent` is the only field that check
+// actually reads, to tell a genuine Jira-side delete (issue absent from the
+// bulk-fetch result entirely) apart from a reparent (issue still resolves,
+// just under a different immediate parent than before).
+const MISSING_TASK_CHECK_FIELDS = ['parent']
 
 export class EpicNotFoundError extends Error {}
 export class NotAnEpicError extends Error {}
@@ -27,6 +34,10 @@ interface JiraSubtaskRef {
 
 interface JiraIssueTypeRef {
   name?: string
+}
+
+interface JiraParentRef {
+  key?: string
 }
 
 // Collapses Jira's real workflow status down to Atlas's three buckets, per
@@ -135,6 +146,67 @@ export interface TrackAndSyncResult {
   tasks: (AtlasTaskDoc & { _id: unknown })[]
 }
 
+// Ticket 10's resync diffing (spec §4.5/§4.6, ticket 03's Q4): after a fresh
+// sync has upserted every task/sub-task Jira still returns for this epic,
+// anything previously tracked under this epic that *wasn't* touched by this
+// round is either genuinely gone from Jira or has been reparented away from
+// this epic's tree. `seenJiraKeys` is every jiraKey this sync round just
+// upserted (level-0 + level-1) — a doc whose jiraKey isn't in that set is
+// the input to this reconciliation pass.
+//
+// A single extra bulkFetchIssues call (requesting only `fields.parent`)
+// tells the two cases apart in one round-trip:
+//   - the key comes back in `issueErrors` (or simply isn't in `issues`) ->
+//     the Jira issue itself is gone -> archive (soft-delete), every other
+//     field left exactly as it was (notes/dates/atRisk/blockedBy).
+//   - the key resolves, with a `fields.parent.key` that Atlas can resolve to
+//     one of its *own* tracked records (another AtlasEpic, for a top-level
+//     task; or another AtlasTask, for a sub-task) -> reparented -> move
+//     epicId/parentTaskId to match, again touching nothing else.
+//   - the key resolves, but its new parent isn't anything Atlas tracks (a
+//     project/epic Atlas was never told about) -> there's nowhere valid
+//     within Atlas's own collections to point epicId at, so this falls back
+//     to archiving too, rather than leaving a dangling/incorrect epicId on
+//     an orphaned doc. Same soft-delete outcome as a real delete, just a
+//     different root cause.
+async function reconcileMissingTasks(epic: AtlasEpicDoc & { _id: unknown }, seenJiraKeys: Set<string>): Promise<void> {
+  const previouslyTracked = await AtlasTask.find({ epicId: epic._id as Types.ObjectId, archived: false })
+  const missing = previouslyTracked.filter((task) => !seenJiraKeys.has(task.jiraKey))
+  if (missing.length === 0) return
+
+  const { issues } = await bulkFetchIssues(
+    missing.map((task) => task.jiraKey),
+    MISSING_TASK_CHECK_FIELDS,
+  )
+  const foundByKey = new Map(issues.map((found) => [found.key, found]))
+
+  for (const task of missing) {
+    const found = foundByKey.get(task.jiraKey)
+    if (!found) {
+      await AtlasTask.updateOne({ _id: task._id }, { $set: { archived: true } })
+      continue
+    }
+
+    const parentKey = (found.fields.parent as JiraParentRef | undefined)?.key
+    const newEpic = parentKey ? await AtlasEpic.findOne({ jiraKey: parentKey }) : null
+    if (newEpic) {
+      await AtlasTask.updateOne({ _id: task._id }, { $set: { epicId: newEpic._id, parentTaskId: null } })
+      continue
+    }
+
+    const newParentTask = parentKey ? await AtlasTask.findOne({ jiraKey: parentKey }) : null
+    if (newParentTask) {
+      await AtlasTask.updateOne(
+        { _id: task._id },
+        { $set: { epicId: newParentTask.epicId, parentTaskId: newParentTask._id } },
+      )
+      continue
+    }
+
+    await AtlasTask.updateOne({ _id: task._id }, { $set: { archived: true } })
+  }
+}
+
 // The ticket-07 sync: entering an epic key resolves it against Jira and, if
 // it's a real Epic, recursively pulls its full task/sub-task tree — Epic ->
 // Task (JQL `parent = "<epicKey>"`) -> Sub-task (bulk-fetched off each
@@ -174,7 +246,7 @@ export async function trackAndSyncEpic(jiraKey: string): Promise<TrackAndSyncRes
         jiraUrl: issueUrl(jiraKey),
         lastSyncedAt: syncedAt,
       },
-      $setOnInsert: { jiraKey, notes: '', archived: false },
+      $setOnInsert: { jiraKey, notes: null, notesText: '', archived: false },
     },
     { upsert: true, returnDocument: 'after' },
   )
@@ -219,6 +291,15 @@ export async function trackAndSyncEpic(jiraKey: string): Promise<TrackAndSyncRes
     const doc = await upsertAtlasTask(level1Issue, epic._id, parentDoc?._id ?? null)
     level1Docs.push(doc)
   }
+
+  // Ticket 10: on every sync (initial or a later "Sync now" resync alike),
+  // reconcile anything previously tracked under this epic that this round's
+  // fetch didn't touch at all — see reconcileMissingTasks' own comment for
+  // the delete-vs-reparent distinction. A no-op on a brand-new epic's first
+  // sync, since AtlasTask.find({ epicId: epic._id, ... }) has nothing to
+  // return yet.
+  const seenJiraKeys = new Set([...level0Docs.keys(), ...level1Docs.map((doc) => doc.jiraKey)])
+  await reconcileMissingTasks(epic, seenJiraKeys)
 
   return { epic, tasks: [...level0Docs.values(), ...level1Docs] }
 }

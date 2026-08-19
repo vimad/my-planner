@@ -645,7 +645,11 @@ export interface AtlasEpic {
   jiraKey: string
   title: string
   jiraUrl: string
-  notes: string
+  // Rich text (Tiptap JSON) - ticket 10 reuses the same notes/notesText
+  // pattern ticket 09 established for AtlasTaskNode.notes above, rather than
+  // a separate plain-string shape.
+  notes: JSONContent | null
+  notesText: string
   archived: boolean
   lastSyncedAt: string
   tasks: AtlasTaskNode[]

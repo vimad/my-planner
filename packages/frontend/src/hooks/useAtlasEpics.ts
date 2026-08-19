@@ -36,6 +36,23 @@ export interface UseAtlasEpicsResult {
   // one shared hook-wide slot that many simultaneously-open rows would fight
   // over.
   updateTask: (taskId: string, patch: UpdateAtlasTaskPatch) => Promise<void>
+  // Ticket 10's epic-level PATCH: partial-update an epic's notes and/or its
+  // archived flag (un-track / restore - spec §4.4). Same "throw, let the
+  // caller own its own error state" contract as updateTask above - a row's
+  // notes editor or its archive/restore button each manage their own local
+  // busy/error state rather than sharing one hook-wide slot.
+  updateEpic: (epicId: string, patch: UpdateAtlasEpicPatch) => Promise<void>
+  // Ticket 10's per-epic "Sync now" - re-runs the same immediate/synchronous
+  // sync ticket 07 used for the initial track, scoped to just this one
+  // epic's tree (spec §4.2: the only way data updates post-initial-sync).
+  // Throws on failure, same row-owns-its-own-error contract as updateTask/
+  // updateEpic.
+  syncEpic: (epicId: string) => Promise<void>
+  // Ticket 10's global "Sync all" - resyncs every tracked, non-archived
+  // epic server-side in one call (routes/atlasEpics.ts's POST /sync-all).
+  // Throws on failure so the caller (AtlasView's own local state) owns
+  // showing the error, same convention as every other mutation here.
+  syncAll: () => Promise<void>
 }
 
 export interface UpdateAtlasTaskPatch {
@@ -46,10 +63,18 @@ export interface UpdateAtlasTaskPatch {
   blockedBy?: string[]
 }
 
-// Backs AtlasView's tracked-epics list (GET /api/atlas/epics) and its
-// epic-key entry form (POST /api/atlas/epics). Ticket 07's initial-sync
-// scope only - no per-epic "Sync now"/un-track/archive yet (ticket 10), no
-// polling/staleness (spec §4.2: refresh is always manual-only).
+export interface UpdateAtlasEpicPatch {
+  notes?: JSONContent | null
+  archived?: boolean
+}
+
+// Backs AtlasView's tracked-epics list (GET /api/atlas/epics), its
+// epic-key entry form (POST /api/atlas/epics - ticket 07), task/epic editing
+// (PATCH .../tasks/:id, .../epics/:id - tickets 09/10), and ticket 10's
+// per-epic/global "Sync now" actions. No polling/staleness anywhere (spec
+// §4.2: refresh is always manual-only) - every mutation here re-fetches the
+// whole list via `refresh` rather than trying to splice a partial response
+// into local state.
 export function useAtlasEpics(): UseAtlasEpicsResult {
   const [epics, setEpics] = useState<AtlasEpic[]>([])
   const [loading, setLoading] = useState(true)
@@ -116,5 +141,33 @@ export function useAtlasEpics(): UseAtlasEpicsResult {
     [refresh],
   )
 
-  return { epics, loading, loadError, tracking, trackError, trackEpic, updateTask }
+  const updateEpic = useCallback(
+    async (epicId: string, patch: UpdateAtlasEpicPatch) => {
+      const res = await fetch(`${API_URL}/api/atlas/epics/${epicId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const syncEpic = useCallback(
+    async (epicId: string) => {
+      const res = await fetch(`${API_URL}/api/atlas/epics/${epicId}/sync`, { method: 'POST' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const syncAll = useCallback(async () => {
+    const res = await fetch(`${API_URL}/api/atlas/epics/sync-all`, { method: 'POST' })
+    if (!res.ok) throw new Error(await parseErrorMessage(res))
+    await refresh()
+  }, [refresh])
+
+  return { epics, loading, loadError, tracking, trackError, trackEpic, updateTask, updateEpic, syncEpic, syncAll }
 }

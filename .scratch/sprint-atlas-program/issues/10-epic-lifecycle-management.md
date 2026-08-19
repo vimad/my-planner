@@ -11,12 +11,12 @@
 
 **Blocked by:** Dashboard view (read-only) ([08](08-dashboard-view.md))
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Editing an epic's notes persists and shows on its Dashboard row
-- [ ] "Sync now" on a single epic re-pulls its tree from Jira and reflects new/changed/removed tasks, without touching any other epic
-- [ ] A global sync action re-syncs every tracked, non-archived epic
-- [ ] Un-tracking an epic hides it from the main list but its tasks/annotations remain in storage, verifiable via the archived list
-- [ ] "Show N archived epics" reveals archived epics (reduced opacity, still expandable) and a restore action returns one to the main list
-- [ ] Re-syncing an epic after a task's Jira issue was deleted archives that `AtlasTask` locally, preserving its notes/dates/risk/blocked-by
-- [ ] Re-syncing an epic after a task was reparented in Jira moves it under its new epic locally, preserving its notes/dates/risk/blocked-by
+- [x] Editing an epic's notes persists and shows on its Dashboard row
+- [x] "Sync now" on a single epic re-pulls its tree from Jira and reflects new/changed/removed tasks, without touching any other epic
+- [x] A global sync action re-syncs every tracked, non-archived epic
+- [x] Un-tracking an epic hides it from the main list but its tasks/annotations remain in storage, verifiable via the archived list
+- [x] "Show N archived epics" reveals archived epics (reduced opacity, still expandable) and a restore action returns one to the main list
+- [x] Re-syncing an epic after a task's Jira issue was deleted archives that `AtlasTask` locally, preserving its notes/dates/risk/blocked-by
+- [x] Re-syncing an epic after a task was reparented in Jira moves it under its new epic locally, preserving its notes/dates/risk/blocked-by

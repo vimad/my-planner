@@ -79,7 +79,24 @@ function applyTaskPatch(taskId: string, patch: Record<string, unknown>) {
   }
 }
 
-function stubFetch(postHandler?: (init: FetchCallInit) => Promise<FakeResponse>): FetchMock {
+// Ticket 10's epic-level PATCH equivalent of applyTaskPatch above.
+function applyEpicPatch(epicId: string, patch: Record<string, unknown>) {
+  const found = listData.find((e) => (e._id ?? e.id) === epicId)
+  if (!found) return
+  const resolved = { ...patch }
+  if ('notes' in resolved) resolved.notesText = extractPlainText(resolved.notes)
+  Object.assign(found, resolved)
+}
+
+function stubFetch(
+  postHandler?: (init: FetchCallInit) => Promise<FakeResponse>,
+  // Ticket 10's "Sync now"/"Sync all" - a test that cares what a resync
+  // actually changes (new/removed/reparented tasks) passes a handler here to
+  // mutate `listData` before the next GET reflects it; most tests only care
+  // that the button called the right endpoint and triggered a refetch, so
+  // this defaults to a no-op 200.
+  syncHandler?: (epicId: string) => void,
+): FetchMock {
   const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
     const method = init?.method ?? 'GET'
@@ -101,6 +118,20 @@ function stubFetch(postHandler?: (init: FetchCallInit) => Promise<FakeResponse>)
       const taskId = href.split('/').pop()!
       applyTaskPatch(taskId, JSON.parse(init?.body ?? '{}'))
       return jsonResponse({}, 200)
+    }
+    if (/\/api\/atlas\/epics\/[^/]+$/.test(href) && method === 'PATCH') {
+      const epicId = href.split('/').pop()!
+      applyEpicPatch(epicId, JSON.parse(init?.body ?? '{}'))
+      return jsonResponse({}, 200)
+    }
+    if (/\/api\/atlas\/epics\/[^/]+\/sync$/.test(href) && method === 'POST') {
+      const epicId = href.split('/').slice(-2, -1)[0]!
+      syncHandler?.(epicId)
+      return jsonResponse({}, 200)
+    }
+    if (href.endsWith('/api/atlas/epics/sync-all') && method === 'POST') {
+      for (const e of listData) syncHandler?.(e._id ?? e.id ?? '')
+      return jsonResponse({ synced: [], errors: [] }, 200)
     }
     return jsonResponse([])
   })
@@ -138,7 +169,8 @@ describe('AtlasView', () => {
           jiraKey: 'WOSMVP-8262',
           title: 'The Epic',
           jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-8262',
-          notes: '',
+          notes: null,
+          notesText: '',
           archived: false,
           lastSyncedAt: '2026-08-19T00:00:00.000Z',
           tasks: [
@@ -278,7 +310,8 @@ describe('AtlasView dashboard layout', () => {
       jiraKey: 'WOSMVP-1',
       title: 'First Epic',
       jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-1',
-      notes: '',
+      notes: null,
+      notesText: '',
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
@@ -365,7 +398,7 @@ describe('AtlasView dashboard layout', () => {
   })
 
   it('renders epic-level notes once, above the task rows, and nothing when notes are empty', async () => {
-    listData = [epic({ jiraKey: 'WOSMVP-1', notes: 'Vendor delay is the long pole here.', tasks: [task()] })]
+    listData = [epic({ jiraKey: 'WOSMVP-1', notesText: 'Vendor delay is the long pole here.', tasks: [task()] })]
     stubFetch()
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('Vendor delay is the long pole here.')).toBeInTheDocument())
@@ -442,7 +475,8 @@ describe('AtlasView task editing (ticket 09)', () => {
       jiraKey: 'WOSMVP-1',
       title: 'First Epic',
       jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-1',
-      notes: '',
+      notes: null,
+      notesText: '',
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
@@ -583,5 +617,161 @@ describe('AtlasView task editing (ticket 09)', () => {
 
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
     expect(screen.queryByLabelText('Edit WOSMVP-100')).not.toBeInTheDocument()
+  })
+})
+
+describe('AtlasView epic lifecycle (ticket 10)', () => {
+  function task(overrides: Partial<AtlasEpic['tasks'][number]> = {}): AtlasEpic['tasks'][number] {
+    return {
+      _id: 't1',
+      epicId: 'e1',
+      parentTaskId: null,
+      jiraKey: 'WOSMVP-100',
+      title: 'Do the thing',
+      jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-100',
+      assigneeAccountId: null,
+      status: 'To Do',
+      startDate: null,
+      endDate: null,
+      atRisk: false,
+      atRiskOverride: false,
+      notes: null,
+      notesText: '',
+      blockedBy: [],
+      archived: false,
+      subtasks: [],
+      ...overrides,
+    }
+  }
+
+  function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
+    return {
+      _id: 'e1',
+      jiraKey: 'WOSMVP-1',
+      title: 'First Epic',
+      jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-1',
+      notes: null,
+      notesText: '',
+      archived: false,
+      lastSyncedAt: '2026-08-19T00:00:00.000Z',
+      tasks: [],
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    listData = []
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("editing an epic's notes persists and shows on its Dashboard row", async () => {
+    listData = [epic({ jiraKey: 'WOSMVP-1', title: 'First Epic' })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    expect(screen.getByText('No epic notes yet.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Edit WOSMVP-1 notes'))
+    const editable = document.querySelector('[contenteditable]')
+    if (!editable) throw new Error('expected a contenteditable notes editor to be rendered')
+    pasteText(editable, 'Vendor delay is the long pole here.')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(screen.getByText('Vendor delay is the long pole here.')).toBeInTheDocument())
+  })
+
+  it("'Sync now' on a single epic hits its own resync endpoint and refreshes the list, without touching other epics", async () => {
+    listData = [
+      epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' }),
+      epic({ _id: 'e2', jiraKey: 'WOSMVP-2', title: 'Second Epic' }),
+    ]
+    const syncedEpicIds: string[] = []
+    stubFetch(undefined, (epicId) => {
+      syncedEpicIds.push(epicId)
+      const found = listData.find((e) => e._id === epicId)
+      if (found) found.title = `${found.title} (synced)`
+    })
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Sync WOSMVP-1 now'))
+
+    await waitFor(() => expect(screen.getByText('First Epic (synced)')).toBeInTheDocument())
+    expect(syncedEpicIds).toEqual(['e1'])
+    expect(screen.getByText('Second Epic')).toBeInTheDocument()
+  })
+
+  it("a global 'Sync all' resyncs every tracked epic", async () => {
+    listData = [
+      epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' }),
+      epic({ _id: 'e2', jiraKey: 'WOSMVP-2', title: 'Second Epic' }),
+    ]
+    const syncedEpicIds: string[] = []
+    stubFetch(undefined, (epicId) => syncedEpicIds.push(epicId))
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sync all' }))
+
+    await waitFor(() => expect(syncedEpicIds.sort()).toEqual(['e1', 'e2']))
+  })
+
+  it('un-tracking an epic hides it from the main list but it remains visible (and restorable) via the archived toggle', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Un-track WOSMVP-1'))
+
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    expect(screen.queryByText('First Epic')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+    expect(screen.getByText('First Epic')).toBeInTheDocument()
+  })
+
+  it('restoring an archived epic returns it to the main list', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Restore WOSMVP-1'))
+
+    await waitFor(() => expect(screen.queryByText(/archived epic/)).not.toBeInTheDocument())
+    expect(screen.getByText('First Epic')).toBeInTheDocument()
+  })
+
+  it('does not offer a "Sync now" action on an archived (read-only) epic row', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    expect(screen.queryByLabelText('Sync WOSMVP-1 now')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Edit WOSMVP-1 notes')).not.toBeInTheDocument()
+  })
+
+  it('excludes an archived task from the drill-down tree while preserving it in storage (not asserted here beyond visibility)', async () => {
+    listData = [
+      epic({
+        _id: 'e1',
+        jiraKey: 'WOSMVP-1',
+        title: 'First Epic',
+        tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' }), task({ _id: 't2', jiraKey: 'WOSMVP-101', archived: true })],
+      }),
+    ]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    expect(screen.queryByText('WOSMVP-101')).not.toBeInTheDocument()
   })
 })

@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 interface MockedAtlasEpicModel {
   find: Mock
+  findById: Mock
+  findByIdAndUpdate: Mock
 }
 interface MockedAtlasTaskModel {
   find: Mock
 }
 
-vi.mock('../src/models/AtlasEpic.ts', () => ({ AtlasEpic: { find: vi.fn() } }))
+vi.mock('../src/models/AtlasEpic.ts', () => ({
+  AtlasEpic: { find: vi.fn(), findById: vi.fn(), findByIdAndUpdate: vi.fn() },
+}))
 vi.mock('../src/models/AtlasTask.ts', () => ({ AtlasTask: { find: vi.fn() } }))
 vi.mock('../src/services/atlasSync.ts', async () => {
   const actual = await vi.importActual<typeof import('../src/services/atlasSync.ts')>('../src/services/atlasSync.ts')
@@ -144,5 +148,197 @@ describe('GET /api/atlas/epics', () => {
     expect(res.status).toBe(200)
     expect(res.body).toEqual([])
     expect(AtlasTask.find).not.toHaveBeenCalled()
+  })
+})
+
+// Ticket 10: epic-level notes editing and un-track/restore (archive flag),
+// mirroring routes/atlasTasks.ts's PATCH /:id partial-update convention.
+describe('PATCH /api/atlas/epics/:id', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('saves notes and derives notesText from the Tiptap JSON', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue({ _id: 'e1' })
+    const notes = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Vendor delay' }] }] }
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/e1').send({ notes })
+
+    expect(res.status).toBe(200)
+    const [id, update] = AtlasEpic.findByIdAndUpdate.mock.calls[0]
+    expect(id).toBe('e1')
+    expect(update.notes).toEqual(notes)
+    expect(update.notesText).toBe('Vendor delay')
+  })
+
+  it('clearing notes back to null also clears notesText', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue({ _id: 'e1' })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/e1').send({ notes: null })
+
+    expect(res.status).toBe(200)
+    const [, update] = AtlasEpic.findByIdAndUpdate.mock.calls[0]
+    expect(update.notes).toBeNull()
+    expect(update.notesText).toBe('')
+  })
+
+  it('sets archived: true to un-track an epic (soft-delete, not a hard delete)', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue({ _id: 'e1', archived: true })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/e1').send({ archived: true })
+
+    expect(res.status).toBe(200)
+    const [, update] = AtlasEpic.findByIdAndUpdate.mock.calls[0]
+    expect(update).toEqual({ archived: true })
+  })
+
+  it('sets archived: false to restore a previously un-tracked epic', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue({ _id: 'e1', archived: false })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/e1').send({ archived: false })
+
+    expect(res.status).toBe(200)
+    const [, update] = AtlasEpic.findByIdAndUpdate.mock.calls[0]
+    expect(update).toEqual({ archived: false })
+  })
+
+  it('a request that never mentions archived never touches it at all', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue({ _id: 'e1' })
+
+    const app = createApp()
+    await request(app).patch('/api/atlas/epics/e1').send({ notes: null })
+
+    const [, update] = AtlasEpic.findByIdAndUpdate.mock.calls[0]
+    expect(update).not.toHaveProperty('archived')
+  })
+
+  it('returns 404 when the epic does not exist', async () => {
+    AtlasEpic.findByIdAndUpdate.mockResolvedValue(null)
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/missing').send({ archived: true })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('passes an unexpected error to the error handler (500)', async () => {
+    AtlasEpic.findByIdAndUpdate.mockRejectedValue(new Error('boom'))
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas/epics/e1').send({ archived: true })
+
+    expect(res.status).toBe(500)
+  })
+})
+
+// Ticket 10: "Sync now" - re-runs trackAndSyncEpic for just the one epic
+// (looked up by its Atlas _id, resolved to its jiraKey first) rather than
+// requiring the caller to already know the jiraKey.
+describe('POST /api/atlas/epics/:id/sync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("resyncs the epic by its jiraKey and returns the fresh result", async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', jiraKey: 'WOSMVP-8262' })
+    trackAndSyncEpic.mockResolvedValue({ epic: { _id: 'e1', jiraKey: 'WOSMVP-8262' }, tasks: [] })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/e1/sync')
+
+    expect(AtlasEpic.findById).toHaveBeenCalledWith('e1')
+    expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-8262')
+    expect(res.status).toBe(200)
+    expect(res.body.epic.jiraKey).toBe('WOSMVP-8262')
+  })
+
+  it('returns 404 when the epic id does not exist locally, without calling Jira', async () => {
+    AtlasEpic.findById.mockResolvedValue(null)
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/missing/sync')
+
+    expect(res.status).toBe(404)
+    expect(trackAndSyncEpic).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the epic has since been deleted/renamed away in Jira', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', jiraKey: 'WOSMVP-8262' })
+    trackAndSyncEpic.mockRejectedValue(new EpicNotFoundError('gone'))
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/e1/sync')
+
+    expect(res.status).toBe(404)
+  })
+
+  it('passes an unexpected error to the error handler (500)', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', jiraKey: 'WOSMVP-8262' })
+    trackAndSyncEpic.mockRejectedValue(new Error('boom'))
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/e1/sync')
+
+    expect(res.status).toBe(500)
+  })
+})
+
+// Ticket 10's global "sync all": loops every tracked, non-archived epic,
+// never touching an archived one, and doesn't let one epic's failure abort
+// the rest.
+describe('POST /api/atlas/epics/sync-all', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('resyncs every tracked, non-archived epic and reports which succeeded', async () => {
+    AtlasEpic.find.mockResolvedValue([
+      { _id: 'e1', jiraKey: 'WOSMVP-1' },
+      { _id: 'e2', jiraKey: 'WOSMVP-2' },
+    ])
+    trackAndSyncEpic.mockResolvedValue({ epic: {}, tasks: [] })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/sync-all')
+
+    expect(AtlasEpic.find).toHaveBeenCalledWith({ archived: false })
+    expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-1')
+    expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-2')
+    expect(res.status).toBe(200)
+    expect(res.body.synced).toEqual(['WOSMVP-1', 'WOSMVP-2'])
+    expect(res.body.errors).toEqual([])
+  })
+
+  it("one epic's sync failure doesn't abort the rest, and is reported per-epic", async () => {
+    AtlasEpic.find.mockResolvedValue([
+      { _id: 'e1', jiraKey: 'WOSMVP-1' },
+      { _id: 'e2', jiraKey: 'WOSMVP-2' },
+    ])
+    trackAndSyncEpic.mockImplementation(async (jiraKey: string) => {
+      if (jiraKey === 'WOSMVP-1') throw new Error('Jira request failed: 500')
+      return { epic: {}, tasks: [] }
+    })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/sync-all')
+
+    expect(res.status).toBe(200)
+    expect(res.body.synced).toEqual(['WOSMVP-2'])
+    expect(res.body.errors).toEqual([{ jiraKey: 'WOSMVP-1', error: 'Jira request failed: 500' }])
+  })
+
+  it('does nothing and reports empty when no epics are tracked', async () => {
+    AtlasEpic.find.mockResolvedValue([])
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/sync-all')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ synced: [], errors: [] })
+    expect(trackAndSyncEpic).not.toHaveBeenCalled()
   })
 })
