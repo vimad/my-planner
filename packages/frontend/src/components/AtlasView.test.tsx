@@ -133,6 +133,14 @@ function stubFetch(
       for (const e of listData) syncHandler?.(e._id ?? e.id ?? '')
       return jsonResponse({ synced: [], errors: [] }, 200)
     }
+    if (/\/api\/atlas\/epics\/[^/]+$/.test(href) && method === 'DELETE') {
+      const epicId = href.split('/').pop()!
+      const found = listData.find((e) => (e._id ?? e.id) === epicId)
+      if (!found) return jsonResponse({ error: 'Epic not found' }, 404)
+      if (!found.archived) return jsonResponse({ error: 'Only archived epics can be deleted' }, 400)
+      listData = listData.filter((e) => (e._id ?? e.id) !== epicId)
+      return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(undefined) })
+    }
     return jsonResponse([])
   })
   fetchMock = mock
@@ -758,6 +766,50 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.queryByLabelText('Sync WOSMVP-1 now')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Edit WOSMVP-1 notes')).not.toBeInTheDocument()
+  })
+
+  it('does not offer a delete action on an active (non-archived) epic row', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    expect(screen.queryByLabelText('Delete WOSMVP-1')).not.toBeInTheDocument()
+  })
+
+  it('deleting an archived epic asks for confirmation before removing it', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Delete WOSMVP-1'))
+
+    expect(screen.getByText(/Permanently delete WOSMVP-1/)).toBeInTheDocument()
+    expect(screen.getByText('First Epic')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(screen.queryByText('First Epic')).not.toBeInTheDocument())
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:4100/api/atlas/epics/e1', { method: 'DELETE' })
+  })
+
+  it('cancelling the delete confirmation leaves the epic untouched', async () => {
+    listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Delete WOSMVP-1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByText(/Permanently delete WOSMVP-1/)).not.toBeInTheDocument()
+    expect(screen.getByText('First Epic')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith('http://localhost:4100/api/atlas/epics/e1', { method: 'DELETE' })
   })
 
   it('excludes an archived task from the drill-down tree while preserving it in storage (not asserted here beyond visibility)', async () => {

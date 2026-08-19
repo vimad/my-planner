@@ -54,6 +54,13 @@ export interface UseAtlasEpicsResult {
   // Throws on failure so the caller (AtlasView's own local state) owns
   // showing the error, same convention as every other mutation here.
   syncAll: () => Promise<void>
+  // Permanently removes an archived epic (and its tasks) via DELETE
+  // /api/atlas/epics/:id - a hard delete, distinct from updateEpic's
+  // { archived: true } soft-delete un-track. Only ever called for an epic
+  // already in the archived list (the route itself also refuses to delete a
+  // still-active one). Throws on failure, same row-owns-its-own-error
+  // contract as updateTask/updateEpic/syncEpic.
+  deleteEpic: (epicId: string) => Promise<void>
 }
 
 export interface UpdateAtlasTaskPatch {
@@ -173,5 +180,26 @@ export function useAtlasEpics(): UseAtlasEpicsResult {
     await refresh()
   }, [refresh])
 
-  return { epics, loading, loadError, tracking, trackError, trackEpic, updateTask, updateEpic, syncEpic, syncAll }
+  const deleteEpic = useCallback(
+    async (epicId: string) => {
+      const res = await fetch(`${API_URL}/api/atlas/epics/${epicId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      await refresh()
+    },
+    [refresh],
+  )
+
+  return {
+    epics,
+    loading,
+    loadError,
+    tracking,
+    trackError,
+    trackEpic,
+    updateTask,
+    updateEpic,
+    syncEpic,
+    syncAll,
+    deleteEpic,
+  }
 }

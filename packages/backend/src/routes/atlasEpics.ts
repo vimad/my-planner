@@ -144,6 +144,29 @@ atlasEpicsRouter.post('/:id/sync', async (req: Request<{ id: string }>, res: Res
   }
 })
 
+// DELETE /api/atlas/epics/:id -> permanently removes an already-archived
+// epic and its tasks (a hard delete, unlike PATCH { archived: true }'s
+// soft-delete un-track above). Only ever offered in the UI for epics already
+// in the archived list, and guarded here too (400) so a stray call can't
+// hard-delete a still-active epic out from under the main list.
+atlasEpicsRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
+  try {
+    const epic = await AtlasEpic.findById(req.params.id)
+    if (!epic) {
+      return res.status(404).json({ error: 'Epic not found' })
+    }
+    if (!epic.archived) {
+      return res.status(400).json({ error: 'Only archived epics can be deleted' })
+    }
+
+    await AtlasTask.deleteMany({ epicId: epic._id })
+    await AtlasEpic.findByIdAndDelete(req.params.id)
+    res.status(204).end()
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/atlas/epics/sync-all -> ticket 10's global "sync all": the other
 // half of spec §4.2's "manual only" refresh model - loops every tracked,
 // *non-archived* epic (an archived one is un-tracked, so re-pulling its tree

@@ -5,15 +5,17 @@ interface MockedAtlasEpicModel {
   find: Mock
   findById: Mock
   findByIdAndUpdate: Mock
+  findByIdAndDelete: Mock
 }
 interface MockedAtlasTaskModel {
   find: Mock
+  deleteMany: Mock
 }
 
 vi.mock('../src/models/AtlasEpic.ts', () => ({
-  AtlasEpic: { find: vi.fn(), findById: vi.fn(), findByIdAndUpdate: vi.fn() },
+  AtlasEpic: { find: vi.fn(), findById: vi.fn(), findByIdAndUpdate: vi.fn(), findByIdAndDelete: vi.fn() },
 }))
-vi.mock('../src/models/AtlasTask.ts', () => ({ AtlasTask: { find: vi.fn() } }))
+vi.mock('../src/models/AtlasTask.ts', () => ({ AtlasTask: { find: vi.fn(), deleteMany: vi.fn() } }))
 vi.mock('../src/services/atlasSync.ts', async () => {
   const actual = await vi.importActual<typeof import('../src/services/atlasSync.ts')>('../src/services/atlasSync.ts')
   return {
@@ -282,6 +284,54 @@ describe('POST /api/atlas/epics/:id/sync', () => {
 
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics/e1/sync')
+
+    expect(res.status).toBe(500)
+  })
+})
+
+describe('DELETE /api/atlas/epics/:id', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('hard-deletes an archived epic and its tasks', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', archived: true })
+
+    const app = createApp()
+    const res = await request(app).delete('/api/atlas/epics/e1')
+
+    expect(AtlasTask.deleteMany).toHaveBeenCalledWith({ epicId: 'e1' })
+    expect(AtlasEpic.findByIdAndDelete).toHaveBeenCalledWith('e1')
+    expect(res.status).toBe(204)
+  })
+
+  it('refuses to delete an epic that is not archived', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', archived: false })
+
+    const app = createApp()
+    const res = await request(app).delete('/api/atlas/epics/e1')
+
+    expect(res.status).toBe(400)
+    expect(AtlasTask.deleteMany).not.toHaveBeenCalled()
+    expect(AtlasEpic.findByIdAndDelete).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the epic does not exist', async () => {
+    AtlasEpic.findById.mockResolvedValue(null)
+
+    const app = createApp()
+    const res = await request(app).delete('/api/atlas/epics/missing')
+
+    expect(res.status).toBe(404)
+    expect(AtlasTask.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('passes an unexpected error to the error handler (500)', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'e1', archived: true })
+    AtlasTask.deleteMany.mockRejectedValue(new Error('boom'))
+
+    const app = createApp()
+    const res = await request(app).delete('/api/atlas/epics/e1')
 
     expect(res.status).toBe(500)
   })

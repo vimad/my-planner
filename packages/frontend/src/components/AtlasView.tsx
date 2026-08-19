@@ -10,12 +10,14 @@ import {
   Pencil,
   RefreshCw,
   StickyNote,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useAtlasEpics, type UpdateAtlasTaskPatch } from '../hooks/useAtlasEpics'
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 import { jiraIssueUrl } from '../constants/jira'
 import { getId } from '../utils/getId'
+import { ConfirmDialog } from './ConfirmDialog'
 import {
   AT_RISK_BADGE,
   STATUS_BADGE,
@@ -493,6 +495,7 @@ function AtlasEpicRow({
   onArchive,
   onRestore,
   onUpdateNotes,
+  onDeleteRequest,
   dimmed,
 }: {
   epic: AtlasEpic
@@ -505,6 +508,10 @@ function AtlasEpicRow({
   onArchive: () => Promise<void>
   onRestore: () => Promise<void>
   onUpdateNotes: (notes: JSONContent | null) => Promise<void>
+  // Only ever passed for the archived list - opens the parent's ConfirmDialog
+  // rather than deleting directly, since a hard delete (unlike archive/
+  // restore) can't be undone.
+  onDeleteRequest?: () => void
   dimmed?: boolean
 }) {
   const stats = epicStats(epic)
@@ -597,6 +604,17 @@ function AtlasEpicRow({
           >
             {dimmed ? <ArchiveRestore size={14} /> : <Archive size={14} />}
           </button>
+          {dimmed && onDeleteRequest && (
+            <button
+              type="button"
+              aria-label={`Delete ${epic.jiraKey}`}
+              title="Delete permanently"
+              onClick={onDeleteRequest}
+              className="rounded-full p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
           <a
             href={jiraIssueUrl(epic.jiraKey)}
             target="_blank"
@@ -655,8 +673,19 @@ function AtlasEpicRow({
 // universe (blockerCandidates, built once here and threaded down through
 // every AtlasEpicRow/AtlasTaskRow).
 export function AtlasView() {
-  const { epics, loading, loadError, tracking, trackError, trackEpic, updateTask, updateEpic, syncEpic, syncAll } =
-    useAtlasEpics()
+  const {
+    epics,
+    loading,
+    loadError,
+    tracking,
+    trackError,
+    trackEpic,
+    updateTask,
+    updateEpic,
+    syncEpic,
+    syncAll,
+    deleteEpic,
+  } = useAtlasEpics()
   const [epicKey, setEpicKey] = useState('')
   // Ticket 10's global "Sync all" - local state, not lifted into the hook,
   // matching every other mutation's "the calling UI owns its own busy/error
@@ -676,6 +705,13 @@ export function AtlasView() {
   // and needs no effect at all.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
+  // Confirm-before-hard-delete for an archived epic - unlike archive/
+  // restore (both reversible), a delete is permanent, so it's gated behind
+  // the shared ConfirmDialog rather than firing straight off the trash-icon
+  // click (same "local pendingConfirm, own component owns it" convention as
+  // BoardsView.tsx's board delete).
+  const [pendingDelete, setPendingDelete] = useState<AtlasEpic | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const active = useMemo(() => epics.filter((epic) => !epic.archived), [epics])
   const archived = useMemo(() => epics.filter((epic) => epic.archived), [epics])
@@ -707,6 +743,19 @@ export function AtlasView() {
       setSyncAllError((err as Error).message)
     } finally {
       setSyncingAll(false)
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return
+    const id = getId(pendingDelete) ?? pendingDelete.jiraKey
+    setDeleteError(null)
+    try {
+      await deleteEpic(id)
+      setPendingDelete(null)
+    } catch (err) {
+      setDeleteError((err as Error).message)
+      setPendingDelete(null)
     }
   }
 
@@ -813,6 +862,7 @@ export function AtlasView() {
                     onArchive={() => updateEpic(id, { archived: true })}
                     onRestore={() => updateEpic(id, { archived: false })}
                     onUpdateNotes={(notes) => updateEpic(id, { notes })}
+                    onDeleteRequest={() => setPendingDelete(epic)}
                     dimmed
                   />
                 )
@@ -820,6 +870,17 @@ export function AtlasView() {
             </div>
           )}
         </div>
+      )}
+
+      {deleteError && <p className="text-xs text-red-600 dark:text-red-400">Error: {deleteError}</p>}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          message={`Permanently delete ${pendingDelete.jiraKey} — ${pendingDelete.title}? This cannot be undone.`}
+          confirmLabel="Delete"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={handleConfirmDelete}
+        />
       )}
     </div>
   )
