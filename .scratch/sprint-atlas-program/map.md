@@ -36,6 +36,7 @@ The map is done when every open decision below the sync mechanics, task rules, a
 
 - [Jira epic/task sync mechanics](issues/01-jira-epic-sync-mechanics.md) — Atlas syncs via JQL `POST /rest/api/3/search/jql` (`parent =`/`parentEpic =`, not the Agile API), hierarchy hard-floors at Sub-task (never deeper), reads `fields.status.statusCategory.key`/`fields.assignee.accountId` off synced issues, and reuses `jiraClient.ts` directly for auth/pagination/rate-limiting — full findings in [`research/jira-epic-sync-mechanics.md`](research/jira-epic-sync-mechanics.md).
 - [Sync & lifecycle rules](issues/02-sync-lifecycle-rules.md) — entering an epic key syncs it immediately; refresh afterward is manual-only (no lazy/background auto-sync); an unresolvable/non-Epic key is rejected at entry, nothing saved; un-tracking an epic archives it (soft-delete, restorable) rather than deleting.
+- [Task dependency & risk rules](issues/03-task-dependency-risk-rules.md) — auto-risk flags once a task is past its end date and not Done; "blocked by" links can cross epics; circular dependencies are allowed, unvalidated; a Jira-side delete archives the Atlas task (never hard-deletes local annotations), a reparent just moves it under its new epic.
 
 _(The remaining items below were settled during destination-naming; none required a dedicated ticket. Restated here since there's no ticket to link — see the Destination above for the full picture.)_
 
