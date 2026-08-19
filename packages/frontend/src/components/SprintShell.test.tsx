@@ -296,10 +296,20 @@ describe('SprintShell', () => {
     })
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
-    // Team A is still the active team (still highlighted in the TeamSwitcher)
-    // even though Planning/Status no longer render on this team-independent tab.
+    // Team A is still the active team (still highlighted in the TeamSwitcher),
+    // and Planning/Status keep sharing the tab row rather than vanishing -
+    // all three tabs coexist per spec.md §1, they don't swap in and out.
     expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Status' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'false')
+
+    // And clicking back to Planning from Atlas returns to Team A's Planning
+    // view, not a broken team-less URL.
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/sprint/team-a/planning')
+    })
   })
 
   it('does not navigate away from Atlas when switching the active team via the team switcher', async () => {

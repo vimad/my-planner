@@ -141,7 +141,15 @@ export function SprintShell() {
   const pathSegments = location.pathname.split('/').filter(Boolean)
   const isAtlasRoute = pathSegments[1] === 'atlas'
   const routeTeamSlug = isAtlasRoute ? undefined : pathSegments[1]
-  const activeTeam = routeTeamSlug ? teams.find((t) => teamSlug(t.name) === routeTeamSlug) : undefined
+  // On a team-scoped route, trust the URL over `activeTeamId` state (which
+  // TeamShell only syncs via an effect, so it can lag one render behind a
+  // fresh navigation). Atlas has no team segment in its URL at all, but
+  // Planning/Status still need to know the last-active team so they keep
+  // sharing the tab row (spec §1) instead of vanishing - see the
+  // "shows Planning/Status alongside Atlas" test for the bug this fixes.
+  const activeTeam = isAtlasRoute
+    ? teams.find((t) => getId(t) === activeTeamId)
+    : teams.find((t) => teamSlug(t.name) === routeTeamSlug)
   const activeTab: SprintTab = isAtlasRoute ? 'atlas' : pathSegments[2] === 'status' ? 'status' : 'planning'
 
   function handleSelectTeam(id: string) {
@@ -177,7 +185,7 @@ export function SprintShell() {
                     type="button"
                     role="tab"
                     aria-selected={activeTab === sprintTab.key}
-                    onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug ?? '')}/${sprintTab.key}`)}
+                    onClick={() => navigate(`/sprint/${encodeURIComponent(teamSlug(activeTeam.name))}/${sprintTab.key}`)}
                     className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
                       activeTab === sprintTab.key
                         ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
