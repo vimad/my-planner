@@ -598,3 +598,44 @@ export interface BoardQuickAddState {
   // Removes the item from the active board instantly - no reverse animation.
   onRemove: (itemType: BoardItemType, itemId: string) => void
 }
+
+// Atlas program tracker (.scratch/sprint-atlas-program/spec.md §2) - brand
+// new, Atlas-only collections, no reuse of the Epic/Ticket shapes above.
+// AtlasTaskNode is recursive (Task and Sub-task share one shape, nested one
+// level deep - depth hard-floors at Sub-task, see backend's
+// services/atlasSync.ts buildTaskTree) and mirrors backend models/
+// AtlasTask.ts plus the `subtasks` nesting GET /api/atlas/epics computes
+// server-side.
+export interface AtlasTaskNode {
+  _id?: string
+  id?: string
+  epicId: string
+  parentTaskId: string | null
+  jiraKey: string
+  title: string
+  jiraUrl: string
+  assigneeAccountId: string | null
+  status: 'To Do' | 'In Progress' | 'Done'
+  startDate: string | null
+  endDate: string | null
+  atRisk: boolean
+  notes: string
+  blockedBy: string[]
+  archived: boolean
+  subtasks: AtlasTaskNode[]
+}
+
+// Mirrors backend models/AtlasEpic.ts, plus the `tasks` tree GET /api/atlas/
+// epics nests server-side (buildTaskTree) - never stores progress/date-range
+// rollups itself (spec §2: derived at read time from `tasks`).
+export interface AtlasEpic {
+  _id?: string
+  id?: string
+  jiraKey: string
+  title: string
+  jiraUrl: string
+  notes: string
+  archived: boolean
+  lastSyncedAt: string
+  tasks: AtlasTaskNode[]
+}

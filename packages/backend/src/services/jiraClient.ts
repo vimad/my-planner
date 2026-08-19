@@ -91,6 +91,15 @@ function authHeader(config: JiraConfig): string {
   return `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')}`
 }
 
+// The browse (human-facing) URL for a Jira issue, e.g. for Atlas's
+// AtlasEpic.jiraUrl/AtlasTask.jiraUrl (see services/atlasSync.ts) — built
+// off the same JIRA_BASE_URL every other call in this file already requires,
+// not a second config source.
+export function issueUrl(key: string): string {
+  const config = getConfig()
+  return `${config.baseUrl}/browse/${key}`
+}
+
 // A manual sync-button click is tens of requests against an hourly quota in
 // the tens/hundreds of thousands (see spec's "Rate limits") — a single retry
 // after the server's own Retry-After is all that's worth doing, not a
