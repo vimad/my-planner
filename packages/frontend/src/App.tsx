@@ -21,6 +21,7 @@ import { SprintShell } from './components/SprintShell'
 import { TodoDetail, type TodoSavePatch } from './components/TodoDetail'
 import { TodoQuickAdd } from './components/TodoQuickAdd'
 import { TodoTagSearch } from './components/TodoTagSearch'
+import { TodosExportButton } from './components/TodosExportButton'
 import { WeeklyProgressPanel } from './components/WeeklyProgressPanel'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { useActiveProfile } from './hooks/useActiveProfile'
@@ -975,6 +976,21 @@ function AppShell() {
     matchesDateRange(effectiveDueDate(t, nextOfficeDay, todayISO), selectedDateRange),
   )
 
+  // Export scope is the category chip filter only - not search/tags/date
+  // range, which are agenda-viewing concerns rather than "what should this
+  // export contain". Zero categories selected exports every todo; one or
+  // more selected scopes both the exported rows and the filename to those
+  // categories (comma-joined for a multi-select), per the Export button's
+  // spec.
+  const exportCategoryName =
+    selectedCategoryIds.length > 0
+      ? selectedCategoryIds.map((id) => categoriesById[id]?.name).filter(Boolean).join(', ') || null
+      : null
+  const exportTodos =
+    selectedCategoryIds.length > 0
+      ? todos.filter((t) => selectedCategoryIds.includes(String(t.categoryId)))
+      : todos
+
   // Shared by both the todo-list checkbox and TodoDetail's "Mark complete"
   // footer button. `visibleTodos` is filtered by the active category/date
   // range, so a todo open in the detail popup can be absent from it (e.g.
@@ -1201,6 +1217,9 @@ function AppShell() {
                     />
                     Show completed
                   </label>
+                  <div className="ml-auto">
+                    <TodosExportButton categoryName={exportCategoryName} todos={exportTodos} />
+                  </div>
                 </div>
                 {showCompletedOnly ? (
                   <CompletedTodos
