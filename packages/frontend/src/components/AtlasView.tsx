@@ -717,20 +717,21 @@ export function AtlasView() {
           <>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No epics tracked yet</h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Enter a Jira epic key to start tracking it. Atlas will pull in its full task and sub-task tree.
+              Enter an epic number to start tracking it. Atlas will pull in its full task and sub-task tree.
             </p>
           </>
         )}
 
         <form className="mt-4 flex items-center gap-2" onSubmit={handleSubmit}>
+          <span className="text-sm text-slate-400 dark:text-slate-500">Track epic — WOSMVP-</span>
           <input
             type="text"
             value={epicKey}
             onChange={(event) => setEpicKey(event.target.value)}
-            placeholder="e.g. WOSMVP-123"
-            aria-label="Jira epic key"
+            placeholder="123"
+            aria-label="Epic number to track"
             disabled={tracking}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <button
             type="submit"

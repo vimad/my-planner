@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { normalizeJiraKey } from '../constants/jira'
 import { getId } from '../utils/getId'
 import type { GanttDragPatch } from '../utils/ganttPlacement'
 import type {
@@ -22,18 +23,6 @@ async function parseErrorMessage(res: Response): Promise<string> {
   } catch {
     return `Request failed with status ${res.status}`
   }
-}
-
-// Accepts a bare number ("14802"), a full key ("WOSMVP-14802"), or a
-// lowercase/no-dash variant, and normalizes to the full key - mirrors the
-// prototype's useSprintPlanState.normalizeInput. Returns null for blank
-// input.
-function normalizeJiraKey(raw: string): string | null {
-  const trimmed = raw
-    .trim()
-    .toUpperCase()
-    .replace(/^WOSMVP-?/, '')
-  return trimmed ? `WOSMVP-${trimmed}` : null
 }
 
 interface PlanFetchResult {

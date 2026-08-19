@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import { useCallback, useEffect, useState } from 'react'
+import { normalizeJiraKey } from '../constants/jira'
 import type { AtlasEpic } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4100'
@@ -101,7 +102,10 @@ export function useAtlasEpics(): UseAtlasEpicsResult {
   }, [refresh])
 
   const trackEpic = useCallback(
-    async (jiraKey: string) => {
+    async (rawInput: string) => {
+      const jiraKey = normalizeJiraKey(rawInput)
+      if (!jiraKey) return false
+
       setTracking(true)
       setTrackError(null)
       try {

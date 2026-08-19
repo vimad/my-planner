@@ -222,7 +222,7 @@ describe('AtlasView', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Jira epic key'), { target: { value: 'WOSMVP-8262' } })
+    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-8262' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     expect(screen.getByRole('button', { name: 'Syncing…' })).toBeDisabled()
@@ -236,7 +236,7 @@ describe('AtlasView', () => {
     expect(screen.getByText('Do the sub-thing')).toBeInTheDocument()
     expect(screen.queryByText('No epics tracked yet')).not.toBeInTheDocument()
     // Input cleared after a successful track.
-    expect(screen.getByLabelText('Jira epic key')).toHaveValue('')
+    expect(screen.getByLabelText('Epic number to track')).toHaveValue('')
   })
 
   it('submitting an unresolvable key shows an inline error and adds nothing to the list', async () => {
@@ -245,7 +245,7 @@ describe('AtlasView', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Jira epic key'), { target: { value: 'WOSMVP-9999' } })
+    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-9999' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     await waitFor(() => {
@@ -253,7 +253,7 @@ describe('AtlasView', () => {
     })
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
     // Input is not cleared on failure, so the user can correct/resubmit.
-    expect(screen.getByLabelText('Jira epic key')).toHaveValue('WOSMVP-9999')
+    expect(screen.getByLabelText('Epic number to track')).toHaveValue('WOSMVP-9999')
   })
 
   it('submitting a non-Epic key shows an inline error and adds nothing to the list', async () => {
@@ -262,7 +262,7 @@ describe('AtlasView', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Jira epic key'), { target: { value: 'WOSMVP-100' } })
+    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     await waitFor(() => {
