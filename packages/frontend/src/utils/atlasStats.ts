@@ -78,6 +78,65 @@ export function formatDateRange(start: string | null | undefined, end: string | 
   return start ? `From ${fmt(start)}` : `Until ${fmt(end!)}`
 }
 
+// Display-only health grouping for the Present view's program strip/detail
+// pane (ticket 11, spec §7) - derived from at-risk count, never a stored
+// field. Matches the winning prototype's epicHealth (branch prototype/
+// atlas-present-ui-variants, VariantD.tsx/mockData.ts): 0 at-risk tasks is
+// on-track, exactly 1 is a lighter "watch" warning, 2+ escalates to at-risk.
+export type EpicHealth = 'on-track' | 'watch' | 'at-risk'
+
+export function epicHealth(stats: Pick<AtlasEpicStats, 'atRisk'>): EpicHealth {
+  if (stats.atRisk === 0) return 'on-track'
+  if (stats.atRisk === 1) return 'watch'
+  return 'at-risk'
+}
+
+export const HEALTH_LABEL: Record<EpicHealth, string> = {
+  'on-track': 'On track',
+  watch: 'Watch',
+  'at-risk': 'At risk',
+}
+
+// Emerald/amber/rose per spec §7 - the SVG progress ring's stroke color on
+// the Present view's program strip.
+export const HEALTH_RING: Record<EpicHealth, string> = {
+  'on-track': 'stroke-emerald-500 dark:stroke-emerald-400',
+  watch: 'stroke-amber-500 dark:stroke-amber-400',
+  'at-risk': 'stroke-rose-500 dark:stroke-rose-400',
+}
+
+// Same three-color family as HEALTH_RING, as a border/bg tint for the
+// detail pane's whole panel background (spec §7's "panel background tinted
+// by the epic's health color").
+export const HEALTH_TILE: Record<EpicHealth, string> = {
+  'on-track': 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10',
+  watch: 'border-amber-300 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10',
+  'at-risk': 'border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10',
+}
+
+// The Present view's "needs attention" digest (ticket 11, spec §7) - a task
+// worth narrating in a standup: either already at-risk, or blocked on
+// something that isn't Done yet. Excludes archived (soft-deleted-from-Jira)
+// tasks, same as the Dashboard's own drill-down filters them out of view
+// (AtlasView.tsx's `visibleTasks`) - a resync-deleted task has nothing left
+// to say out loud. At-risk takes priority over blocked when a task is both
+// (matches the winning prototype's attentionItems, branch prototype/
+// atlas-present-ui-variants/mockData.ts).
+export interface AttentionItem {
+  task: AtlasTaskNode
+  reason: 'at-risk' | 'blocked'
+}
+
+export function attentionItems(epic: Pick<AtlasEpic, 'tasks'>): AttentionItem[] {
+  const items: AttentionItem[] = []
+  for (const task of flattenTasks(epic.tasks)) {
+    if (task.archived) continue
+    if (task.atRisk) items.push({ task, reason: 'at-risk' })
+    else if (task.blockedBy.length > 0 && task.status !== 'Done') items.push({ task, reason: 'blocked' })
+  }
+  return items
+}
+
 export interface BlockedByRef {
   taskId: string
   jiraKey: string

@@ -9,11 +9,11 @@
 
 **Blocked by:** Task editing ([09](09-task-editing.md)), Epic lifecycle management ([10](10-epic-lifecycle-management.md))
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Present view lists every live (non-archived) tracked epic in the program strip with a health-colored progress ring and at-risk badge when applicable
-- [ ] Selecting an epic (click or ↑/↓) swaps the detail pane instantly, no page transition
-- [ ] Detail pane shows status counts, a needs-attention digest (at-risk / blocked-by-not-Done tasks with reasons), and epic notes as a blockquote
-- [ ] An epic with nothing at-risk or blocked shows an explicit "on track" line rather than an empty digest
-- [ ] Archived epics never appear anywhere in Present
-- [ ] No control on this screen writes to Atlas's own data or to Jira — navigation and outbound Jira links are the only interactive elements
+- [x] Present view lists every live (non-archived) tracked epic in the program strip with a health-colored progress ring and at-risk badge when applicable
+- [x] Selecting an epic (click or ↑/↓) swaps the detail pane instantly, no page transition
+- [x] Detail pane shows status counts, a needs-attention digest (at-risk / blocked-by-not-Done tasks with reasons), and epic notes as a blockquote
+- [x] An epic with nothing at-risk or blocked shows an explicit "on track" line rather than an empty digest
+- [x] Archived epics never appear anywhere in Present
+- [x] No control on this screen writes to Atlas's own data or to Jira — navigation and outbound Jira links are the only interactive elements

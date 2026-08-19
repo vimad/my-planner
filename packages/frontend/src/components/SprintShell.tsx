@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Presentation } from 'lucide-react'
 import { useActiveTeam } from '../hooks/useActiveTeam'
 import { getId } from '../utils/getId'
 import { teamSlug } from '../utils/teamSlug'
 import { applyTheme, getInitialTheme } from '../utils/theme'
 import type { Team } from '../types'
+import { AtlasPresentView } from './AtlasPresentView'
 import { AtlasView } from './AtlasView'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Header } from './Header'
@@ -84,6 +86,31 @@ function TeamShell({
       <Route path="planning" element={<PlanningView team={team} />} />
       <Route path="status" element={<StatusView team={team} />} />
     </Routes>
+  )
+}
+
+// Ticket 11's only touch-point on the Dashboard side: a top-of-page link
+// into Present (spec §7 - Atlas's second, read-only view). Deliberately kept
+// here rather than inside AtlasView.tsx itself, for two reasons: (1) the
+// ticket's brief is explicit that Present "does not modify the Dashboard",
+// and (2) AtlasView.test.tsx renders <AtlasView /> directly with no Router
+// context - a <Link>/useNavigate call inside AtlasView.tsx would break that
+// whole suite. SprintShell already renders inside a Router (App.tsx), so the
+// link lives one level up instead.
+function AtlasDashboardSection() {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <Link
+          to="/sprint/atlas/present"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+        >
+          <Presentation size={12} />
+          Present
+        </Link>
+      </div>
+      <AtlasView />
+    </div>
   )
 }
 
@@ -201,7 +228,8 @@ export function SprintShell() {
 
       <Routes>
         <Route index element={<SprintIndex teams={teams} loading={loading} activeTeamId={activeTeamId} />} />
-        <Route path="atlas" element={<AtlasView />} />
+        <Route path="atlas" element={<AtlasDashboardSection />} />
+        <Route path="atlas/present" element={<AtlasPresentView />} />
         <Route
           path=":teamSlug/*"
           element={

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildBlockedByCandidates, buildBlockedByLookup, epicStats, flattenTasks, formatDateRange } from './atlasStats'
+import {
+  attentionItems,
+  buildBlockedByCandidates,
+  buildBlockedByLookup,
+  epicHealth,
+  epicStats,
+  flattenTasks,
+  formatDateRange,
+} from './atlasStats'
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 
 function task(overrides: Partial<AtlasTaskNode> = {}): AtlasTaskNode {
@@ -106,6 +114,62 @@ describe('epicStats', () => {
     )
     expect(stats.startDate).toBe('2026-06-01')
     expect(stats.endDate).toBe('2026-08-15')
+  })
+})
+
+describe('epicHealth', () => {
+  it('is on-track when the epic has no at-risk tasks', () => {
+    expect(epicHealth({ atRisk: 0 })).toBe('on-track')
+  })
+
+  it('is watch when the epic has exactly one at-risk task', () => {
+    expect(epicHealth({ atRisk: 1 })).toBe('watch')
+  })
+
+  it('is at-risk when the epic has two or more at-risk tasks', () => {
+    expect(epicHealth({ atRisk: 2 })).toBe('at-risk')
+    expect(epicHealth({ atRisk: 5 })).toBe('at-risk')
+  })
+})
+
+describe('attentionItems', () => {
+  it('includes an at-risk task with reason "at-risk"', () => {
+    const items = attentionItems(epic({ tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', atRisk: true })] }))
+    expect(items).toEqual([{ task: expect.objectContaining({ jiraKey: 'WOSMVP-100' }), reason: 'at-risk' }])
+  })
+
+  it('includes a non-Done task blocked on something with reason "blocked"', () => {
+    const items = attentionItems(
+      epic({ tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', status: 'In Progress', blockedBy: ['t0'] })] }),
+    )
+    expect(items).toEqual([{ task: expect.objectContaining({ jiraKey: 'WOSMVP-100' }), reason: 'blocked' }])
+  })
+
+  it('excludes a blocked task once it reaches Done', () => {
+    const items = attentionItems(epic({ tasks: [task({ status: 'Done', blockedBy: ['t0'] })] }))
+    expect(items).toEqual([])
+  })
+
+  it('excludes a clean task (not at-risk, not blocked)', () => {
+    const items = attentionItems(epic({ tasks: [task()] }))
+    expect(items).toEqual([])
+  })
+
+  it('excludes an archived task even if it is at-risk', () => {
+    const items = attentionItems(epic({ tasks: [task({ atRisk: true, archived: true })] }))
+    expect(items).toEqual([])
+  })
+
+  it('prefers reason "at-risk" over "blocked" when a task is both', () => {
+    const items = attentionItems(epic({ tasks: [task({ atRisk: true, status: 'In Progress', blockedBy: ['t0'] })] }))
+    expect(items).toEqual([{ task: expect.anything(), reason: 'at-risk' }])
+  })
+
+  it('walks into sub-tasks the same as flattenTasks', () => {
+    const items = attentionItems(
+      epic({ tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', subtasks: [task({ _id: 't1a', jiraKey: 'WOSMVP-101', atRisk: true })] })] }),
+    )
+    expect(items).toEqual([{ task: expect.objectContaining({ jiraKey: 'WOSMVP-101' }), reason: 'at-risk' }])
   })
 })
 

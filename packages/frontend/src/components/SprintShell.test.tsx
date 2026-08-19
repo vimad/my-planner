@@ -318,4 +318,32 @@ describe('SprintShell', () => {
     expect(window.location.pathname).toBe('/sprint/atlas')
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
   })
+
+  it('navigates from the Atlas Dashboard to Present via its entry-point link, and back via "Back to Dashboard"', async () => {
+    window.history.pushState({}, '', '/sprint/atlas')
+
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('link', { name: /Present/ }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/sprint/atlas/present')
+    })
+    // Present's own empty state (no live tracked epics) confirms the real
+    // AtlasPresentView mounted, not just a route change.
+    expect(screen.getByText('No live epics tracked yet. Track one from the Dashboard first.')).toBeInTheDocument()
+    // Still on the Atlas tab (Present is a view within Atlas, not a sibling
+    // tab of Planning/Status/Atlas - spec.md §1's "Two views").
+    expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Dashboard' }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/sprint/atlas')
+    })
+    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+  })
 })
