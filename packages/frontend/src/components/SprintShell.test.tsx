@@ -261,4 +261,61 @@ describe('SprintShell', () => {
     })
     expect(screen.getByLabelText('Manage teams')).toBeInTheDocument()
   })
+
+  it('shows the Atlas tab and its empty state even with no teams at all', async () => {
+    teamsData = []
+    window.history.pushState({}, '', '/sprint/atlas')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Status' })).not.toBeInTheDocument()
+    // The epic-key input renders but is inert - no sync wiring until ticket 07.
+    expect(screen.getByRole('button', { name: 'Track' })).toBeDisabled()
+  })
+
+  it('shows the Atlas tab alongside Planning/Status once a team is active, and clicking it navigates to /sprint/atlas without disturbing team state', async () => {
+    window.history.pushState({}, '', '/sprint/team-a/planning')
+
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
+    })
+    expect(screen.getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Status' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Atlas' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Atlas' }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/sprint/atlas')
+    })
+    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
+    // Team A is still the active team (still highlighted in the TeamSwitcher)
+    // even though Planning/Status no longer render on this team-independent tab.
+    expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
+  })
+
+  it('does not navigate away from Atlas when switching the active team via the team switcher', async () => {
+    window.history.pushState({}, '', '/sprint/atlas')
+
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Team B' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Team B' })).toHaveAttribute('aria-selected', 'true')
+    })
+    expect(window.location.pathname).toBe('/sprint/atlas')
+    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+  })
 })

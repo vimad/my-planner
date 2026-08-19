@@ -5,6 +5,7 @@ import { getId } from '../utils/getId'
 import { teamSlug } from '../utils/teamSlug'
 import { applyTheme, getInitialTheme } from '../utils/theme'
 import type { Team } from '../types'
+import { AtlasView } from './AtlasView'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Header } from './Header'
 import { PlanningView } from './PlanningView'
@@ -12,9 +13,12 @@ import { StatusView } from './StatusView'
 import { TeamSwitcher } from './TeamSwitcher'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
-type SprintTab = 'planning' | 'status'
+type SprintTab = 'planning' | 'status' | 'atlas'
 
-const SPRINT_TABS: readonly { key: SprintTab; label: string }[] = [
+// Team-scoped pills only (Planning/Status) - Atlas is rendered separately in
+// the tab row below since it's always present regardless of team selection,
+// unlike these two which only apply once a team is active.
+const SPRINT_TABS: readonly { key: 'planning' | 'status'; label: string }[] = [
   { key: 'planning', label: 'Planning' },
   { key: 'status', label: 'Status' },
 ]
@@ -101,21 +105,28 @@ export function SprintShell() {
   const { teams, activeTeamId, loading, error, setActiveTeamId, createTeam, updateTeam, deleteTeam } =
     useActiveTeam()
 
-  function handleSelectTeam(id: string) {
-    setActiveTeamId(id)
-    const team = teams.find((t) => getId(t) === id)
-    if (team) navigate(`/sprint/${encodeURIComponent(teamSlug(team.name))}/planning`)
-  }
-
   // Derived from the URL rather than useParams - SprintShell itself is
   // mounted at /sprint/* (App.tsx), one level above the :teamSlug route
   // param TeamShell binds, so this is the only place up here to read it.
-  // Only shown once the URL's slug resolves to a real team - not on the
-  // bare /sprint index (no team to navigate the tabs within yet).
+  // /sprint/atlas is a sibling route to :teamSlug/*, not a team slug itself
+  // - guarded first so a team lookup never runs against the literal string
+  // "atlas" (which would only misfire if a real team were ever named that).
   const pathSegments = location.pathname.split('/').filter(Boolean)
-  const routeTeamSlug = pathSegments[1]
-  const activeTeam = teams.find((t) => teamSlug(t.name) === routeTeamSlug)
-  const activeTab: SprintTab = pathSegments[2] === 'status' ? 'status' : 'planning'
+  const isAtlasRoute = pathSegments[1] === 'atlas'
+  const routeTeamSlug = isAtlasRoute ? undefined : pathSegments[1]
+  const activeTeam = routeTeamSlug ? teams.find((t) => teamSlug(t.name) === routeTeamSlug) : undefined
+  const activeTab: SprintTab = isAtlasRoute ? 'atlas' : pathSegments[2] === 'status' ? 'status' : 'planning'
+
+  function handleSelectTeam(id: string) {
+    setActiveTeamId(id)
+    // Switching the active team from the Atlas tab must not navigate away
+    // from it (Atlas has no team scoping at all) - just update which team
+    // is active so Planning/Status reflect it whenever the user does
+    // navigate back to a team-scoped tab.
+    if (isAtlasRoute) return
+    const team = teams.find((t) => getId(t) === id)
+    if (team) navigate(`/sprint/${encodeURIComponent(teamSlug(team.name))}/planning`)
+  }
 
   return (
     <main className="min-h-screen bg-[#f2f1f5] px-6 py-9 text-slate-900 dark:bg-[radial-gradient(circle_at_20%_0%,#241a3a_0%,#0f0f18_55%)] dark:text-slate-100 sm:px-10">
@@ -127,19 +138,19 @@ export function SprintShell() {
         workspaceSwitcher={
           <>
             <WorkspaceSwitcher current="sprint" onNavigate={(target) => target === 'planner' && navigate('/')} />
-            {activeTeam && (
-              <div
-                role="tablist"
-                aria-label="Sprint view"
-                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
-              >
-                {SPRINT_TABS.map((sprintTab) => (
+            <div
+              role="tablist"
+              aria-label="Sprint view"
+              className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+            >
+              {activeTeam &&
+                SPRINT_TABS.map((sprintTab) => (
                   <button
                     key={sprintTab.key}
                     type="button"
                     role="tab"
                     aria-selected={activeTab === sprintTab.key}
-                    onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug)}/${sprintTab.key}`)}
+                    onClick={() => navigate(`/sprint/${encodeURIComponent(routeTeamSlug ?? '')}/${sprintTab.key}`)}
                     className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
                       activeTab === sprintTab.key
                         ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
@@ -149,8 +160,23 @@ export function SprintShell() {
                     {sprintTab.label}
                   </button>
                 ))}
-              </div>
-            )}
+              {/* Atlas: unlike Planning/Status above, always visible and
+                  clickable regardless of team selection - it has no team
+                  scoping at all (spec.md §1). */}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'atlas'}
+                onClick={() => navigate('/sprint/atlas')}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                  activeTab === 'atlas'
+                    ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+                }`}
+              >
+                Atlas
+              </button>
+            </div>
           </>
         }
       >
@@ -175,6 +201,7 @@ export function SprintShell() {
 
       <Routes>
         <Route index element={<SprintIndex teams={teams} loading={loading} activeTeamId={activeTeamId} />} />
+        <Route path="atlas" element={<AtlasView />} />
         <Route
           path=":teamSlug/*"
           element={

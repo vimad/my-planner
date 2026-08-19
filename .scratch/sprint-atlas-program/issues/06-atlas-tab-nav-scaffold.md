@@ -9,10 +9,10 @@ This requires a genuine prefactor, not just a new menu item: `SprintShell.tsx`'s
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] "Atlas" tab is visible in the Sprint tab row with no team selected (e.g. before any team exists, or via direct navigation to `/sprint/atlas`)
-- [ ] "Atlas" tab is visible and clickable with a team selected, without disturbing Planning/Status's existing team-scoped behavior
-- [ ] Navigating to `/sprint/atlas` renders an empty-state Atlas page (no epics tracked, epic-key input present but inert)
-- [ ] Switching teams while on the Atlas tab does not navigate away from Atlas or change what it shows
-- [ ] Existing Planning/Status tab behavior (team switching, tab highlighting, redirects) is unchanged
+- [x] "Atlas" tab is visible in the Sprint tab row with no team selected (e.g. before any team exists, or via direct navigation to `/sprint/atlas`)
+- [x] "Atlas" tab is visible and clickable with a team selected, without disturbing Planning/Status's existing team-scoped behavior
+- [x] Navigating to `/sprint/atlas` renders an empty-state Atlas page (no epics tracked, epic-key input present but inert)
+- [x] Switching teams while on the Atlas tab does not navigate away from Atlas or change what it shows
+- [x] Existing Planning/Status tab behavior (team switching, tab highlighting, redirects) is unchanged
