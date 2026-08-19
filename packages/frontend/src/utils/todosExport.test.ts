@@ -44,4 +44,39 @@ describe('buildTodosExportSheets', () => {
     const sheets = buildTodosExportSheets([todo({ title: 'Bare todo' })])
     expect(sheets.inProgress).toEqual([{ description: 'Bare todo', notes: '' }])
   })
+
+  it('sorts each tab by priority, High first then Medium then Low', () => {
+    const todos = [
+      todo({ title: 'Low task', priority: 'Low' }),
+      todo({ title: 'High task', priority: 'High' }),
+      todo({ title: 'Medium task', priority: 'Medium' }),
+    ]
+    const sheets = buildTodosExportSheets(todos)
+    expect(sheets.inProgress.map((row) => row.description)).toEqual(['High task', 'Medium task', 'Low task'])
+  })
+
+  it('treats an unset priority as Medium for sorting, and keeps same-priority todos in their original relative order', () => {
+    const todos = [
+      todo({ title: 'No priority set' }),
+      todo({ title: 'High one', priority: 'High' }),
+      todo({ title: 'High two', priority: 'High' }),
+      todo({ title: 'Low one', priority: 'Low' }),
+    ]
+    const sheets = buildTodosExportSheets(todos)
+    expect(sheets.inProgress.map((row) => row.description)).toEqual([
+      'High one',
+      'High two',
+      'No priority set',
+      'Low one',
+    ])
+  })
+
+  it('sorts the completed tab by priority independently of the in-progress tab', () => {
+    const todos = [
+      todo({ title: 'Done low', completed: true, priority: 'Low' }),
+      todo({ title: 'Done high', completed: true, priority: 'High' }),
+    ]
+    const sheets = buildTodosExportSheets(todos)
+    expect(sheets.completed.map((row) => row.description)).toEqual(['Done high', 'Done low'])
+  })
 })

@@ -18,19 +18,33 @@ import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile } from '@tauri-apps/plugin-fs'
 import ExcelJS from 'exceljs'
 import { formatNotesForExport } from './todoNotesSegments'
-import type { Todo } from '../types'
+import type { Todo, TodoPriority } from '../types'
 
 export interface TodoExportRow {
   description: string
   notes: string
 }
 
-// One sheet's worth of rows, Description + Notes, in the same order
-// `todos` was given - callers decide sort order (App.tsx passes the
+// High-to-low rank for the priority sort below - unset priority is treated
+// as Medium, matching the backend's own default (see Todo model).
+const PRIORITY_RANK: Record<TodoPriority, number> = { High: 0, Medium: 1, Low: 2 }
+
+// High priority first, same as the Todos tab's own "Sort by priority"
+// checkbox (AgendaGroups.tsx) - Array.prototype.sort is a stable sort, so
+// todos sharing a priority keep `todos`' own relative order (App.tsx's
+// normal newest-first order) rather than being further reshuffled.
+function sortByPriority(todos: Todo[]): Todo[] {
+  return [...todos].sort(
+    (a, b) => PRIORITY_RANK[a.priority ?? 'Medium'] - PRIORITY_RANK[b.priority ?? 'Medium'],
+  )
+}
+
+// One sheet's worth of rows, Description + Notes, high-priority todos
+// first - callers decide the rest of the sort order (App.tsx passes the
 // already category-scoped list in its normal newest-first order), this
-// just doesn't re-sort it.
+// only reshuffles by priority on top of that.
 function buildTodoRows(todos: Todo[]): TodoExportRow[] {
-  return todos.map((todo) => ({ description: todo.title, notes: formatNotesForExport(todo.body) }))
+  return sortByPriority(todos).map((todo) => ({ description: todo.title, notes: formatNotesForExport(todo.body) }))
 }
 
 export interface TodosExportSheets {
