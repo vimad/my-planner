@@ -15,6 +15,7 @@ import { scratchNotesRouter } from './routes/scratchNotes.ts'
 import { settingsRouter } from './routes/settings.ts'
 import { sprintPlanEntriesRouter } from './routes/sprintPlanEntries.ts'
 import { sprintsRouter } from './routes/sprints.ts'
+import { standupsRouter } from './routes/standups.ts'
 import { statusesRouter } from './routes/statuses.ts'
 import { statusSyncRouter } from './routes/statusSync.ts'
 import { teamMembershipsRouter } from './routes/teamMemberships.ts'
@@ -49,6 +50,7 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   app.use('/api/profiles', profilesRouter)
   app.use('/api/sprint-plan-entries', sprintPlanEntriesRouter)
   app.use('/api/sprints', sprintsRouter)
+  app.use('/api/standups', standupsRouter)
   app.use('/api/statuses', statusesRouter)
   app.use('/api/status-sync', statusSyncRouter)
   app.use('/api/team-memberships', teamMembershipsRouter)

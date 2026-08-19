@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Shuffle } from 'lucide-react'
+import { Copy, Eye, Play, Square } from 'lucide-react'
 import { useStatusView } from '../hooks/useStatusView'
+import { useStandup } from '../hooks/useStandup'
 import { SprintSelect } from './SprintSelect'
 import { ExternalLink } from './ExternalLink'
 import { jiraIssueUrl } from '../constants/jira'
 import { getId } from '../utils/getId'
 import { isPoEligibleTicket, ticketTypeAccent } from '../utils/ticketType'
-import type { Team, TeamMembership, Ticket, TicketPoAssignmentSummary } from '../types'
+import type { Standup, StandupEntry, Team, TeamMembership, Ticket, TicketPoAssignmentSummary } from '../types'
 
-// Fisher-Yates, new array each call - used to let the roster be shuffled for
-// standups (different reading order on different days) without touching the
-// server; order is plain component state so a page refresh drops back to
-// `memberships`' fetched order.
+// Fisher-Yates, new array each call - used to pick the day's standup reading
+// order when "Start standup" is clicked (see useStandup.ts). The result is
+// persisted server-side for the rest of the day, unlike the old ephemeral
+// version of this helper which only ever shuffled plain component state.
 function shuffled<T>(items: T[]): T[] {
   const next = [...items]
   for (let i = next.length - 1; i > 0; i--) {
@@ -49,6 +50,15 @@ function sameStatus(ticketStatus: string, statusName: string): boolean {
 
 function exactTime(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : 'never synced'
+}
+
+// mm:ss - standup turns are always well under an hour, so this never needs
+// an hours segment (unlike formatDuration.ts's formatDaysHours, which backs
+// day-scale Jira effort figures).
+function formatElapsed(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
 // Card background color-codes by Jira issue type, using the same red/green/
@@ -188,6 +198,47 @@ function TicketCard({
   )
 }
 
+// Read-only recap of a day's standup, opened via the roster header's "View
+// standup" button once the standup has ended (StatusView's `standup`
+// already holds everything needed - no separate fetch). Archetype B full
+// modal (docs/ui-conventions.md), same as ConfirmDialog/TodoDetail.
+function StandupSummaryModal({
+  standup,
+  memberships,
+  onClose,
+}: {
+  standup: Standup
+  memberships: TeamMembership[]
+  onClose: () => void
+}) {
+  const rows = standup.entries
+    .map((entry) => ({ entry, membership: memberships.find((m) => getId(m) === entry.teamMembershipId) }))
+    .filter((row): row is { entry: StandupEntry; membership: TeamMembership } => Boolean(row.membership))
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-xl dark:border-white/10 dark:bg-[#160f24] dark:text-slate-100">
+        <h2 className="text-lg font-semibold">Today&apos;s standup</h2>
+        <ul className="mt-3 space-y-1.5">
+          {rows.map(({ entry, membership }) => (
+            <li key={entry.teamMembershipId} className="flex items-center justify-between text-sm">
+              <span className="text-slate-700 dark:text-slate-200">{membership.personId.name}</span>
+              <span className="font-mono text-slate-500 dark:text-slate-400">{formatElapsed(entry.totalSeconds)}</span>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const CATEGORY_ACCENT: Record<string, string> = {
   todo: 'border-t-slate-300 dark:border-t-slate-500/40',
   in_progress: 'border-t-fuchsia-400 dark:border-t-fuchsia-400/60',
@@ -221,13 +272,55 @@ export function StatusView({ team }: { team: Team }) {
     syncPerson,
   } = useStatusView(teamId)
 
-  // Client-side-only display order for the roster (standup reading order) -
-  // reset whenever the fetched roster itself changes, otherwise left alone
-  // so shuffling doesn't get clobbered by unrelated re-renders.
-  const [rosterOrder, setRosterOrder] = useState<TeamMembership[]>(memberships)
+  const {
+    standup,
+    loading: loadingStandup,
+    starting: startingStandup,
+    ending: endingStandup,
+    togglingMembershipId,
+    startStandup,
+    startTimer,
+    stopTimer,
+    endStandup,
+  } = useStandup(teamId)
+
+  const [showStandupSummary, setShowStandupSummary] = useState(false)
+
+  // Live-ticking clock for whichever entry currently has activeStartedAt
+  // set - only runs while someone's actually on the clock, so idle standups
+  // (none started, or already ended) never re-render on a timer.
+  const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
-    setRosterOrder(memberships)
-  }, [memberships])
+    const anyRunning = standup?.entries.some((e) => e.activeStartedAt) ?? false
+    if (!anyRunning) return
+    const interval = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [standup])
+
+  const standupActive = Boolean(standup && !standup.endedAt)
+
+  // Once "Start standup" persists a roster order server-side, that order
+  // drives the roster's display for the rest of the day (replacing the old
+  // ephemeral rosterOrder state) - a membership that's since left the team
+  // is silently dropped rather than crashing the lookup. Reverts to the
+  // plain fetched `memberships` order once the standup ends or before one's
+  // been started at all, i.e. "back to normal view" per the standup spec.
+  const rosterMemberships = useMemo(() => {
+    if (!standupActive || !standup) return memberships
+    return standup.entries
+      .map((entry) => memberships.find((m) => getId(m) === entry.teamMembershipId))
+      .filter((m): m is TeamMembership => Boolean(m))
+  }, [standupActive, standup, memberships])
+
+  function elapsedSecondsFor(membership: TeamMembership): number {
+    const entry = standup?.entries.find((e) => e.teamMembershipId === getId(membership))
+    if (!entry) return 0
+    if (!entry.activeStartedAt) return entry.totalSeconds
+    const runningSeconds = Math.max(0, Math.floor((nowTick - new Date(entry.activeStartedAt).getTime()) / 1000))
+    return entry.totalSeconds + runningSeconds
+  }
+
+  const anyoneRunning = standup?.entries.some((e) => e.activeStartedAt) ?? false
 
   // Cached tickets grouped by assignee - the roster's per-row summary and
   // the selected person's board are both derived from this one grouping,
@@ -352,29 +445,58 @@ export function StatusView({ team }: { team: Team }) {
               <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Team
               </h2>
-              {rosterOrder.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setRosterOrder((prev) => shuffled(prev))}
-                  aria-label="Shuffle team order"
-                  title="Shuffle team order"
-                  className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
-                >
-                  <Shuffle size={14} />
-                </button>
+              {!loadingStandup && rosterMemberships.length > 0 && (
+                <>
+                  {!standup && (
+                    <button
+                      type="button"
+                      onClick={() => startStandup(shuffled(memberships)).catch(() => {})}
+                      disabled={startingStandup}
+                      className="shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {startingStandup ? 'Starting…' : 'Start standup'}
+                    </button>
+                  )}
+                  {standupActive && (
+                    <button
+                      type="button"
+                      onClick={() => endStandup().catch(() => {})}
+                      disabled={endingStandup}
+                      className="shrink-0 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                    >
+                      {endingStandup ? 'Ending…' : 'End standup'}
+                    </button>
+                  )}
+                  {standup?.endedAt && (
+                    <button
+                      type="button"
+                      onClick={() => setShowStandupSummary(true)}
+                      aria-label="View today's standup"
+                      title="View today's standup"
+                      className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                    >
+                      <Eye size={14} />
+                    </button>
+                  )}
+                </>
               )}
             </div>
             {loadingMemberships ? (
               <p className="px-1 text-sm text-slate-400 dark:text-slate-500">Loading roster…</p>
-            ) : rosterOrder.length === 0 ? (
+            ) : rosterMemberships.length === 0 ? (
               <p className="px-1 text-sm text-slate-400 dark:text-slate-500">No one on this team yet.</p>
             ) : (
               <ul aria-label="Team roster" className="space-y-0.5">
-                {rosterOrder.map((membership) => {
+                {rosterMemberships.map((membership) => {
                   const personId = getId(membership.personId) ?? ''
+                  const membershipId = getId(membership) ?? ''
                   const active = personId === selectedPersonId
                   const syncing = syncingPersonId === personId
                   const summary = summaryFor(membership)
+                  const timerRunning = standup?.entries.some(
+                    (e) => e.teamMembershipId === membershipId && e.activeStartedAt,
+                  )
+                  const toggling = togglingMembershipId === membershipId
                   return (
                     <li key={getId(membership)}>
                       <div
@@ -412,6 +534,36 @@ export function StatusView({ team }: { team: Team }) {
                           {syncing ? '…' : '↻'}
                         </button>
                       </div>
+                      {standupActive && (
+                        <div className="flex items-center gap-1.5 px-1.5 pb-1">
+                          {timerRunning ? (
+                            <button
+                              type="button"
+                              onClick={() => stopTimer(membershipId).catch(() => {})}
+                              disabled={toggling}
+                              aria-label={`Stop ${membership.personId.name}'s timer`}
+                              title="Stop timer"
+                              className="shrink-0 rounded-full p-1 text-fuchsia-600 hover:bg-slate-100 disabled:opacity-40 dark:text-fuchsia-300 dark:hover:bg-white/10"
+                            >
+                              <Square size={12} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startTimer(membershipId).catch(() => {})}
+                              disabled={toggling || anyoneRunning}
+                              aria-label={`Start ${membership.personId.name}'s timer`}
+                              title={anyoneRunning ? "Another person's timer is running" : 'Start timer'}
+                              className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                            >
+                              <Play size={12} />
+                            </button>
+                          )}
+                          <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                            {formatElapsed(elapsedSecondsFor(membership))}
+                          </span>
+                        </div>
+                      )}
                     </li>
                   )
                 })}
@@ -467,6 +619,14 @@ export function StatusView({ team }: { team: Team }) {
             )}
           </div>
         </div>
+      )}
+
+      {showStandupSummary && standup && (
+        <StandupSummaryModal
+          standup={standup}
+          memberships={memberships}
+          onClose={() => setShowStandupSummary(false)}
+        />
       )}
     </div>
   )

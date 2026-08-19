@@ -230,6 +230,35 @@ export interface Status {
   lastSyncedAt: string
 }
 
+// One roster member's per-day standup timing - `teamMembershipId` matches
+// TeamMembership._id/.id (see getId), not the populated Person - see backend
+// models/Standup.ts. `activeStartedAt` is an ISO timestamp, non-null only
+// while that person's timer is currently running.
+export interface StandupEntry {
+  teamMembershipId: string
+  totalSeconds: number
+  activeStartedAt: string | null
+}
+
+// A team's standup record for one calendar day (StatusView.tsx) - `date` is
+// the *client's* local 'YYYY-MM-DD' (utils/dateAgenda.ts's localTodayISO),
+// not the server's, since standup "today" always means the browser's own
+// clock - same reasoning as the backend model comment. `entries` order is
+// the day's shuffled reading order, fixed at creation - never reordered
+// after "Start standup" is clicked. `endedAt` null means the standup is
+// still in progress; once set, StatusView shows the normal roster view
+// again with a "View standup" option to see this record read-only.
+export interface Standup {
+  _id?: string
+  id?: string
+  teamId: string
+  date: string
+  entries: StandupEntry[]
+  endedAt: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
 // A cached snapshot of a Jira epic - mirrors backend models/Epic.ts, plus
 // the child-ticket rollup GET /api/epics?sprintId= computes server-side
 // from Ticket.epicKey (childCount/doneCount are never stored on the Epic

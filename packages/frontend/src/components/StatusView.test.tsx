@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { StatusView } from './StatusView'
-import type { Person, Sprint, Status, Team, TeamMembership, Ticket } from '../types'
+import type { Person, Sprint, Standup, Status, Team, TeamMembership, Ticket } from '../types'
 
 interface FakeResponse {
   ok: boolean
@@ -57,6 +57,7 @@ function ticket(overrides: Partial<Ticket> & { jiraKey: string; assigneeAccountI
 
 let ticketsData: Ticket[]
 let statusesData: Status[]
+let standupData: Standup | null
 let fetchMock: FetchMock
 
 function stubFetch(): FetchMock {
@@ -67,6 +68,58 @@ function stubFetch(): FetchMock {
     if (href.includes('/api/sprints')) return jsonResponse([sprint])
     if (href.includes('/api/team-memberships')) return jsonResponse([membershipAda, membershipGrace])
     if (href.includes('/api/statuses')) return jsonResponse(statusesData)
+
+    if (href.includes('/api/standups')) {
+      if (method === 'GET') {
+        const requestedDate = new URL(href).searchParams.get('date')
+        return standupData && standupData.date === requestedDate
+          ? jsonResponse(standupData)
+          : jsonResponse({ error: 'No standup started for this day' }, 404)
+      }
+      if (method === 'POST' && href.endsWith('/api/standups')) {
+        const body: { teamId: string; date: string; teamMembershipIds: string[] } = JSON.parse(init?.body ?? '{}')
+        standupData = {
+          _id: 'standup-1',
+          teamId: body.teamId,
+          date: body.date,
+          entries: body.teamMembershipIds.map((id) => ({ teamMembershipId: id, totalSeconds: 0, activeStartedAt: null })),
+          endedAt: null,
+        }
+        return jsonResponse(standupData, 201)
+      }
+      if (method === 'POST' && href.includes('/timer/start')) {
+        const body: { teamMembershipId: string } = JSON.parse(init?.body ?? '{}')
+        if (standupData) {
+          standupData = {
+            ...standupData,
+            entries: standupData.entries.map((e) =>
+              e.teamMembershipId === body.teamMembershipId ? { ...e, activeStartedAt: new Date().toISOString() } : e,
+            ),
+          }
+        }
+        return jsonResponse(standupData)
+      }
+      if (method === 'POST' && href.includes('/timer/stop')) {
+        const body: { teamMembershipId: string } = JSON.parse(init?.body ?? '{}')
+        if (standupData) {
+          standupData = {
+            ...standupData,
+            entries: standupData.entries.map((e) =>
+              e.teamMembershipId === body.teamMembershipId
+                ? { ...e, totalSeconds: e.totalSeconds + 5, activeStartedAt: null }
+                : e,
+            ),
+          }
+        }
+        return jsonResponse(standupData)
+      }
+      if (method === 'POST' && href.includes('/end')) {
+        if (standupData) {
+          standupData = { ...standupData, endedAt: new Date().toISOString() }
+        }
+        return jsonResponse(standupData)
+      }
+    }
 
     if (href.endsWith('/api/status-sync') && method === 'POST') {
       const body: { personId: string } = JSON.parse(init?.body ?? '{}')
@@ -103,11 +156,13 @@ describe('StatusView', () => {
   beforeEach(() => {
     ticketsData = []
     statusesData = statuses
+    standupData = null
     fetchMock = stubFetch()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it('shows the empty state for the auto-selected first person until they are synced', async () => {
@@ -364,30 +419,124 @@ describe('StatusView', () => {
     expect(within(board).queryByText('Copied!')).not.toBeInTheDocument()
   })
 
-  it('shuffles the roster order client-side on click, with no server call', async () => {
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+  describe('standup', () => {
+    it('shows "Start standup" when none exists yet for today, and persists a shuffled order on click', async () => {
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
 
-    render(<StatusView team={team} />)
-    const roster = await screen.findByLabelText('Team roster')
-    const namesInOrder = () => within(roster).getAllByRole('listitem').map((li) => li.textContent)
+      render(<StatusView team={team} />)
+      const roster = await screen.findByLabelText('Team roster')
+      const namesInOrder = () => within(roster).getAllByRole('listitem').map((li) => li.textContent)
 
-    expect(namesInOrder()[0]).toContain('Ada Lovelace')
-    expect(namesInOrder()[1]).toContain('Grace Hopper')
+      expect(namesInOrder()[0]).toContain('Ada Lovelace')
+      expect(namesInOrder()[1]).toContain('Grace Hopper')
+      expect(screen.queryByRole('button', { name: 'End standup' })).not.toBeInTheDocument()
 
-    const callsBeforeShuffle = fetchMock.mock.calls.length
-    fireEvent.click(screen.getByRole('button', { name: 'Shuffle team order' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Start standup' }))
 
-    expect(namesInOrder()[0]).toContain('Grace Hopper')
-    expect(namesInOrder()[1]).toContain('Ada Lovelace')
-    expect(fetchMock.mock.calls.length).toBe(callsBeforeShuffle)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/standups',
+          expect.objectContaining({
+            method: 'POST',
+            body: expect.stringContaining('"teamMembershipIds":["m2","m1"]'),
+          }),
+        ),
+      )
 
-    // Shuffling is uncapped - a second click re-shuffles again rather than
-    // being a no-op once the button's been used once.
-    fireEvent.click(screen.getByRole('button', { name: 'Shuffle team order' }))
-    expect(namesInOrder()[0]).toContain('Ada Lovelace')
-    expect(namesInOrder()[1]).toContain('Grace Hopper')
+      // Fisher-Yates with Math.random always 0 swaps the two-person roster,
+      // and that persisted order is what now renders.
+      await waitFor(() => expect(namesInOrder()[0]).toContain('Grace Hopper'))
+      expect(namesInOrder()[1]).toContain('Ada Lovelace')
+      expect(await screen.findByRole('button', { name: 'End standup' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Start standup' })).not.toBeInTheDocument()
 
-    randomSpy.mockRestore()
+      randomSpy.mockRestore()
+    })
+
+    it("starts and stops a person's timer, accumulating and displaying elapsed time", async () => {
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+      render(<StatusView team={team} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start standup' }))
+      await screen.findByRole('button', { name: 'End standup' })
+
+      const roster = await screen.findByLabelText('Team roster')
+      const playButton = within(roster).getByRole('button', { name: "Start Grace Hopper's timer" })
+
+      fireEvent.click(playButton)
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/standups/standup-1/timer/start',
+          expect.objectContaining({ method: 'POST', body: JSON.stringify({ teamMembershipId: 'm2' }) }),
+        ),
+      )
+
+      const stopButton = await within(roster).findByRole('button', { name: "Stop Grace Hopper's timer" })
+
+      // Starting a second person's timer while one is already running is
+      // disabled - only one person is ever "on the clock" at once.
+      const otherPlayButton = within(roster).getByRole('button', { name: "Start Ada Lovelace's timer" })
+      expect(otherPlayButton).toBeDisabled()
+
+      fireEvent.click(stopButton)
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/standups/standup-1/timer/stop',
+          expect.objectContaining({ method: 'POST', body: JSON.stringify({ teamMembershipId: 'm2' }) }),
+        ),
+      )
+
+      await waitFor(() => expect(within(roster).getByText('0:05')).toBeInTheDocument())
+      expect(within(roster).getByRole('button', { name: "Start Grace Hopper's timer" })).toBeInTheDocument()
+
+      randomSpy.mockRestore()
+    })
+
+    it("ending the standup returns to the normal roster view, with a summary of that day's times", async () => {
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+      render(<StatusView team={team} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Start standup' }))
+      await screen.findByRole('button', { name: 'End standup' })
+
+      const roster = await screen.findByLabelText('Team roster')
+      fireEvent.click(within(roster).getByRole('button', { name: "Start Grace Hopper's timer" }))
+      fireEvent.click(await within(roster).findByRole('button', { name: "Stop Grace Hopper's timer" }))
+      await waitFor(() => expect(within(roster).getByText('0:05')).toBeInTheDocument())
+
+      fireEvent.click(screen.getByRole('button', { name: 'End standup' }))
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'http://localhost:4100/api/standups/standup-1/end',
+          expect.objectContaining({ method: 'POST' }),
+        ),
+      )
+
+      // Back to the normal view - no more per-row timer controls, and the
+      // roster falls back to its plain fetched order.
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'End standup' })).not.toBeInTheDocument())
+      expect(within(roster).queryByRole('button', { name: "Start Ada Lovelace's timer" })).not.toBeInTheDocument()
+      const namesInOrder = within(roster).getAllByRole('listitem').map((li) => li.textContent)
+      expect(namesInOrder[0]).toContain('Ada Lovelace')
+
+      fireEvent.click(screen.getByRole('button', { name: "View today's standup" }))
+
+      const modal = await screen.findByText("Today's standup")
+      const summary = modal.closest('div') as HTMLElement
+      expect(within(summary).getByText('Grace Hopper')).toBeInTheDocument()
+      expect(within(summary).getByText('0:05')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      await waitFor(() => expect(screen.queryByText("Today's standup")).not.toBeInTheDocument())
+
+      randomSpy.mockRestore()
+    })
+
+    // Reverting to "Start standup" once the client's date rolls over to a new
+    // day is covered at the hook level (hooks/useStandup.test.ts), where fake
+    // timers can be driven directly without fighting testing-library's own
+    // (real-timer-based) waitFor polling.
   })
 
   it('switching the selected person shows their own board, not the previous person\'s', async () => {

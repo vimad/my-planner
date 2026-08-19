@@ -54,6 +54,11 @@ function stubFetch(): FetchMock {
     if (href.includes('/api/teams')) return jsonResponse(teamsData)
     if (href.includes('/api/sprints')) return jsonResponse([])
     if (href.includes('/api/team-memberships')) return jsonResponse([])
+    // StatusView's useStandup - no standup exists for these stub teams, same
+    // 404 the real backend returns before "Start standup" is ever clicked.
+    if (href.includes('/api/standups')) {
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'No standup started for this day' }) })
+    }
     if (href.includes('/api/todos')) return jsonResponse([])
     if (href.includes('/api/categories')) return jsonResponse([])
     if (href.includes('/api/boards')) return jsonResponse([])
