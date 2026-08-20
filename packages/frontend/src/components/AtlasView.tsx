@@ -847,8 +847,12 @@ export function AtlasView() {
         </div>
       )}
 
+      {/* Labeled so a jiraKey/title that also appears in AtlasTaskBoard's
+          leaf-task cards above (e.g. a leaf task with no sub-tasks) can be
+          told apart from its accordion row here - see AtlasView.test.tsx's
+          epicsRegion() helper. */}
       {!loading && active.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div role="group" aria-label="Tracked epics" className="flex flex-col gap-2">
           {active.map((epic) => {
             const id = getId(epic) ?? epic.jiraKey
             return (
@@ -880,7 +884,7 @@ export function AtlasView() {
             {showArchived ? 'Hide' : 'Show'} {archived.length} archived epic{archived.length === 1 ? '' : 's'}
           </button>
           {showArchived && (
-            <div className="mt-2 flex flex-col gap-2">
+            <div role="group" aria-label="Archived epics" className="mt-2 flex flex-col gap-2">
               {archived.map((epic) => {
                 const id = getId(epic) ?? epic.jiraKey
                 return (

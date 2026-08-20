@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { AtlasView } from './AtlasView'
 import type { AtlasEpic } from '../types'
@@ -51,6 +51,16 @@ function extractPlainText(doc: unknown): string {
   }
   walk(doc)
   return parts.join(' ').trim()
+}
+
+// AtlasTaskBoard.tsx (mounted above the epic list) also renders a leaf
+// task's jiraKey/title unconditionally, regardless of accordion state - a
+// jiraKey/title query that must resolve to exactly the accordion row (or
+// assert the accordion specifically doesn't show one) needs scoping to just
+// the "Tracked epics" group (AtlasView.tsx's aria-label) to avoid colliding
+// with - or being satisfied by - the board's own card.
+function epicsRegion() {
+  return within(screen.getByRole('group', { name: 'Tracked epics' }))
 }
 
 function findTaskById(tasks: AtlasEpic['tasks'], id: string): AtlasEpic['tasks'][number] | undefined {
@@ -238,6 +248,10 @@ describe('AtlasView', () => {
     await waitFor(() => {
       expect(screen.getByText('The Epic')).toBeInTheDocument()
     })
+    // The epic row starts collapsed (accordion, not auto-expanded) - open it
+    // to reach WOSMVP-100's own row. WOSMVP-101 (a leaf sub-task) is already
+    // visible either way, via AtlasTaskBoard's unconditional leaf-task card.
+    fireEvent.click(screen.getByText('The Epic'))
     expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()
     expect(screen.getByText('Do the thing')).toBeInTheDocument()
     expect(screen.getByText('WOSMVP-101')).toBeInTheDocument()
@@ -335,7 +349,7 @@ describe('AtlasView dashboard layout', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows an overview row per epic with progress, status pills, date range, and a Jira link; only the first is expanded by default', async () => {
+  it('shows an overview row per epic with progress, status pills, date range, and a Jira link; both start collapsed until clicked', async () => {
     listData = [
       epic({
         _id: 'e1',
@@ -354,23 +368,30 @@ describe('AtlasView dashboard layout', () => {
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.getByText('Second Epic')).toBeInTheDocument()
 
-    // First epic's task tree is visible (expanded by default) ...
-    expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()
-    // ... the second epic's is not.
-    expect(screen.queryByText('WOSMVP-200')).not.toBeInTheDocument()
+    // Both epics start collapsed - neither's accordion row shows its tasks
+    // yet (scoped to the "Tracked epics" group since AtlasTaskBoard already
+    // shows every leaf task's key unconditionally, above this list).
+    expect(epicsRegion().queryByText('WOSMVP-100')).not.toBeInTheDocument()
+    expect(epicsRegion().queryByText('WOSMVP-200')).not.toBeInTheDocument()
 
     // Progress = 1 done / 2 total = 50%.
     expect(screen.getByText('50%')).toBeInTheDocument()
     // Date range rolled up across the epic's tasks, right-aligned label.
     expect(screen.getByText('Jul 1 – Jul 20')).toBeInTheDocument()
-    // "Open in Jira" icon-link per row.
-    expect(screen.getAllByTitle('Open in Jira')).toHaveLength(2)
+    // "Open in Jira" icon-link per row - scoped to "Tracked epics" since
+    // AtlasTaskBoard's own leaf-task cards each carry the same title too.
+    expect(epicsRegion().getAllByTitle('Open in Jira')).toHaveLength(2)
 
-    // Clicking the second epic's row expands its tree too (accordion, not
+    // Clicking the first epic's row expands its tree ...
+    fireEvent.click(screen.getByText('First Epic'))
+    expect(epicsRegion().getByText('WOSMVP-100')).toBeInTheDocument()
+    expect(epicsRegion().queryByText('WOSMVP-200')).not.toBeInTheDocument()
+
+    // ... and clicking the second expands its tree too (accordion, not
     // exclusive-enforced - the first stays open).
     fireEvent.click(screen.getByText('Second Epic'))
-    expect(screen.getByText('WOSMVP-200')).toBeInTheDocument()
-    expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()
+    expect(epicsRegion().getByText('WOSMVP-200')).toBeInTheDocument()
+    expect(epicsRegion().getByText('WOSMVP-100')).toBeInTheDocument()
   })
 
   it('only shows the At-risk pill when the count is greater than zero', async () => {
@@ -386,6 +407,9 @@ describe('AtlasView dashboard layout', () => {
     stubFetch()
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    // The per-task "at risk" badge only renders once the epic's accordion is
+    // open.
+    fireEvent.click(screen.getByText('First Epic'))
     expect(screen.getAllByText('at risk').length).toBeGreaterThan(0)
   })
 
@@ -402,6 +426,8 @@ describe('AtlasView dashboard layout', () => {
     stubFetch()
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    // The notes indicator only renders once the epic's accordion is open.
+    fireEvent.click(screen.getByText('First Epic'))
     expect(screen.getAllByText('notes')).toHaveLength(1)
   })
 
@@ -409,7 +435,10 @@ describe('AtlasView dashboard layout', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', notesText: 'Vendor delay is the long pole here.', tasks: [task()] })]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('Vendor delay is the long pole here.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    // Epic notes render inside the accordion, below the epic row itself.
+    fireEvent.click(screen.getByText('First Epic'))
+    expect(screen.getByText('Vendor delay is the long pole here.')).toBeInTheDocument()
   })
 
   it('shows "Blocked by" chips, appending " · <epicKey>" only for a cross-epic blocker', async () => {
@@ -427,11 +456,16 @@ describe('AtlasView dashboard layout', () => {
     ]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('Blocked by')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    // "Blocked by" only renders once the epic's accordion is open.
+    fireEvent.click(screen.getByText('First Epic'))
+    expect(screen.getByText('Blocked by')).toBeInTheDocument()
 
-    // Same-epic blocker (WOSMVP-100, in the same epic): key appears twice -
-    // once as its own task row, once as the chip - but never epic-suffixed.
-    expect(screen.getAllByText('WOSMVP-100')).toHaveLength(2)
+    // Same-epic blocker (WOSMVP-100, in the same epic): key appears twice
+    // within the accordion - once as its own task row, once as the chip -
+    // but never epic-suffixed. Scoped to "Tracked epics" since
+    // AtlasTaskBoard's own leaf-task card is a third, unrelated match.
+    expect(epicsRegion().getAllByText('WOSMVP-100')).toHaveLength(2)
     expect(screen.queryByText('· WOSMVP-1')).not.toBeInTheDocument()
     // Cross-epic blocker (WOSMVP-200, owned by WOSMVP-2): the chip appends
     // " · <epicKey>".
@@ -508,7 +542,11 @@ describe('AtlasView task editing (ticket 09)', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
     render(<AtlasView />)
+    // WOSMVP-100 is already visible via AtlasTaskBoard's unconditional
+    // leaf-task card, but the accordion row (needed for "No dates set" and
+    // the Edit affordance below) is still collapsed until clicked.
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('First Epic'))
     // "No dates set" shows both on the task row and the epic roll-up.
     expect(screen.getAllByText('No dates set')).toHaveLength(2)
 
@@ -530,6 +568,8 @@ describe('AtlasView task editing (ticket 09)', () => {
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
     expect(screen.queryByText('notes')).not.toBeInTheDocument()
 
+    // Open the epic's accordion to reach the Edit affordance.
+    fireEvent.click(screen.getByText('First Epic'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
     const editable = document.querySelector('[contenteditable]')
     if (!editable) throw new Error('expected a contenteditable notes editor to be rendered')
@@ -545,6 +585,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
 
+    fireEvent.click(screen.getByText('First Epic'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
     fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-08-01' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -560,6 +601,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
 
+    fireEvent.click(screen.getByText('First Epic'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
     fireEvent.click(screen.getByLabelText('Mark at risk (overrides the automatic end-date rule)'))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -580,6 +622,10 @@ describe('AtlasView task editing (ticket 09)', () => {
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
 
+    // Both epics default their title to "First Epic" here (unoverridden),
+    // and AtlasTaskBoard's own cards also echo each epic's bare key - scope
+    // to "Tracked epics" and target e1's own jiraKey to expand just it.
+    fireEvent.click(epicsRegion().getByText('WOSMVP-1'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
     fireEvent.change(screen.getByLabelText('Search tasks to block WOSMVP-100 on'), { target: { value: 'WOSMVP-200' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -598,9 +644,13 @@ describe('AtlasView task editing (ticket 09)', () => {
     ]
     stubFetch()
     render(<AtlasView />)
-    // WOSMVP-101 already blocked by WOSMVP-100, so WOSMVP-100's key already
-    // appears twice (its own row + the existing chip) before any edit.
     await waitFor(() => expect(screen.getAllByText('WOSMVP-100').length).toBeGreaterThan(0))
+    // Open the epic's accordion - "Blocked by" only renders there.
+    fireEvent.click(screen.getByText('First Epic'))
+    // WOSMVP-101 already blocked by WOSMVP-100, so WOSMVP-100's key already
+    // appears twice within the accordion (its own row + the existing chip)
+    // before any edit.
+    expect(epicsRegion().getAllByText('WOSMVP-100')).toHaveLength(2)
     expect(screen.getAllByText('Blocked by')).toHaveLength(1)
 
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
@@ -680,6 +730,8 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
     stubFetch()
     render(<AtlasView />)
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    // EpicNotesEditor only renders once the epic's accordion is open.
+    fireEvent.click(screen.getByText('First Epic'))
     expect(screen.getByText('No epic notes yet.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-1 notes'))
