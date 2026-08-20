@@ -308,7 +308,7 @@ function AtlasTaskRow({
   return (
     <div>
       <div
-        className="flex items-start gap-2 border-l border-slate-200 py-1.5 pl-3 dark:border-white/10"
+        className="group flex items-start gap-2 border-l border-slate-200 py-1.5 pl-3 dark:border-white/10"
         style={{ marginLeft: depth * 18 }}
       >
         {hasSubtasks ? (
@@ -336,6 +336,17 @@ function AtlasTaskRow({
               </span>
             )}
             <span className="text-xs text-slate-800 dark:text-slate-100">{task.title}</span>
+            {!readOnly && taskId && !editing && (
+              <button
+                type="button"
+                aria-label={`Edit ${task.jiraKey}`}
+                title="Edit"
+                onClick={() => setEditing(true)}
+                className="shrink-0 rounded-full p-0.5 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-white/10 dark:hover:text-slate-200"
+              >
+                <Pencil size={11} />
+              </button>
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
             <span>{formatDateRange(task.startDate, task.endDate)}</span>
@@ -382,17 +393,6 @@ function AtlasTaskRow({
             />
           )}
         </div>
-        {!readOnly && taskId && !editing && (
-          <button
-            type="button"
-            aria-label={`Edit ${task.jiraKey}`}
-            title="Edit"
-            onClick={() => setEditing(true)}
-            className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
-          >
-            <Pencil size={12} />
-          </button>
-        )}
       </div>
       {hasSubtasks &&
         expanded &&
