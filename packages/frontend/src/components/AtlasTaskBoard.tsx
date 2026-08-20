@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpRight } from 'lucide-react'
-import { usePeopleDirectory } from '../hooks/usePeopleDirectory'
+import { useAtlasRosterPeople } from '../hooks/useAtlasRosterPeople'
 import { resolveAssignee, type AssigneeInfo } from '../utils/atlasAssignee'
 import { collectLeafTasks, STATUS_BADGE, type AtlasStatusBucket } from '../utils/atlasStats'
 import type { AtlasEpic } from '../types'
@@ -43,7 +43,7 @@ function cardAccent(assignee: AssigneeInfo): string {
 // clicking one greys out the rest rather than removing them, so the full
 // roster stays visible as a re-entry point.
 export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
-  const people = usePeopleDirectory()
+  const people = useAtlasRosterPeople()
   const [visibleColumns, setVisibleColumns] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
   const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
 

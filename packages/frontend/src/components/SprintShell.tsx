@@ -6,6 +6,7 @@ import { getId } from '../utils/getId'
 import { teamSlug } from '../utils/teamSlug'
 import { applyTheme, getInitialTheme } from '../utils/theme'
 import type { Team } from '../types'
+import { AtlasPeopleButton } from './AtlasPeopleButton'
 import { AtlasPresentView } from './AtlasPresentView'
 import { AtlasView } from './AtlasView'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -215,7 +216,13 @@ export function SprintShell() {
           </>
         }
       >
-        {!loading && (
+        {/* Atlas has no team scoping at all (spec.md §1) - swap the
+            Team-switching control out for Atlas's own roster button rather
+            than showing a team switcher that has nothing to do on this
+            route. */}
+        {!loading && (isAtlasRoute ? (
+          <AtlasPeopleButton />
+        ) : (
           <TeamSwitcher
             teams={teams}
             activeTeamId={activeTeamId}
@@ -225,7 +232,7 @@ export function SprintShell() {
             onUpdateJiraLabels={(id, jiraLabels) => updateTeam(id, { jiraLabels })}
             onDeleteRequest={setPendingDelete}
           />
-        )}
+        ))}
       </Header>
 
       {error && (

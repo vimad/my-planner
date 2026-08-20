@@ -654,3 +654,15 @@ export interface AtlasEpic {
   lastSyncedAt: string
   tasks: AtlasTaskNode[]
 }
+
+// The join between Atlas (a single, non-team-scoped roster) and a Person -
+// mirrors backend models/AtlasRosterMember.ts. Deliberately not a
+// TeamMembership: bound to the Atlas feature itself, not any Team, and
+// carries no role/capacity - just identity, so AtlasTaskBoard can resolve an
+// AtlasTaskNode.assigneeAccountId to a real name (utils/atlasAssignee.ts).
+export interface AtlasRosterMember {
+  _id?: string
+  id?: string
+  personId: Person
+  createdAt: string
+}

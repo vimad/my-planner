@@ -296,10 +296,13 @@ describe('SprintShell', () => {
     })
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
-    // Team A is still the active team (still highlighted in the TeamSwitcher),
-    // and Planning/Status keep sharing the tab row rather than vanishing -
-    // all three tabs coexist per spec.md §1, they don't swap in and out.
-    expect(screen.getByRole('tab', { name: 'Team A' })).toHaveAttribute('aria-selected', 'true')
+    // Planning/Status keep sharing the tab row rather than vanishing - all
+    // three tabs coexist per spec.md §1, they don't swap in and out. The
+    // TeamSwitcher itself is hidden on this route (Atlas has no team
+    // scoping at all), so Team A's still-active status is only observable
+    // by navigating back to Planning below, not via a "Team A" tab here.
+    expect(screen.queryByLabelText('Manage teams')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Manage Atlas people')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Status' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'false')
@@ -312,21 +315,33 @@ describe('SprintShell', () => {
     })
   })
 
-  it('does not navigate away from Atlas when switching the active team via the team switcher', async () => {
-    window.history.pushState({}, '', '/sprint/atlas')
+  it('hides the team switcher on Atlas in favor of the Atlas people button, and restores it back on a team tab', async () => {
+    window.history.pushState({}, '', '/sprint/team-a/planning')
 
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+      expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
     })
+    expect(screen.getByLabelText('Manage teams')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Manage Atlas people')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Team B' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Atlas' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Team B' })).toHaveAttribute('aria-selected', 'true')
+      expect(window.location.pathname).toBe('/sprint/atlas')
     })
-    expect(window.location.pathname).toBe('/sprint/atlas')
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    // Atlas has no team scoping at all (spec.md §1) - the team switcher has
+    // nothing to do here, so Atlas's own roster button takes its place.
+    expect(screen.queryByLabelText('Manage teams')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Manage Atlas people')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/sprint/team-a/planning')
+    })
+    expect(screen.getByLabelText('Manage teams')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Manage Atlas people')).not.toBeInTheDocument()
   })
 
   it('navigates from the Atlas Dashboard to Present via its entry-point link, and back via "Back to Dashboard"', async () => {

@@ -41,10 +41,18 @@ function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
   }
 }
 
-function stubPeople(people: Person[]) {
+// AtlasTaskBoard resolves assignee names against Atlas's own roster
+// (GET /api/atlas/roster, Person populated) - not the global /api/people
+// directory - so the stub returns roster entries wrapping each Person.
+function stubRoster(people: Person[]) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(people) })),
+    vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(people.map((p, i) => ({ _id: `m${i}`, personId: p }))),
+      }),
+    ),
   )
 }
 
@@ -54,13 +62,13 @@ describe('AtlasTaskBoard', () => {
   })
 
   it('renders nothing when there are no leaf tasks', () => {
-    stubPeople([])
+    stubRoster([])
     const { container } = render(<AtlasTaskBoard epics={[epic({ tasks: [] })]} />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('shows a leaf task in its status column, excluding a task that has visible sub-tasks', async () => {
-    stubPeople([])
+    stubRoster([])
     render(
       <AtlasTaskBoard
         epics={[
@@ -79,8 +87,8 @@ describe('AtlasTaskBoard', () => {
     expect(screen.getByText('B')).toBeInTheDocument()
   })
 
-  it("resolves an assignee's name from the People directory, and falls back to Unmapped/Unassigned", async () => {
-    stubPeople([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
+  it("resolves an assignee's name from the Atlas roster, and falls back to Unmapped/Unassigned", async () => {
+    stubRoster([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
     render(
       <AtlasTaskBoard
         epics={[
@@ -100,7 +108,7 @@ describe('AtlasTaskBoard', () => {
   })
 
   it('hides a whole column when its status pill is toggled off', async () => {
-    stubPeople([])
+    stubRoster([])
     render(
       <AtlasTaskBoard
         epics={[
@@ -120,7 +128,7 @@ describe('AtlasTaskBoard', () => {
   })
 
   it('filters cards to one assignee when their avatar is clicked', async () => {
-    stubPeople([
+    stubRoster([
       { _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' },
       { _id: 'p2', name: 'Bo Diaz', email: 'bo@example.com', jiraAccountId: 'acc-2' },
     ])
