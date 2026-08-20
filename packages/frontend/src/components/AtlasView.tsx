@@ -292,14 +292,38 @@ function AtlasTaskRow({
   readOnly?: boolean
 }) {
   const [editing, setEditing] = useState(false)
+  // Sub-task tree collapses under a task row the same way a task tree
+  // collapses under an epic row (spec-alike, ticket-alike) - collapsed by
+  // default at every depth, not just depth 0, so a freshly expanded epic
+  // doesn't dump its whole nested tree open at once.
+  const [expanded, setExpanded] = useState(false)
   const taskId = getId(task)
   const blockers = task.blockedBy.map((id) => blockedByLookup.get(id)).filter((ref): ref is BlockedByRef => Boolean(ref))
+  const visibleSubtasks = task.subtasks.filter((sub) => !sub.archived)
+  const hasSubtasks = visibleSubtasks.length > 0
+  // Same roll-up epicStats computes for an epic's own task tree, reused
+  // here against just this task's subtasks - a task with sub-tasks is
+  // structurally a mini-epic for summary purposes.
+  const subStats = hasSubtasks ? epicStats({ tasks: task.subtasks }) : null
   return (
     <div>
       <div
         className="flex items-start gap-2 border-l border-slate-200 py-1.5 pl-3 dark:border-white/10"
         style={{ marginLeft: depth * 18 }}
       >
+        {hasSubtasks ? (
+          <button
+            type="button"
+            aria-label={expanded ? `Collapse ${task.jiraKey}` : `Expand ${task.jiraKey}`}
+            title={expanded ? 'Collapse' : 'Expand'}
+            onClick={() => setExpanded((value) => !value)}
+            className="mt-0.5 shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </button>
+        ) : (
+          <span className="mt-0.5 w-[18px] shrink-0" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
@@ -321,6 +345,20 @@ function AtlasTaskRow({
               </span>
             )}
           </div>
+          {subStats && (
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${subStats.progressPct}%` }} />
+              </div>
+              <span className="w-7 shrink-0 text-[10px] text-slate-400 dark:text-slate-500">{subStats.progressPct}%</span>
+              <div className="flex shrink-0 items-center gap-1">
+                <StatCell count={subStats.todo} className={STATUS_BADGE['To Do']} />
+                <StatCell count={subStats.inProgress} className={STATUS_BADGE['In Progress']} />
+                <StatCell count={subStats.done} className={STATUS_BADGE.Done} />
+                {subStats.atRisk > 0 && <StatCell count={subStats.atRisk} className={AT_RISK_BADGE} />}
+              </div>
+            </div>
+          )}
           {blockers.length > 0 && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               <span className="text-[10px] text-slate-400 dark:text-slate-500">Blocked by</span>
@@ -356,20 +394,20 @@ function AtlasTaskRow({
           </button>
         )}
       </div>
-      {task.subtasks
-        .filter((sub) => !sub.archived)
-        .map((sub) => (
-        <AtlasTaskRow
-          key={getId(sub) ?? sub.jiraKey}
-          task={sub}
-          depth={depth + 1}
-          blockedByLookup={blockedByLookup}
-          blockerCandidates={blockerCandidates}
-          ownerEpicId={ownerEpicId}
-          onUpdateTask={onUpdateTask}
-          readOnly={readOnly}
-        />
-      ))}
+      {hasSubtasks &&
+        expanded &&
+        visibleSubtasks.map((sub) => (
+          <AtlasTaskRow
+            key={getId(sub) ?? sub.jiraKey}
+            task={sub}
+            depth={depth + 1}
+            blockedByLookup={blockedByLookup}
+            blockerCandidates={blockerCandidates}
+            ownerEpicId={ownerEpicId}
+            onUpdateTask={onUpdateTask}
+            readOnly={readOnly}
+          />
+        ))}
     </div>
   )
 }
@@ -561,7 +599,7 @@ function AtlasEpicRow({
           ) : (
             <ChevronRight size={14} className="shrink-0 text-slate-400" />
           )}
-          <div className="w-40 shrink-0">
+          <div className="min-w-0 flex-1">
             <span className="block font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
             <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
           </div>
@@ -577,7 +615,7 @@ function AtlasEpicRow({
             <StatCell count={stats.done} className={STATUS_BADGE.Done} />
             {stats.atRisk > 0 && <StatCell count={stats.atRisk} className={AT_RISK_BADGE} />}
           </div>
-          <span className="flex-1 truncate text-right text-xs text-slate-500 dark:text-slate-400">
+          <span className="w-24 shrink-0 truncate text-right text-xs text-slate-500 dark:text-slate-400">
             {formatDateRange(stats.startDate, stats.endDate)}
           </span>
         </button>
@@ -693,16 +731,10 @@ export function AtlasView() {
   // AtlasEpicRow's own sync/archive state above).
   const [syncingAll, setSyncingAll] = useState(false)
   const [syncAllError, setSyncAllError] = useState<string | null>(null)
-  // One epic open by default - the first row in the active (non-archived)
-  // list, unless the user has explicitly toggled that particular epic - not
-  // exclusive-enforced, so more than one can stay open at once (spec §6's
-  // "accordion ... one epic open by default (not exclusive-enforced)").
-  // Deliberately index-derived rather than an effect that seeds "the first
-  // epic once loaded": that would race the async epics fetch (nothing to
-  // default-open until data arrives, and by the time it does the effect's
-  // state update lands a render late). Tracking only explicit overrides
-  // (id -> expanded) and falling back to "is this index 0?" is synchronous
-  // and needs no effect at all.
+  // All epics collapsed by default, unless the user has explicitly toggled
+  // that particular epic open - not exclusive-enforced, so more than one can
+  // stay open at once. Tracking only explicit overrides (id -> expanded) and
+  // falling back to "false" needs no effect at all.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
   const [showArchived, setShowArchived] = useState(false)
   // Confirm-before-hard-delete for an archived epic - unlike archive/
@@ -814,15 +846,14 @@ export function AtlasView() {
 
       {!loading && active.length > 0 && (
         <div className="flex flex-col gap-2">
-          {active.map((epic, index) => {
+          {active.map((epic) => {
             const id = getId(epic) ?? epic.jiraKey
-            const defaultExpanded = index === 0
             return (
               <AtlasEpicRow
                 key={id}
                 epic={epic}
-                expanded={isExpanded(id, defaultExpanded)}
-                onToggle={() => toggle(id, defaultExpanded)}
+                expanded={isExpanded(id, false)}
+                onToggle={() => toggle(id, false)}
                 blockedByLookup={blockedByLookup}
                 blockerCandidates={blockerCandidates}
                 onUpdateTask={updateTask}
