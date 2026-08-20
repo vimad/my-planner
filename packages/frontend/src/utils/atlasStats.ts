@@ -36,6 +36,53 @@ export function flattenTasks(tasks: AtlasTaskNode[]): AtlasTaskNode[] {
   return tasks.flatMap((task) => [task, ...flattenTasks(task.subtasks)])
 }
 
+export interface AtlasLeafTask {
+  taskId: string
+  jiraKey: string
+  title: string
+  jiraUrl: string
+  status: AtlasStatusBucket
+  assigneeAccountId: string | null
+  epicKey: string
+  epicTitle: string
+}
+
+// A "leaf" is a task/sub-task with zero non-archived children - the Task
+// Board's unit of display (AtlasTaskBoard.tsx, folded in from the winning
+// variant of branch prototype/atlas-assignee-filters: assignees only make
+// sense on the work item actually being done, not on a container). A task
+// WITH visible sub-tasks is skipped as its own row; its children are walked
+// instead, so only ever-bottom-of-tree items come out. Epics are never
+// included at all. Caller decides which epics to pass (AtlasTaskBoard.tsx is
+// only ever given the active list, mirroring AtlasView's own `active` split)
+// - unlike flattenTasks/epicStats above, this doesn't re-check epic.archived
+// itself.
+export function collectLeafTasks(epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 'tasks'>[]): AtlasLeafTask[] {
+  const leaves: AtlasLeafTask[] = []
+  for (const epic of epics) {
+    const walk = (task: AtlasTaskNode) => {
+      if (task.archived) return
+      const visibleSubtasks = task.subtasks.filter((s) => !s.archived)
+      if (visibleSubtasks.length === 0) {
+        leaves.push({
+          taskId: getId(task) ?? task.jiraKey,
+          jiraKey: task.jiraKey,
+          title: task.title,
+          jiraUrl: task.jiraUrl,
+          status: task.status,
+          assigneeAccountId: task.assigneeAccountId,
+          epicKey: epic.jiraKey,
+          epicTitle: epic.title,
+        })
+        return
+      }
+      visibleSubtasks.forEach(walk)
+    }
+    epic.tasks.filter((t) => !t.archived).forEach(walk)
+  }
+  return leaves
+}
+
 export interface AtlasEpicStats {
   total: number
   todo: number

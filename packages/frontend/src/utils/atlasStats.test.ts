@@ -3,6 +3,7 @@ import {
   attentionItems,
   buildBlockedByCandidates,
   buildBlockedByLookup,
+  collectLeafTasks,
   epicHealth,
   epicStats,
   flattenTasks,
@@ -114,6 +115,73 @@ describe('epicStats', () => {
     )
     expect(stats.startDate).toBe('2026-06-01')
     expect(stats.endDate).toBe('2026-08-15')
+  })
+})
+
+describe('collectLeafTasks', () => {
+  it('excludes a task that has visible sub-tasks, walking into its children instead', () => {
+    const leaves = collectLeafTasks([
+      epic({
+        jiraKey: 'WOSMVP-1',
+        title: 'An epic',
+        tasks: [
+          task({
+            _id: 't1',
+            jiraKey: 'A',
+            subtasks: [task({ _id: 't1a', jiraKey: 'A1' }), task({ _id: 't1b', jiraKey: 'A2' })],
+          }),
+          task({ _id: 't2', jiraKey: 'B' }),
+        ],
+      }),
+    ])
+    expect(leaves.map((l) => l.jiraKey)).toEqual(['A1', 'A2', 'B'])
+  })
+
+  it('never includes the epic itself, only its tasks/sub-tasks', () => {
+    const leaves = collectLeafTasks([epic({ jiraKey: 'WOSMVP-1', title: 'An epic', tasks: [task({ jiraKey: 'A' })] })])
+    expect(leaves.every((l) => l.jiraKey !== 'WOSMVP-1')).toBe(true)
+  })
+
+  it('excludes an archived task, and treats an archived sub-task as invisible when deciding leaf-ness', () => {
+    const leaves = collectLeafTasks([
+      epic({
+        jiraKey: 'WOSMVP-1',
+        title: 'An epic',
+        tasks: [
+          task({ _id: 't1', jiraKey: 'A', archived: true }),
+          // Only visible (non-archived) child is archived - so B itself
+          // becomes a leaf, not skipped for "having children".
+          task({ _id: 't2', jiraKey: 'B', subtasks: [task({ _id: 't2a', jiraKey: 'B1', archived: true })] }),
+        ],
+      }),
+    ])
+    expect(leaves.map((l) => l.jiraKey)).toEqual(['B'])
+  })
+
+  it('carries the owning epic key/title and the task fields needed for display', () => {
+    const leaves = collectLeafTasks([
+      epic({
+        jiraKey: 'WOSMVP-1',
+        title: 'An epic',
+        tasks: [task({ _id: 't1', jiraKey: 'A', title: 'Do the thing', status: 'In Progress', assigneeAccountId: 'acc-1' })],
+      }),
+    ])
+    expect(leaves).toEqual([
+      {
+        taskId: 't1',
+        jiraKey: 'A',
+        title: 'Do the thing',
+        jiraUrl: 'https://example.com/browse/WOSMVP-100',
+        status: 'In Progress',
+        assigneeAccountId: 'acc-1',
+        epicKey: 'WOSMVP-1',
+        epicTitle: 'An epic',
+      },
+    ])
+  })
+
+  it('returns an empty array across epics with no tasks', () => {
+    expect(collectLeafTasks([epic({ tasks: [] })])).toEqual([])
   })
 })
 

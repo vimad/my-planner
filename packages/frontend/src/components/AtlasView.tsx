@@ -17,6 +17,7 @@ import { useAtlasEpics, type UpdateAtlasTaskPatch } from '../hooks/useAtlasEpics
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 import { jiraIssueUrl } from '../constants/jira'
 import { getId } from '../utils/getId'
+import { AtlasTaskBoard } from './AtlasTaskBoard'
 import { ConfirmDialog } from './ConfirmDialog'
 import {
   AT_RISK_BADGE,
@@ -828,6 +829,8 @@ export function AtlasView() {
 
       {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading tracked epics…</p>}
       {loadError && <p className="text-sm text-red-600 dark:text-red-400">Error: {loadError}</p>}
+
+      {!loading && active.length > 0 && <AtlasTaskBoard epics={active} />}
 
       {!loading && active.length > 0 && (
         <div className="flex items-center justify-between">
