@@ -46,7 +46,7 @@ interface AssigneeOption extends AssigneeInfo {
 export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const people = useAtlasRosterPeople()
   const [query, setQuery] = useState('')
-  const [groupBy, setGroupBy] = useState<GroupBy>('status')
+  const [groupBy, setGroupBy] = useState<GroupBy>('assignee')
   const [statusFilter, setStatusFilter] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set())
   const [hideUnassigned, setHideUnassigned] = useState(false)
