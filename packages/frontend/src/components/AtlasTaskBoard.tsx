@@ -1,51 +1,46 @@
-import { useMemo, useState } from 'react'
-import { ArrowUpRight } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { useAtlasRosterPeople } from '../hooks/useAtlasRosterPeople'
 import { resolveAssignee, type AssigneeInfo } from '../utils/atlasAssignee'
-import { collectLeafTasks, STATUS_BADGE, type AtlasStatusBucket } from '../utils/atlasStats'
+import { collectLeafTasks, STATUS_BADGE, type AtlasLeafTask, type AtlasStatusBucket } from '../utils/atlasStats'
 import type { AtlasEpic } from '../types'
 import { AssigneeAvatar } from './AssigneeAvatar'
 
 const STATUSES: AtlasStatusBucket[] = ['To Do', 'In Progress', 'Done']
 
-const COLUMN_ACCENT: Record<AtlasStatusBucket, string> = {
-  'To Do': 'border-t-slate-300 dark:border-t-slate-500/40',
-  'In Progress': 'border-t-fuchsia-400 dark:border-t-fuchsia-400/60',
-  Done: 'border-t-emerald-500 dark:border-t-emerald-400/70',
+type GroupBy = 'status' | 'assignee' | 'epic'
+
+interface LeafTaskWithAssignee {
+  task: AtlasLeafTask
+  assignee: AssigneeInfo
 }
 
-const CARD_ACCENT_PALETTE = [
-  'border-l-violet-500',
-  'border-l-fuchsia-500',
-  'border-l-blue-500',
-  'border-l-emerald-500',
-  'border-l-cyan-500',
-  'border-l-indigo-500',
-]
-
-// Same hash as AssigneeAvatar's own color, kept independent so a card's left
-// accent and its avatar bubble reinforce each other without one component
-// reaching into the other's palette.
-function cardAccent(assignee: AssigneeInfo): string {
-  if (assignee.kind !== 'named') return 'border-l-slate-200 dark:border-l-white/10'
-  let hash = 0
-  for (let i = 0; i < assignee.key.length; i++) hash = (hash * 31 + assignee.key.charCodeAt(i)) | 0
-  return CARD_ACCENT_PALETTE[Math.abs(hash) % CARD_ACCENT_PALETTE.length]
+interface AssigneeOption extends AssigneeInfo {
+  count: number
 }
 
-// A Kanban-by-status view of leaf tasks (epics, and any task with visible
+// A Jira-board-adjacent view of leaf tasks (epics, and any task with visible
 // sub-tasks, excluded - utils/atlasStats.ts's collectLeafTasks) across every
-// active epic, folded in from the winning variant of branch prototype/
-// atlas-assignee-filters. "Filter by status" is literal here - each status
-// is a column, and toggling one hides/shows it entirely (mirrors
-// StatusView's "only occupied columns render", just user-controlled instead
-// of auto-derived). "Filter by assignee" is a horizontal avatar strip;
-// clicking one greys out the rest rather than removing them, so the full
-// roster stays visible as a re-entry point.
+// active epic. Folded in from the winning variant of branch prototype/
+// atlas-task-board-nav (that branch also carries Variants A and C, kept as
+// the primary source for the ones not picked). "Group by" is the single
+// navigation control: Status keeps a dense table, Assignee hands off to
+// PersonSwimlanes (a person becomes a whole labeled row instead of a filter
+// avatar - much easier to pick by name than the old bare-avatar strip this
+// replaced), and Epic hands off to EpicCardGroups (collapsed-by-default
+// epics - same convention as AtlasView's "Tracked epics" accordion below -
+// with leaf tasks as cards once expanded). Assignee *picking* itself is a
+// searchable combobox with real names and per-person counts, not avatars.
 export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const people = useAtlasRosterPeople()
-  const [visibleColumns, setVisibleColumns] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
-  const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState(false)
+  const [query, setQuery] = useState('')
+  const [groupBy, setGroupBy] = useState<GroupBy>('status')
+  const [statusFilter, setStatusFilter] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
+  const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set())
+  const [hideUnassigned, setHideUnassigned] = useState(false)
+  const [comboOpen, setComboOpen] = useState(false)
+  const [comboQuery, setComboQuery] = useState('')
 
   const peopleByAccountId = useMemo(() => {
     const map = new Map<string, (typeof people)[number]>()
@@ -53,25 +48,36 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
     return map
   }, [people])
 
-  const items = useMemo(() => {
+  const items = useMemo<LeafTaskWithAssignee[]>(() => {
     return collectLeafTasks(epics).map((task) => ({
       task,
       assignee: resolveAssignee(task.assigneeAccountId, peopleByAccountId),
     }))
   }, [epics, peopleByAccountId])
 
-  // Distinct assignees present in this board's tasks, for the filter strip -
+  // Distinct assignees present in this board's tasks, for the picker -
   // named first alphabetically, then Unmapped/Unassigned trailing (matches
-  // PlanningView's "explicit gap states sort last" convention).
-  const assigneeOptions = useMemo(() => {
-    const byKey = new Map<string, AssigneeInfo>()
-    for (const { assignee } of items) if (!byKey.has(assignee.key)) byKey.set(assignee.key, assignee)
+  // PlanningView's "explicit gap states sort last" convention) - plus a
+  // per-person count so the picker shows "why" someone matters before
+  // they're even selected.
+  const assigneeOptions = useMemo<AssigneeOption[]>(() => {
+    const byKey = new Map<string, AssigneeOption>()
+    for (const { assignee } of items) {
+      const existing = byKey.get(assignee.key)
+      if (existing) existing.count += 1
+      else byKey.set(assignee.key, { ...assignee, count: 1 })
+    }
     const order: Record<AssigneeInfo['kind'], number> = { named: 0, unmapped: 1, unassigned: 2 }
     return [...byKey.values()].sort((a, b) => order[a.kind] - order[b.kind] || a.label.localeCompare(b.label))
   }, [items])
 
-  function toggleColumn(status: AtlasStatusBucket) {
-    setVisibleColumns((prev) => {
+  const comboOptions = useMemo(
+    () => assigneeOptions.filter((a) => a.label.toLowerCase().includes(comboQuery.toLowerCase())),
+    [assigneeOptions, comboQuery],
+  )
+
+  function toggleStatus(status: AtlasStatusBucket) {
+    setStatusFilter((prev) => {
       const next = new Set(prev)
       if (next.has(status)) next.delete(status)
       else next.add(status)
@@ -79,8 +85,8 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
     })
   }
 
-  function toggleAssignee(key: string) {
-    setAssigneeFilter((prev) => {
+  function togglePerson(key: string) {
+    setSelectedPeople((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -88,108 +94,452 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
     })
   }
 
-  const filtered = useMemo(
-    () => items.filter(({ assignee }) => assigneeFilter.size === 0 || assigneeFilter.has(assignee.key)),
-    [items, assigneeFilter],
-  )
+  const filtered = items.filter(({ task, assignee }) => {
+    if (!statusFilter.has(task.status)) return false
+    if (hideUnassigned && assignee.kind === 'unassigned') return false
+    if (selectedPeople.size > 0 && !selectedPeople.has(assignee.key)) return false
+    if (query && !`${task.jiraKey} ${task.title}`.toLowerCase().includes(query.toLowerCase())) return false
+    return true
+  })
 
-  const columns = STATUSES.filter((s) => visibleColumns.has(s)).map((status) => ({
-    status,
-    rows: filtered.filter(({ task }) => task.status === status),
-  }))
+  const statusGroups = useMemo(() => {
+    const map = new Map<AtlasStatusBucket, LeafTaskWithAssignee[]>()
+    for (const row of filtered) {
+      if (!map.has(row.task.status)) map.set(row.task.status, [])
+      map.get(row.task.status)!.push(row)
+    }
+    return STATUSES.filter((s) => map.has(s)).map((status) => ({ status, rows: map.get(status)! }))
+  }, [filtered])
+
+  const selectedLabel = selectedPeople.size === 0 ? 'All people' : `${selectedPeople.size} selected`
 
   if (items.length === 0) return null
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Task board</h2>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-        Leaf tasks only - epics and tasks with sub-tasks are excluded.
-      </p>
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
-          {STATUSES.map((status) => (
-            <button
-              key={status}
-              type="button"
-              onClick={() => toggleColumn(status)}
-              title={visibleColumns.has(status) ? `Hide ${status} column` : `Show ${status} column`}
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
-                visibleColumns.has(status)
-                  ? STATUS_BADGE[status]
-                  : 'text-slate-400 line-through hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/10'
-              }`}
-            >
-              {status}
-            </button>
-          ))}
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        {expanded ? (
+          <ChevronDown size={14} className="shrink-0 text-slate-400" />
+        ) : (
+          <ChevronRight size={14} className="shrink-0 text-slate-400" />
+        )}
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Task board</h2>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Leaf tasks only - epics and tasks with sub-tasks are excluded.
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1">
-          {assigneeOptions.map((a) => (
-            <button
-              key={a.key}
-              type="button"
-              onClick={() => toggleAssignee(a.key)}
-              title={a.label}
-              className={`rounded-full p-0.5 transition ${
-                assigneeFilter.size === 0 || assigneeFilter.has(a.key) ? '' : 'opacity-30 grayscale'
-              } hover:opacity-100 hover:grayscale-0`}
-            >
-              <AssigneeAvatar assignee={a} size={20} />
-            </button>
-          ))}
-          {assigneeFilter.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setAssigneeFilter(new Set())}
-              className="ml-1 text-xs font-medium text-fuchsia-600 underline decoration-dotted hover:text-fuchsia-700 dark:text-fuchsia-300"
-            >
-              Reset
-            </button>
-          )}
-        </div>
-      </div>
+      </button>
 
-      <div className="mt-4 flex items-start gap-3 overflow-x-auto pb-1">
-        {columns.length === 0 && <p className="text-sm text-slate-400 dark:text-slate-500">No columns selected.</p>}
-        {columns.map((col) => (
-          <div key={col.status} className="w-64 shrink-0">
-            <div
-              className={`rounded-t-lg border-t-2 bg-slate-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:bg-white/5 dark:text-slate-400 ${COLUMN_ACCENT[col.status]}`}
-            >
-              {col.status} <span className="text-slate-400 dark:text-slate-500">({col.rows.length})</span>
+      {expanded && (
+        <>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search key or title…"
+                aria-label="Search leaf tasks"
+                className="w-48 rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+              />
             </div>
-            <div className="flex min-h-16 flex-col gap-2 rounded-b-lg border border-t-0 border-slate-200 bg-slate-50/50 p-2 dark:border-white/10 dark:bg-white/[0.02]">
-              {col.rows.map(({ task, assignee }) => (
-                <div
-                  key={task.taskId}
-                  className={`rounded-lg border border-l-4 border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none ${cardAccent(assignee)}`}
+
+            <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
+              {STATUSES.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => toggleStatus(status)}
+                  title={statusFilter.has(status) ? `Hide ${status} column` : `Show ${status} column`}
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                    statusFilter.has(status)
+                      ? STATUS_BADGE[status]
+                      : 'text-slate-400 line-through hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/10'
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
+                  {status}
+                </button>
+              ))}
+            </div>
+
+            <AssigneeCombobox
+              options={comboOptions}
+              selected={selectedPeople}
+              onToggle={togglePerson}
+              onClear={() => setSelectedPeople(new Set())}
+              open={comboOpen}
+              onOpenChange={setComboOpen}
+              query={comboQuery}
+              onQueryChange={setComboQuery}
+              label={selectedLabel}
+            />
+
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <input type="checkbox" checked={hideUnassigned} onChange={() => setHideUnassigned((v) => !v)} className="accent-fuchsia-500" />
+              Hide unassigned
+            </label>
+
+            <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+              Group by
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                aria-label="Group tasks by"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+              >
+                <option value="status">Status</option>
+                <option value="assignee">Assignee</option>
+                <option value="epic">Epic</option>
+              </select>
+            </div>
+          </div>
+
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+            {filtered.length} of {items.length} tasks
+          </p>
+
+          <div className="mt-2">
+            {groupBy === 'assignee' && (
+              <PersonSwimlanes items={filtered} assigneeOptions={assigneeOptions} hideUnassigned={hideUnassigned} />
+            )}
+            {groupBy === 'epic' && <EpicCardGroups items={filtered} epics={epics} />}
+            {groupBy === 'status' && <StatusTable groups={statusGroups} />}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AssigneeCombobox({
+  options,
+  selected,
+  onToggle,
+  onClear,
+  open,
+  onOpenChange,
+  query,
+  onQueryChange,
+  label,
+}: {
+  options: AssigneeOption[]
+  selected: Set<string>
+  onToggle: (key: string) => void
+  onClear: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  query: string
+  onQueryChange: (query: string) => void
+  label: string
+}) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+      >
+        {label} <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-white/10 dark:bg-slate-800">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="Type a name…"
+            aria-label="Filter people"
+            className="mb-2 w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+          />
+          <div className="max-h-56 overflow-y-auto">
+            {options.map((a) => (
+              <label key={a.key} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-white/5">
+                <input type="checkbox" checked={selected.has(a.key)} onChange={() => onToggle(a.key)} className="accent-fuchsia-500" />
+                <AssigneeAvatar assignee={a} size={18} />
+                <span className="flex-1 truncate text-slate-700 dark:text-slate-200">{a.label}</span>
+                <span className="text-slate-400">{a.count}</span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5 dark:border-white/10">
+            <button type="button" onClick={onClear} className="text-[11px] font-medium text-fuchsia-600 hover:underline dark:text-fuchsia-300">
+              Clear
+            </button>
+            <button type="button" onClick={() => onOpenChange(false)} className="text-[11px] font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400">
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// "Group by: Status" - a dense table, the default view. Reads more names/
+// rows per screen than the old kanban cards did, which was the actual fix
+// for "hard to navigate".
+function StatusTable({ groups }: { groups: { status: AtlasStatusBucket; rows: LeafTaskWithAssignee[] }[] }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-white/10">
+      {groups.length === 0 && <p className="p-4 text-center text-sm text-slate-400 dark:text-slate-500">No tasks match these filters.</p>}
+      {groups.map((group) => (
+        <div key={group.status}>
+          <div className="flex items-center justify-between bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500 dark:bg-white/5 dark:text-slate-400">
+            <span>{group.status}</span>
+            <span className="text-slate-400">{group.rows.length}</span>
+          </div>
+          <table className="w-full border-collapse text-xs">
+            <tbody>
+              {group.rows.map(({ task, assignee }) => (
+                <tr key={task.taskId} className="border-t border-slate-100 hover:bg-slate-50/70 dark:border-white/5 dark:hover:bg-white/5">
+                  <td className="w-24 px-3 py-1.5 font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</td>
+                  <td className="px-3 py-1.5 text-slate-800 dark:text-slate-100">{task.title}</td>
+                  <td className="w-44 px-3 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <AssigneeAvatar assignee={assignee} size={16} />
+                      <span className="truncate text-slate-600 dark:text-slate-300">{assignee.label}</span>
+                    </div>
+                  </td>
+                  <td className="w-24 px-3 py-1.5 text-slate-400 dark:text-slate-500">{task.epicKey}</td>
+                  <td className="w-8 px-3 py-1.5 text-right">
                     <a
                       href={task.jiraUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Open in Jira"
-                      className="shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                     >
                       <ArrowUpRight size={11} />
                     </a>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-800 dark:text-slate-100">{task.title}</p>
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <AssigneeAvatar assignee={assignee} size={16} />
-                    <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">{assignee.label}</span>
-                    <span className="ml-auto shrink-0 text-[10px] text-slate-400 dark:text-slate-500">{task.epicKey}</span>
-                  </div>
-                </div>
+                  </td>
+                </tr>
               ))}
-            </div>
-          </div>
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// "Group by: Assignee" - a person becomes a whole labeled row (avatar, full
+// name, progress bar) instead of a filter avatar, so "find someone" turns
+// into scrolling to their lane rather than decoding a tiny badge. The
+// jump-nav strip at top scrolls to + flashes a lane on click, a spatial
+// alternative to filtering. "Hide unassigned" (the board's own toolbar
+// checkbox) drops the Unassigned lane outright here.
+function PersonSwimlanes({
+  items,
+  assigneeOptions,
+  hideUnassigned,
+}: {
+  items: LeafTaskWithAssignee[]
+  assigneeOptions: AssigneeOption[]
+  hideUnassigned: boolean
+}) {
+  const [flashKey, setFlashKey] = useState<string | null>(null)
+  const laneRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const lanes = useMemo(() => {
+    const byKey = new Map<string, LeafTaskWithAssignee[]>()
+    for (const row of items) {
+      if (!byKey.has(row.assignee.key)) byKey.set(row.assignee.key, [])
+      byKey.get(row.assignee.key)!.push(row)
+    }
+    return assigneeOptions
+      .filter((a) => byKey.has(a.key))
+      .filter((a) => !(hideUnassigned && a.kind === 'unassigned'))
+      .map((a) => ({ assignee: a, rows: byKey.get(a.key)! }))
+  }, [items, assigneeOptions, hideUnassigned])
+
+  function jumpTo(key: string) {
+    laneRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setFlashKey(key)
+    window.setTimeout(() => setFlashKey((cur) => (cur === key ? null : cur)), 900)
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-3 dark:border-white/10">
+        {lanes.map(({ assignee, rows }) => (
+          <button
+            key={assignee.key}
+            type="button"
+            onClick={() => jumpTo(assignee.key)}
+            title={`Jump to ${assignee.label}`}
+            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5 text-xs hover:border-fuchsia-300 hover:bg-fuchsia-50 dark:border-white/10 dark:bg-white/5 dark:hover:border-fuchsia-400/40 dark:hover:bg-fuchsia-500/10"
+          >
+            <AssigneeAvatar assignee={assignee} size={18} />
+            <span className="font-medium text-slate-700 dark:text-slate-200">{assignee.label}</span>
+            <span className="text-slate-400">{rows.length}</span>
+          </button>
         ))}
       </div>
+
+      <div className="mt-3 flex flex-col gap-3">
+        {lanes.length === 0 && <p className="p-4 text-center text-sm text-slate-400 dark:text-slate-500">No tasks match these filters.</p>}
+        {lanes.map(({ assignee, rows }) => {
+          const done = rows.filter((r) => r.task.status === 'Done').length
+          const pct = rows.length === 0 ? 0 : Math.round((done / rows.length) * 100)
+          return (
+            <div
+              key={assignee.key}
+              ref={(el) => {
+                if (el) laneRefs.current.set(assignee.key, el)
+                else laneRefs.current.delete(assignee.key)
+              }}
+              className={`rounded-xl border p-2.5 transition ${
+                flashKey === assignee.key
+                  ? 'border-fuchsia-400 bg-fuchsia-50/70 dark:border-fuchsia-400/50 dark:bg-fuchsia-500/10'
+                  : 'border-slate-200 bg-slate-50/50 dark:border-white/10 dark:bg-white/[0.02]'
+              }`}
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <AssigneeAvatar assignee={assignee} size={22} />
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{assignee.label}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{rows.length} tasks</span>
+                <div className="ml-auto flex w-28 items-center gap-1.5">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">{pct}%</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {rows.map(({ task }) => (
+                  <div
+                    key={task.taskId}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] shadow-sm dark:border-white/10 dark:bg-white/5"
+                  >
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BADGE[task.status].split(' ')[0]}`} />
+                    <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
+                    <span className="max-w-40 truncate text-slate-700 dark:text-slate-200">{task.title}</span>
+                    <a
+                      href={task.jiraUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open in Jira"
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <ArrowUpRight size={10} />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+// "Group by: Epic" - collapsed-by-default epics (same convention as
+// AtlasView's own "Tracked epics" accordion below), opening one drops its
+// leaf tasks in below as cards instead of a nested task tree. Deliberately
+// lighter than that accordion - no dates/notes/blocked-by/risk-override
+// editing, just the same leaf-task data the rest of this board already has -
+// so it's not a replacement for that section yet, just this board's own
+// epic-first way to browse the same leaf tasks.
+function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics: AtlasEpic[] }) {
+  const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set())
+
+  const groups = useMemo(() => {
+    const byKey = new Map<string, LeafTaskWithAssignee[]>()
+    for (const row of items) {
+      if (!byKey.has(row.task.epicKey)) byKey.set(row.task.epicKey, [])
+      byKey.get(row.task.epicKey)!.push(row)
+    }
+    return epics.filter((e) => byKey.has(e.jiraKey)).map((e) => ({ epic: e, rows: byKey.get(e.jiraKey)! }))
+  }, [items, epics])
+
+  function toggle(key: string) {
+    setExpandedEpics((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  if (groups.length === 0) return <p className="p-4 text-center text-sm text-slate-400 dark:text-slate-500">No tasks match these filters.</p>
+
+  return (
+    <div className="flex flex-col gap-2">
+      {groups.map(({ epic, rows }) => {
+        const done = rows.filter((r) => r.task.status === 'Done').length
+        const pct = rows.length === 0 ? 0 : Math.round((done / rows.length) * 100)
+        const isOpen = expandedEpics.has(epic.jiraKey)
+        return (
+          <div key={epic.jiraKey} className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
+            <button
+              type="button"
+              onClick={() => toggle(epic.jiraKey)}
+              className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              {isOpen ? (
+                <ChevronDown size={13} className="shrink-0 text-slate-400" />
+              ) : (
+                <ChevronRight size={13} className="shrink-0 text-slate-400" />
+              )}
+              <span className="shrink-0 font-mono text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
+              <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">{rows.length} tasks</span>
+              <div className="flex w-28 shrink-0 items-center gap-1.5">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="w-8 text-right text-[10px] text-slate-400 dark:text-slate-500">{pct}%</span>
+              </div>
+              <a
+                href={epic.jiraUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title="Open epic in Jira"
+                className="shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+              >
+                <ArrowUpRight size={12} />
+              </a>
+            </button>
+
+            {isOpen && (
+              <div className="flex flex-wrap gap-2 border-t border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+                {rows.map(({ task, assignee }) => (
+                  <div
+                    key={task.taskId}
+                    className="w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
+                      <a
+                        href={task.jiraUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open in Jira"
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        <ArrowUpRight size={11} />
+                      </a>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-800 dark:text-slate-100">{task.title}</p>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${STATUS_BADGE[task.status]}`}>{task.status}</span>
+                      <AssigneeAvatar assignee={assignee} size={16} />
+                      <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">{assignee.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

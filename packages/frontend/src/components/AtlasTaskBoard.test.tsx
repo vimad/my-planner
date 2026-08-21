@@ -67,6 +67,15 @@ describe('AtlasTaskBoard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('collapses the board by default, revealing columns only after the header is clicked', async () => {
+    stubRoster([])
+    render(<AtlasTaskBoard epics={[epic({ tasks: [task({ _id: 't1', jiraKey: 'A', status: 'To Do' })] })]} />)
+    await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+  })
+
   it('shows a leaf task in its status column, excluding a task that has visible sub-tasks', async () => {
     stubRoster([])
     render(
@@ -81,6 +90,7 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.click(screen.getByText('Task board'))
     // 'A' has a visible sub-task, so it's skipped in favor of 'A1'.
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
     expect(screen.queryByText('A')).not.toBeInTheDocument()
@@ -102,6 +112,7 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
     expect(screen.getByText('Unmapped assignee')).toBeInTheDocument()
     expect(screen.getByText('Unassigned')).toBeInTheDocument()
@@ -121,13 +132,14 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.click(screen.getByTitle('Hide To Do column'))
     expect(screen.queryByText('A')).not.toBeInTheDocument()
     expect(screen.getByText('B')).toBeInTheDocument()
   })
 
-  it('filters cards to one assignee when their avatar is clicked', async () => {
+  it('filters tasks to selected people via the assignee combobox', async () => {
     stubRoster([
       { _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' },
       { _id: 'p2', name: 'Bo Diaz', email: 'bo@example.com', jiraAccountId: 'acc-2' },
@@ -144,11 +156,67 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
-    // Both the filter-strip button and its nested AssigneeAvatar carry a
-    // "Ada Lovelace" title - the first (outer button) is the clickable one.
-    fireEvent.click(screen.getAllByTitle('Ada Lovelace')[0])
+    fireEvent.click(screen.getByText('All people'))
+    // The combobox's own option row and the (still-mounted, just visually
+    // covered) status table both render "Ada Lovelace" - the combobox row
+    // comes first in DOM order.
+    fireEvent.click(screen.getAllByText('Ada Lovelace')[0])
     expect(screen.getByText('A')).toBeInTheDocument()
     expect(screen.queryByText('B')).not.toBeInTheDocument()
+  })
+
+  it('drops unassigned tasks when "Hide unassigned" is checked', async () => {
+    stubRoster([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            tasks: [
+              task({ _id: 't1', jiraKey: 'A', assigneeAccountId: 'acc-1' }),
+              task({ _id: 't2', jiraKey: 'B', assigneeAccountId: null }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Hide unassigned'))
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('B')).not.toBeInTheDocument()
+  })
+
+  it('switches to person swimlanes when grouped by assignee', async () => {
+    stubRoster([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
+    render(
+      <AtlasTaskBoard
+        epics={[epic({ tasks: [task({ _id: 't1', jiraKey: 'A', assigneeAccountId: 'acc-1' })] })]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
+    // The jump-nav pill and the lane header both carry "Jump to Ada Lovelace"/
+    // "Ada Lovelace" text - either confirms the swimlane layout rendered.
+    expect(screen.getByTitle('Jump to Ada Lovelace')).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
+  })
+
+  it('switches to collapsed epic cards when grouped by epic, expanding on click', async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[epic({ jiraKey: 'WOSMVP-1', title: 'First Epic', tasks: [task({ _id: 't1', jiraKey: 'A' })] })]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'epic' } })
+    expect(screen.getByText('First Epic')).toBeInTheDocument()
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('First Epic'))
+    expect(screen.getByText('A')).toBeInTheDocument()
   })
 })
