@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 interface MockedAtlasEpicModel {
   find: Mock
+  findOne: Mock
   findById: Mock
   findByIdAndUpdate: Mock
   findByIdAndDelete: Mock
@@ -13,7 +14,13 @@ interface MockedAtlasTaskModel {
 }
 
 vi.mock('../src/models/AtlasEpic.ts', () => ({
-  AtlasEpic: { find: vi.fn(), findById: vi.fn(), findByIdAndUpdate: vi.fn(), findByIdAndDelete: vi.fn() },
+  AtlasEpic: {
+    find: vi.fn(),
+    findOne: vi.fn(),
+    findById: vi.fn(),
+    findByIdAndUpdate: vi.fn(),
+    findByIdAndDelete: vi.fn(),
+  },
 }))
 vi.mock('../src/models/AtlasTask.ts', () => ({ AtlasTask: { find: vi.fn(), deleteMany: vi.fn() } }))
 vi.mock('../src/services/atlasSync.ts', async () => {
@@ -21,18 +28,22 @@ vi.mock('../src/services/atlasSync.ts', async () => {
   return {
     ...actual,
     trackAndSyncEpic: vi.fn(),
+    trackAndSyncTicket: vi.fn(),
+    trackAndSyncStandaloneTask: vi.fn(),
   }
 })
 
 const { AtlasEpic } = (await import('../src/models/AtlasEpic.ts')) as unknown as { AtlasEpic: MockedAtlasEpicModel }
 const { AtlasTask } = (await import('../src/models/AtlasTask.ts')) as unknown as { AtlasTask: MockedAtlasTaskModel }
-const { trackAndSyncEpic, EpicNotFoundError, NotAnEpicError } = (await import(
-  '../src/services/atlasSync.ts'
-)) as unknown as {
-  trackAndSyncEpic: Mock
-  EpicNotFoundError: typeof Error
-  NotAnEpicError: typeof Error
-}
+const { trackAndSyncEpic, trackAndSyncTicket, trackAndSyncStandaloneTask, EpicNotFoundError, NotAnEpicError, TicketAlreadyTrackedError } =
+  (await import('../src/services/atlasSync.ts')) as unknown as {
+    trackAndSyncEpic: Mock
+    trackAndSyncTicket: Mock
+    trackAndSyncStandaloneTask: Mock
+    EpicNotFoundError: typeof Error
+    NotAnEpicError: typeof Error
+    TicketAlreadyTrackedError: typeof Error
+  }
 const { createApp } = await import('../src/app.ts')
 
 describe('POST /api/atlas/epics', () => {
@@ -44,11 +55,11 @@ describe('POST /api/atlas/epics', () => {
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics').send({})
     expect(res.status).toBe(400)
-    expect(trackAndSyncEpic).not.toHaveBeenCalled()
+    expect(trackAndSyncTicket).not.toHaveBeenCalled()
   })
 
   it('returns 201 with the synced epic + tasks on a valid epic key', async () => {
-    trackAndSyncEpic.mockResolvedValue({
+    trackAndSyncTicket.mockResolvedValue({
       epic: { _id: 'e1', jiraKey: 'WOSMVP-8262', title: 'The Epic' },
       tasks: [{ _id: 't1', jiraKey: 'WOSMVP-100', parentTaskId: null }],
     })
@@ -56,14 +67,29 @@ describe('POST /api/atlas/epics', () => {
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-8262' })
 
-    expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-8262')
+    expect(trackAndSyncTicket).toHaveBeenCalledWith('WOSMVP-8262')
     expect(res.status).toBe(201)
     expect(res.body.epic.jiraKey).toBe('WOSMVP-8262')
     expect(res.body.tasks).toHaveLength(1)
   })
 
+  it('returns 201 with the synced "Outside the program" epic + task on a valid non-Epic ticket key', async () => {
+    trackAndSyncTicket.mockResolvedValue({
+      epic: { _id: 'outside-epic', jiraKey: '__outside-program__', title: 'Outside the program', isOutsideProgram: true },
+      tasks: [{ _id: 't1', jiraKey: 'WOSMVP-500', parentTaskId: null }],
+    })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-500' })
+
+    expect(trackAndSyncTicket).toHaveBeenCalledWith('WOSMVP-500')
+    expect(res.status).toBe(201)
+    expect(res.body.epic.isOutsideProgram).toBe(true)
+    expect(res.body.tasks).toHaveLength(1)
+  })
+
   it('returns 404 and saves nothing when the key does not resolve in Jira', async () => {
-    trackAndSyncEpic.mockRejectedValue(new EpicNotFoundError('not found'))
+    trackAndSyncTicket.mockRejectedValue(new EpicNotFoundError('not found'))
 
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-9999' })
@@ -73,7 +99,7 @@ describe('POST /api/atlas/epics', () => {
   })
 
   it('returns 422 when the key resolves to a non-Epic issue', async () => {
-    trackAndSyncEpic.mockRejectedValue(new NotAnEpicError('not an epic'))
+    trackAndSyncTicket.mockRejectedValue(new NotAnEpicError('not an epic'))
 
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-100' })
@@ -82,8 +108,18 @@ describe('POST /api/atlas/epics', () => {
     expect(res.body.error).toBeTruthy()
   })
 
+  it('returns 409 when the key is already tracked elsewhere (real epic or another sub-task)', async () => {
+    trackAndSyncTicket.mockRejectedValue(new TicketAlreadyTrackedError('WOSMVP-500 is already tracked under epic WOSMVP-1'))
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-500' })
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toBeTruthy()
+  })
+
   it('passes an unexpected error to the error handler (500)', async () => {
-    trackAndSyncEpic.mockRejectedValue(new Error('boom'))
+    trackAndSyncTicket.mockRejectedValue(new Error('boom'))
 
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics').send({ jiraKey: 'WOSMVP-100' })
@@ -287,6 +323,40 @@ describe('POST /api/atlas/epics/:id/sync', () => {
 
     expect(res.status).toBe(500)
   })
+
+  it('resyncs every root ticket instead of calling trackAndSyncEpic, for the "Outside the program" epic', async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'outside-epic', jiraKey: '__outside-program__', isOutsideProgram: true })
+    AtlasTask.find
+      .mockResolvedValueOnce([{ _id: 't1', jiraKey: 'WOSMVP-500' }, { _id: 't2', jiraKey: 'WOSMVP-600' }])
+      .mockResolvedValueOnce([{ _id: 't1', jiraKey: 'WOSMVP-500' }, { _id: 't2', jiraKey: 'WOSMVP-600' }])
+    trackAndSyncStandaloneTask.mockResolvedValue({ epic: {}, tasks: [] })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/outside-epic/sync')
+
+    expect(AtlasTask.find).toHaveBeenCalledWith({ epicId: 'outside-epic', parentTaskId: null, archived: false })
+    expect(trackAndSyncStandaloneTask).toHaveBeenCalledWith('WOSMVP-500')
+    expect(trackAndSyncStandaloneTask).toHaveBeenCalledWith('WOSMVP-600')
+    expect(trackAndSyncEpic).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+  })
+
+  it("one root ticket's sync failure doesn't abort the rest, for the \"Outside the program\" epic", async () => {
+    AtlasEpic.findById.mockResolvedValue({ _id: 'outside-epic', jiraKey: '__outside-program__', isOutsideProgram: true })
+    AtlasTask.find
+      .mockResolvedValueOnce([{ _id: 't1', jiraKey: 'WOSMVP-500' }, { _id: 't2', jiraKey: 'WOSMVP-600' }])
+      .mockResolvedValueOnce([])
+    trackAndSyncStandaloneTask.mockImplementation(async (jiraKey: string) => {
+      if (jiraKey === 'WOSMVP-500') throw new Error('Jira request failed: 500')
+      return { epic: {}, tasks: [] }
+    })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/outside-epic/sync')
+
+    expect(res.status).toBe(200)
+    expect(res.body.errors).toEqual([{ jiraKey: 'WOSMVP-500', error: 'Jira request failed: 500' }])
+  })
 })
 
 describe('DELETE /api/atlas/epics/:id', () => {
@@ -350,17 +420,46 @@ describe('POST /api/atlas/epics/sync-all', () => {
       { _id: 'e1', jiraKey: 'WOSMVP-1' },
       { _id: 'e2', jiraKey: 'WOSMVP-2' },
     ])
+    AtlasEpic.findOne.mockResolvedValue(null)
     trackAndSyncEpic.mockResolvedValue({ epic: {}, tasks: [] })
 
     const app = createApp()
     const res = await request(app).post('/api/atlas/epics/sync-all')
 
-    expect(AtlasEpic.find).toHaveBeenCalledWith({ archived: false })
+    expect(AtlasEpic.find).toHaveBeenCalledWith({ archived: false, isOutsideProgram: { $ne: true } })
     expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-1')
     expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-2')
     expect(res.status).toBe(200)
     expect(res.body.synced).toEqual(['WOSMVP-1', 'WOSMVP-2'])
     expect(res.body.errors).toEqual([])
+  })
+
+  it('also resyncs every directly-tracked "Outside the program" root ticket', async () => {
+    AtlasEpic.find.mockResolvedValue([])
+    AtlasEpic.findOne.mockResolvedValue({ _id: 'outside-epic', isOutsideProgram: true })
+    AtlasTask.find.mockResolvedValue([{ _id: 't1', jiraKey: 'WOSMVP-500' }])
+    trackAndSyncStandaloneTask.mockResolvedValue({ epic: {}, tasks: [] })
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/sync-all')
+
+    expect(AtlasEpic.findOne).toHaveBeenCalledWith({ isOutsideProgram: true, archived: false })
+    expect(AtlasTask.find).toHaveBeenCalledWith({ epicId: 'outside-epic', parentTaskId: null, archived: false })
+    expect(trackAndSyncStandaloneTask).toHaveBeenCalledWith('WOSMVP-500')
+    expect(res.status).toBe(200)
+    expect(res.body.synced).toEqual(['WOSMVP-500'])
+  })
+
+  it('does nothing extra when no "Outside the program" epic exists yet', async () => {
+    AtlasEpic.find.mockResolvedValue([])
+    AtlasEpic.findOne.mockResolvedValue(null)
+
+    const app = createApp()
+    const res = await request(app).post('/api/atlas/epics/sync-all')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ synced: [], errors: [] })
+    expect(trackAndSyncStandaloneTask).not.toHaveBeenCalled()
   })
 
   it("one epic's sync failure doesn't abort the rest, and is reported per-epic", async () => {

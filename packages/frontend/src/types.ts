@@ -653,6 +653,12 @@ export interface AtlasEpic {
   archived: boolean
   lastSyncedAt: string
   tasks: AtlasTaskNode[]
+  // True only for the single synthetic "Outside the program" bucket
+  // (backend models/AtlasEpic.ts) that owns every directly-tracked non-Epic
+  // ticket - not a real Jira epic, so its jiraKey is a sentinel and jiraUrl
+  // is empty. Components branch on this to hide epic-only chrome (the Jira
+  // key badge, "Open in Jira" link) that would otherwise show garbage.
+  isOutsideProgram: boolean
 }
 
 // The join between Atlas (a single, non-team-scoped roster) and a Person -

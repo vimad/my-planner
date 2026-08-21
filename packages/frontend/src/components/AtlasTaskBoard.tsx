@@ -50,6 +50,7 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const [statusFilter, setStatusFilter] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set())
   const [hideUnassigned, setHideUnassigned] = useState(false)
+  const [hideOutsideProgram, setHideOutsideProgram] = useState(false)
   const [comboOpen, setComboOpen] = useState(false)
   const [comboQuery, setComboQuery] = useState('')
 
@@ -108,6 +109,7 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const filtered = items.filter(({ task, assignee }) => {
     if (!statusFilter.has(task.status)) return false
     if (hideUnassigned && assignee.kind === 'unassigned') return false
+    if (hideOutsideProgram && task.isOutsideProgram) return false
     if (selectedPeople.size > 0 && !selectedPeople.has(assignee.key)) return false
     if (query && !`${task.jiraKey} ${task.title}`.toLowerCase().includes(query.toLowerCase())) return false
     return true
@@ -180,6 +182,16 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
         <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <input type="checkbox" checked={hideUnassigned} onChange={() => setHideUnassigned((v) => !v)} className="accent-fuchsia-500" />
           Hide unassigned
+        </label>
+
+        <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <input
+            type="checkbox"
+            checked={hideOutsideProgram}
+            onChange={() => setHideOutsideProgram((v) => !v)}
+            className="accent-fuchsia-500"
+          />
+          Hide outside the program
         </label>
 
         <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
@@ -324,9 +336,21 @@ function SubtaskFieldset({
   )
 }
 
+// A directly-tracked "Outside the program" ticket gets an indigo left-edge
+// accent instead of an icon (per this board's "mark it without cluttering
+// the card" convention) - indigo isn't reserved for anything else app-wide
+// (docs/ui-conventions.md's Semantic colors), so it reads as a distinct new
+// meaning rather than colliding with fuchsia's general-accent/sub-task-group
+// role or any of the other one-off reserved hues.
+const OUTSIDE_PROGRAM_ACCENT = 'border-indigo-400 dark:border-indigo-400/60'
+
 function TaskTableRow({ task, assignee }: LeafTaskWithAssignee) {
   return (
-    <tr className="border-t border-slate-100 first:border-t-0 hover:bg-slate-50/70 dark:border-white/5 dark:hover:bg-white/5">
+    <tr
+      className={`border-t border-slate-100 first:border-t-0 hover:bg-slate-50/70 dark:border-white/5 dark:hover:bg-white/5 ${
+        task.isOutsideProgram ? `border-l-2 ${OUTSIDE_PROGRAM_ACCENT}` : ''
+      }`}
+    >
       <td className="w-24 px-3 py-1.5 font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</td>
       <td className="px-3 py-1.5 text-slate-800 dark:text-slate-100">{task.title}</td>
       <td className="w-44 px-3 py-1.5">
@@ -335,7 +359,7 @@ function TaskTableRow({ task, assignee }: LeafTaskWithAssignee) {
           <span className="truncate text-slate-600 dark:text-slate-300">{assignee.label}</span>
         </div>
       </td>
-      <td className="w-24 px-3 py-1.5 text-slate-400 dark:text-slate-500">{task.epicKey}</td>
+      <td className="w-24 px-3 py-1.5 text-slate-400 dark:text-slate-500">{task.isOutsideProgram ? 'Outside' : task.epicKey}</td>
       <td className="w-8 px-3 py-1.5 text-right">
         <a
           href={task.jiraUrl}
@@ -511,7 +535,11 @@ function PersonSwimlanes({
 
 function TaskChip({ task }: { task: AtlasLeafTask }) {
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] shadow-sm dark:border-white/10 dark:bg-white/5">
+    <div
+      className={`flex items-center gap-1.5 rounded-lg border bg-white px-2 py-1 text-[11px] shadow-sm dark:bg-white/5 ${
+        task.isOutsideProgram ? `border-2 ${OUTSIDE_PROGRAM_ACCENT}` : 'border-slate-200 dark:border-white/10'
+      }`}
+    >
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BADGE[task.status].split(' ')[0]}`} />
       <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
       <span className="max-w-40 truncate text-slate-700 dark:text-slate-200">{task.title}</span>
@@ -565,7 +593,12 @@ function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics
         const pct = rows.length === 0 ? 0 : Math.round((done / rows.length) * 100)
         const isOpen = expandedEpics.has(epic.jiraKey)
         return (
-          <div key={epic.jiraKey} className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
+          <div
+            key={epic.jiraKey}
+            className={`overflow-hidden rounded-xl border ${
+              epic.isOutsideProgram ? OUTSIDE_PROGRAM_ACCENT : 'border-slate-200 dark:border-white/10'
+            }`}
+          >
             <button
               type="button"
               onClick={() => toggle(epic.jiraKey)}
@@ -576,7 +609,9 @@ function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics
               ) : (
                 <ChevronRight size={13} className="shrink-0 text-slate-400" />
               )}
-              <span className="shrink-0 font-mono text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+              {!epic.isOutsideProgram && (
+                <span className="shrink-0 font-mono text-xs font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+              )}
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
               <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">{rows.length} tasks</span>
               <div className="flex w-28 shrink-0 items-center gap-1.5">
@@ -585,16 +620,18 @@ function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics
                 </div>
                 <span className="w-8 text-right text-[10px] text-slate-400 dark:text-slate-500">{pct}%</span>
               </div>
-              <a
-                href={epic.jiraUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title="Open epic in Jira"
-                className="shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
-              >
-                <ArrowUpRight size={12} />
-              </a>
+              {!epic.isOutsideProgram && (
+                <a
+                  href={epic.jiraUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title="Open epic in Jira"
+                  className="shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+                >
+                  <ArrowUpRight size={12} />
+                </a>
+              )}
             </button>
 
             {isOpen && (
@@ -623,7 +660,11 @@ function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics
 
 function TaskCard({ task, assignee }: { task: AtlasLeafTask; assignee: AssigneeInfo }) {
   return (
-    <div className="w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5">
+    <div
+      className={`w-56 rounded-lg border bg-white p-2 shadow-sm dark:bg-white/5 ${
+        task.isOutsideProgram ? `border-2 ${OUTSIDE_PROGRAM_ACCENT}` : 'border-slate-200 dark:border-white/10'
+      }`}
+    >
       <div className="flex items-center justify-between gap-1">
         <span className="font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
         <a

@@ -179,7 +179,7 @@ describe('AtlasView', () => {
     renderAtlas()
 
     await waitFor(() => {
-      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+      expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
     })
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/atlas/epics'))
   })
@@ -198,6 +198,7 @@ describe('AtlasView', () => {
           notesText: '',
           archived: false,
           lastSyncedAt: '2026-08-19T00:00:00.000Z',
+          isOutsideProgram: false,
           tasks: [
             {
               _id: 't1',
@@ -245,9 +246,9 @@ describe('AtlasView', () => {
     })
 
     renderAtlas()
-    await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-8262' } })
+    fireEvent.change(screen.getByLabelText('Ticket number to track'), { target: { value: 'WOSMVP-8262' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     expect(screen.getByRole('button', { name: 'Syncing…' })).toBeDisabled()
@@ -264,47 +265,47 @@ describe('AtlasView', () => {
     fireEvent.click(screen.getByLabelText('Expand WOSMVP-100'))
     expect(screen.getByText('WOSMVP-101')).toBeInTheDocument()
     expect(screen.getByText('Do the sub-thing')).toBeInTheDocument()
-    expect(screen.queryByText('No epics tracked yet')).not.toBeInTheDocument()
+    expect(screen.queryByText('No tickets tracked yet')).not.toBeInTheDocument()
     // Input cleared after a successful track.
-    expect(screen.getByLabelText('Epic number to track')).toHaveValue('')
+    expect(screen.getByLabelText('Ticket number to track')).toHaveValue('')
   })
 
   it('submitting an unresolvable key shows an inline error and adds nothing to the list', async () => {
     stubFetch(async () => jsonResponse({ error: 'Jira issue WOSMVP-9999 was not found' }, 404))
 
     renderAtlas()
-    await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-9999' } })
+    fireEvent.change(screen.getByLabelText('Ticket number to track'), { target: { value: 'WOSMVP-9999' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     await waitFor(() => {
       expect(screen.getByText('Error: Jira issue WOSMVP-9999 was not found')).toBeInTheDocument()
     })
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
     // Input is not cleared on failure, so the user can correct/resubmit.
-    expect(screen.getByLabelText('Epic number to track')).toHaveValue('WOSMVP-9999')
+    expect(screen.getByLabelText('Ticket number to track')).toHaveValue('WOSMVP-9999')
   })
 
   it('submitting a non-Epic key shows an inline error and adds nothing to the list', async () => {
     stubFetch(async () => jsonResponse({ error: 'WOSMVP-100 is a Story issue, not an Epic' }, 422))
 
     renderAtlas()
-    await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-100' } })
+    fireEvent.change(screen.getByLabelText('Ticket number to track'), { target: { value: 'WOSMVP-100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Track' }))
 
     await waitFor(() => {
       expect(screen.getByText('Error: WOSMVP-100 is a Story issue, not an Epic')).toBeInTheDocument()
     })
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
   })
 
   it('disables the Track button while the input is blank', async () => {
     stubFetch()
     renderAtlas()
-    await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument())
 
     expect(screen.getByRole('button', { name: 'Track' })).toBeDisabled()
   })
@@ -345,6 +346,7 @@ describe('AtlasView Board/Summary tabs', () => {
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
+      isOutsideProgram: false,
       ...overrides,
     }
   }
@@ -365,14 +367,14 @@ describe('AtlasView Board/Summary tabs', () => {
     expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'false')
     await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
-    expect(screen.queryByLabelText('Epic number to track')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ticket number to track')).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Tracked epics' })).not.toBeInTheDocument()
   })
 
   it('shows a fallback message on the Board tab when no epics are tracked yet', async () => {
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText(/No epics tracked yet/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/No tickets tracked yet/)).toBeInTheDocument())
     expect(screen.queryByText('Task board')).not.toBeInTheDocument()
   })
 
@@ -385,13 +387,13 @@ describe('AtlasView Board/Summary tabs', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
 
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByLabelText('Epic number to track')).toBeInTheDocument()
+    expect(screen.getByLabelText('Ticket number to track')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Tracked epics' })).toBeInTheDocument()
     expect(screen.queryByText('Task board')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
     expect(screen.getByText('Task board')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Epic number to track')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ticket number to track')).not.toBeInTheDocument()
   })
 })
 
@@ -430,6 +432,7 @@ describe('AtlasView dashboard layout', () => {
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
+      isOutsideProgram: false,
       ...overrides,
     }
   }
@@ -485,6 +488,27 @@ describe('AtlasView dashboard layout', () => {
     fireEvent.click(screen.getByText('Second Epic'))
     expect(epicsRegion().getByText('WOSMVP-200')).toBeInTheDocument()
     expect(epicsRegion().getByText('WOSMVP-100')).toBeInTheDocument()
+  })
+
+  it('hides the sentinel jiraKey badge and "Open in Jira" link for the "Outside the program" epic card', async () => {
+    listData = [
+      epic({
+        _id: 'outside-epic',
+        jiraKey: '__outside-program__',
+        title: 'Outside the program',
+        isOutsideProgram: true,
+        tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-500', epicId: 'outside-epic' })],
+      }),
+    ]
+    stubFetch()
+    renderAtlas()
+
+    await waitFor(() => expect(screen.getByText('Outside the program')).toBeInTheDocument())
+    expect(epicsRegion().queryByText('__outside-program__')).not.toBeInTheDocument()
+    expect(epicsRegion().queryByTitle('Open in Jira')).not.toBeInTheDocument()
+    // Sync now/Archive stay available - lifecycle controls apply the same as
+    // any other tracked card.
+    expect(epicsRegion().getByLabelText('Sync Outside the program now')).toBeInTheDocument()
   })
 
   it('only shows the At-risk pill when the count is greater than zero', async () => {
@@ -615,6 +639,7 @@ describe('AtlasView task editing (ticket 09)', () => {
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
+      isOutsideProgram: false,
       ...overrides,
     }
   }
@@ -804,6 +829,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
       archived: false,
       lastSyncedAt: '2026-08-19T00:00:00.000Z',
       tasks: [],
+      isOutsideProgram: false,
       ...overrides,
     }
   }
@@ -937,6 +963,28 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
 
     await waitFor(() => expect(screen.queryByText('First Epic')).not.toBeInTheDocument())
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:4100/api/atlas/epics/e1', { method: 'DELETE' })
+  })
+
+  it('deleting the archived "Outside the program" epic shows a title-only confirm message, not the sentinel jiraKey', async () => {
+    listData = [
+      epic({
+        _id: 'outside-epic',
+        jiraKey: '__outside-program__',
+        title: 'Outside the program',
+        isOutsideProgram: true,
+        archived: true,
+      }),
+    ]
+    stubFetch()
+    renderAtlas()
+    await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Show 1 archived epic'))
+    await waitFor(() => expect(screen.getByText('Outside the program')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Delete Outside the program'))
+
+    expect(screen.getByText(/Permanently delete "Outside the program"/)).toBeInTheDocument()
+    expect(screen.queryByText(/__outside-program__/)).not.toBeInTheDocument()
   })
 
   it('cancelling the delete confirmation leaves the epic untouched', async () => {

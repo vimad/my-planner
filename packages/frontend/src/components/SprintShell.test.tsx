@@ -277,7 +277,7 @@ describe('SprintShell', () => {
     // ticket 07) both live on Atlas's own Summary tab, not its default Board
     // tab (ticket 12).
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Track' })).toBeDisabled()
   })
 
@@ -300,7 +300,7 @@ describe('SprintShell', () => {
     // The empty state lives on Atlas's own Summary tab, not its default
     // Board tab (ticket 12).
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     // Planning/Status keep sharing the tab row rather than vanishing - all
     // three tabs coexist per spec.md §1, they don't swap in and out. The
@@ -362,7 +362,7 @@ describe('SprintShell', () => {
     // regardless of which of those two is active, so no tab switch is needed
     // to reach it.
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: /Present/ }))
 
@@ -386,6 +386,6 @@ describe('SprintShell', () => {
     // to its default Board tab - switch to Summary again to reach the empty
     // state.
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
-    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets tracked yet')).toBeInTheDocument()
   })
 })

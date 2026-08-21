@@ -35,8 +35,13 @@ const {
   mapStatusCategory,
   buildTaskTree,
   trackAndSyncEpic,
+  trackAndSyncStandaloneTask,
+  trackAndSyncTicket,
+  getOrCreateOutsideProgramEpic,
   EpicNotFoundError,
   NotAnEpicError,
+  TicketAlreadyTrackedError,
+  OUTSIDE_PROGRAM_KEY,
 } = await import('../src/services/atlasSync.ts')
 
 function issue(key: string, fields: Record<string, unknown> = {}): JiraIssue {
@@ -459,5 +464,195 @@ describe('trackAndSyncEpic — resync reconciliation (delete/reparent)', () => {
     // above), so an already-archived task never appears in `missing` at all
     // - nothing further to assert beyond the query scoping already covered.
     expect(AtlasTask.updateOne).not.toHaveBeenCalled()
+  })
+})
+
+// The "add any ticket" feature: directly-tracking a non-Epic issue files it
+// under a shared, singleton "Outside the program" epic instead of a real
+// one - see services/atlasSync.ts's getOrCreateOutsideProgramEpic and
+// trackAndSyncStandaloneTask.
+describe('getOrCreateOutsideProgramEpic', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    AtlasEpic.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: 'outside-epic',
+      jiraKey: filter.jiraKey,
+      isOutsideProgram: true,
+      ...update.$set,
+      ...update.$setOnInsert,
+    }))
+  })
+
+  it('finds-or-creates the epic by its sentinel jiraKey, marking it isOutsideProgram', async () => {
+    const epic = await getOrCreateOutsideProgramEpic()
+
+    expect(AtlasEpic.findOneAndUpdate).toHaveBeenCalledWith(
+      { jiraKey: OUTSIDE_PROGRAM_KEY },
+      expect.objectContaining({ $set: { title: 'Outside the program', isOutsideProgram: true } }),
+      { upsert: true, returnDocument: 'after' },
+    )
+    expect(epic.title).toBe('Outside the program')
+    expect(epic.isOutsideProgram).toBe(true)
+  })
+})
+
+describe('trackAndSyncStandaloneTask', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    AtlasEpic.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: 'outside-epic',
+      jiraKey: filter.jiraKey,
+      isOutsideProgram: true,
+      notes: null,
+      notesText: '',
+      archived: false,
+      ...update.$set,
+    }))
+    AtlasTask.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `task-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      ...update.$set,
+      startDate: null,
+      endDate: null,
+      atRisk: false,
+      atRiskOverride: false,
+      notes: null,
+      notesText: '',
+      blockedBy: [],
+      archived: false,
+    }))
+    AtlasTask.find.mockResolvedValue([])
+    AtlasTask.updateOne.mockResolvedValue({})
+    AtlasTask.findOne.mockResolvedValue(null)
+    AtlasEpic.findOne.mockResolvedValue(null)
+  })
+
+  it('throws EpicNotFoundError and makes no upsert calls when the key does not resolve in Jira', async () => {
+    bulkFetchIssues.mockResolvedValue({ issues: [], issueErrors: [{ issueId: 'WOSMVP-9999' }] })
+
+    await expect(trackAndSyncStandaloneTask('WOSMVP-9999')).rejects.toThrow(EpicNotFoundError)
+    expect(AtlasEpic.findOneAndUpdate).not.toHaveBeenCalled()
+    expect(AtlasTask.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('files a ticket with no sub-tasks as a root task under the "Outside the program" epic', async () => {
+    bulkFetchIssues.mockResolvedValueOnce({
+      issues: [issue('WOSMVP-500', { summary: 'A standalone story', issuetype: { name: 'Story' } })],
+      issueErrors: [],
+    })
+
+    const result = await trackAndSyncStandaloneTask('WOSMVP-500')
+
+    expect(result.epic.jiraKey).toBe(OUTSIDE_PROGRAM_KEY)
+    expect(result.epic.isOutsideProgram).toBe(true)
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].jiraKey).toBe('WOSMVP-500')
+    expect(result.tasks[0].epicId).toBe('outside-epic')
+    expect(result.tasks[0].parentTaskId).toBeNull()
+  })
+
+  it("walks one level of the ticket's own Jira sub-tasks, same as an epic's level-0 task", async () => {
+    bulkFetchIssues
+      .mockResolvedValueOnce({
+        issues: [issue('WOSMVP-500', { summary: 'Parent', subtasks: [{ key: 'WOSMVP-501' }] })],
+        issueErrors: [],
+      })
+      .mockResolvedValueOnce({
+        issues: [issue('WOSMVP-501', { summary: 'Child', issuetype: { name: 'Sub-task', subtask: true } })],
+        issueErrors: [],
+      })
+
+    const result = await trackAndSyncStandaloneTask('WOSMVP-500')
+
+    expect(result.tasks).toHaveLength(2)
+    const child = result.tasks.find((t: any) => t.jiraKey === 'WOSMVP-501')
+    expect(child?.parentTaskId).toBe('task-WOSMVP-500')
+    expect(child?.epicId).toBe('outside-epic')
+  })
+
+  it('is idempotent - resyncing an already-tracked root ticket upserts rather than duplicating or erroring', async () => {
+    bulkFetchIssues.mockResolvedValue({ issues: [issue('WOSMVP-500')], issueErrors: [] })
+    AtlasTask.findOne.mockResolvedValue({ _id: 'task-WOSMVP-500', epicId: 'outside-epic', parentTaskId: null })
+
+    await expect(trackAndSyncStandaloneTask('WOSMVP-500')).resolves.toBeTruthy()
+  })
+
+  it('refuses to track a key that already belongs to a different, real epic, without touching Mongo', async () => {
+    bulkFetchIssues.mockResolvedValue({ issues: [issue('WOSMVP-500')], issueErrors: [] })
+    AtlasTask.findOne.mockResolvedValue({ _id: 'task-WOSMVP-500', epicId: 'real-epic', parentTaskId: null })
+    AtlasEpic.findOne.mockResolvedValue({ _id: 'real-epic', jiraKey: 'WOSMVP-1' })
+
+    await expect(trackAndSyncStandaloneTask('WOSMVP-500')).rejects.toThrow(TicketAlreadyTrackedError)
+    expect(AtlasTask.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('refuses to track a key that is already tracked as a sub-task of another standalone ticket', async () => {
+    bulkFetchIssues.mockResolvedValue({ issues: [issue('WOSMVP-501')], issueErrors: [] })
+    AtlasTask.findOne.mockResolvedValue({ _id: 'task-WOSMVP-501', epicId: 'outside-epic', parentTaskId: 'task-WOSMVP-500' })
+
+    await expect(trackAndSyncStandaloneTask('WOSMVP-501')).rejects.toThrow(TicketAlreadyTrackedError)
+    expect(AtlasTask.findOneAndUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('trackAndSyncTicket', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    AtlasEpic.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `epic-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      ...update.$set,
+      notes: null,
+      notesText: '',
+      archived: false,
+    }))
+    AtlasTask.findOneAndUpdate.mockImplementation(async (filter: { jiraKey: string }, update: any) => ({
+      _id: `task-${filter.jiraKey}`,
+      jiraKey: filter.jiraKey,
+      ...update.$set,
+      startDate: null,
+      endDate: null,
+      atRisk: false,
+      atRiskOverride: false,
+      notes: null,
+      notesText: '',
+      blockedBy: [],
+      archived: false,
+    }))
+    AtlasTask.find.mockResolvedValue([])
+    AtlasTask.updateOne.mockResolvedValue({})
+    AtlasTask.findOne.mockResolvedValue(null)
+    AtlasEpic.findOne.mockResolvedValue(null)
+  })
+
+  it('throws EpicNotFoundError without ever branching when the key does not resolve in Jira', async () => {
+    bulkFetchIssues.mockResolvedValue({ issues: [], issueErrors: [{ issueId: 'WOSMVP-9999' }] })
+
+    await expect(trackAndSyncTicket('WOSMVP-9999')).rejects.toThrow(EpicNotFoundError)
+  })
+
+  it('delegates an Epic key to the full recursive epic-tree sync', async () => {
+    bulkFetchIssues
+      .mockResolvedValueOnce({ issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' } })], issueErrors: [] })
+      .mockResolvedValueOnce({ issues: [issue('WOSMVP-8262', { issuetype: { name: 'Epic' }, summary: 'The Epic' })], issueErrors: [] })
+    searchJql.mockResolvedValue([])
+
+    const result = await trackAndSyncTicket('WOSMVP-8262')
+
+    expect(result.epic.jiraKey).toBe('WOSMVP-8262')
+    expect(result.epic.title).toBe('The Epic')
+    expect(searchJql).toHaveBeenCalledWith('parent = "WOSMVP-8262"', expect.any(Array))
+  })
+
+  it('files any other issue type under "Outside the program"', async () => {
+    bulkFetchIssues
+      .mockResolvedValueOnce({ issues: [issue('WOSMVP-500', { issuetype: { name: 'Bug' } })], issueErrors: [] })
+      .mockResolvedValueOnce({ issues: [issue('WOSMVP-500', { issuetype: { name: 'Bug' }, summary: 'A bug' })], issueErrors: [] })
+
+    const result = await trackAndSyncTicket('WOSMVP-500')
+
+    expect(result.epic.jiraKey).toBe(OUTSIDE_PROGRAM_KEY)
+    expect(result.tasks[0].jiraKey).toBe('WOSMVP-500')
+    expect(searchJql).not.toHaveBeenCalled()
   })
 })

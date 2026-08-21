@@ -79,6 +79,7 @@ function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
     archived: false,
     lastSyncedAt: '2026-08-19T00:00:00.000Z',
     tasks: [],
+    isOutsideProgram: false,
     ...overrides,
   }
 }

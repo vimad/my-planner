@@ -37,6 +37,7 @@ function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
     archived: false,
     lastSyncedAt: '2026-08-19T00:00:00.000Z',
     tasks: [],
+    isOutsideProgram: false,
     ...overrides,
   }
 }
@@ -324,5 +325,76 @@ describe('AtlasTaskBoard', () => {
     expect(screen.getByText('A2')).toBeInTheDocument()
     const legend = screen.getByText('Parent task').closest('legend')
     expect(legend?.closest('fieldset')).toBeInTheDocument()
+  })
+
+  it('highlights a directly-tracked "Outside the program" ticket with an indigo border, in the default status-table view', async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({ jiraKey: 'WOSMVP-1', isOutsideProgram: false, tasks: [task({ _id: 't1', jiraKey: 'A' })] }),
+          epic({
+            _id: 'outside-epic',
+            jiraKey: '__outside-program__',
+            title: 'Outside the program',
+            isOutsideProgram: true,
+            tasks: [task({ _id: 't2', jiraKey: 'B', epicId: 'outside-epic' })],
+          }),
+        ]}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    const rowA = screen.getByText('A').closest('tr')
+    const rowB = screen.getByText('B').closest('tr')
+    expect(rowA?.className).not.toContain('border-indigo-400')
+    expect(rowB?.className).toEqual(expect.stringContaining('border-l-2'))
+    expect(rowB?.className).toEqual(expect.stringContaining('border-indigo-400'))
+    // The status table shows "Outside" rather than the sentinel jiraKey in
+    // the epic column.
+    expect(screen.getByText('Outside')).toBeInTheDocument()
+  })
+
+  it('hides "Outside the program" tickets when "Hide outside the program" is checked', async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'A' })] }),
+          epic({
+            _id: 'outside-epic',
+            jiraKey: '__outside-program__',
+            isOutsideProgram: true,
+            tasks: [task({ _id: 't2', jiraKey: 'B', epicId: 'outside-epic' })],
+          }),
+        ]}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    expect(screen.getByText('B')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Hide outside the program'))
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('B')).not.toBeInTheDocument()
+  })
+
+  it('hides the sentinel jiraKey/Jira link for the "Outside the program" epic card, when grouped by epic', async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            _id: 'outside-epic',
+            jiraKey: '__outside-program__',
+            title: 'Outside the program',
+            isOutsideProgram: true,
+            tasks: [task({ _id: 't1', jiraKey: 'B', epicId: 'outside-epic' })],
+          }),
+        ]}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('B')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'epic' } })
+    expect(screen.getByText('Outside the program')).toBeInTheDocument()
+    expect(screen.queryByText('__outside-program__')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Open epic in Jira')).not.toBeInTheDocument()
   })
 })

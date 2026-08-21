@@ -61,7 +61,9 @@ function BlockedByChip({
   return (
     <span className="flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
       {blocker.jiraKey}
-      {blocker.epicId !== ownerEpicId && <span className="text-slate-400 dark:text-slate-500"> · {blocker.epicKey}</span>}
+      {blocker.epicId !== ownerEpicId && (
+        <span className="text-slate-400 dark:text-slate-500"> · {blocker.isOutsideProgram ? 'Outside' : blocker.epicKey}</span>
+      )}
       {onRemove && (
         <button
           type="button"
@@ -221,7 +223,9 @@ function TaskEditPanel({
                 <span className="truncate">
                   <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-300">{c.jiraKey}</span>{' '}
                   {c.title}
-                  {c.epicId !== ownerEpicId && <span className="text-slate-400 dark:text-slate-500"> · {c.epicKey}</span>}
+                  {c.epicId !== ownerEpicId && (
+                    <span className="text-slate-400 dark:text-slate-500"> · {c.isOutsideProgram ? 'Outside' : c.epicKey}</span>
+                  )}
                 </span>
                 <span className="shrink-0 text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">+ Add</span>
               </button>
@@ -555,6 +559,10 @@ function AtlasEpicRow({
 }) {
   const stats = epicStats(epic)
   const epicId = getId(epic) ?? epic.jiraKey
+  // Accessible-label text for lifecycle actions - the sentinel jiraKey isn't
+  // a meaningful identifier to announce for the "Outside the program" card,
+  // so its title stands in for it there.
+  const epicLabel = epic.isOutsideProgram ? epic.title : epic.jiraKey
   // Jira-side deletes (spec §4.5) archive an AtlasTask rather than removing
   // it, so its notes/dates/risk/blocked-by survive a resync - but it should
   // still disappear from the Dashboard's drill-down, same as an archived
@@ -601,7 +609,9 @@ function AtlasEpicRow({
             <ChevronRight size={14} className="shrink-0 text-slate-400" />
           )}
           <div className="min-w-0 flex-1">
-            <span className="block font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+            {!epic.isOutsideProgram && (
+              <span className="block font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{epic.jiraKey}</span>
+            )}
             <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{epic.title}</span>
           </div>
           <div className="flex w-28 shrink-0 items-center gap-2">
@@ -624,7 +634,7 @@ function AtlasEpicRow({
           {!dimmed && (
             <button
               type="button"
-              aria-label={`Sync ${epic.jiraKey} now`}
+              aria-label={`Sync ${epicLabel} now`}
               title="Sync now"
               disabled={syncing}
               onClick={handleSync}
@@ -635,7 +645,7 @@ function AtlasEpicRow({
           )}
           <button
             type="button"
-            aria-label={dimmed ? `Restore ${epic.jiraKey}` : `Un-track ${epic.jiraKey}`}
+            aria-label={dimmed ? `Restore ${epicLabel}` : `Un-track ${epicLabel}`}
             title={dimmed ? 'Restore' : 'Un-track (archive)'}
             disabled={archiveBusy}
             onClick={handleArchiveOrRestore}
@@ -646,7 +656,7 @@ function AtlasEpicRow({
           {dimmed && onDeleteRequest && (
             <button
               type="button"
-              aria-label={`Delete ${epic.jiraKey}`}
+              aria-label={`Delete ${epicLabel}`}
               title="Delete permanently"
               onClick={onDeleteRequest}
               className="rounded-full p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
@@ -654,15 +664,17 @@ function AtlasEpicRow({
               <Trash2 size={14} />
             </button>
           )}
-          <a
-            href={jiraIssueUrl(epic.jiraKey)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open in Jira"
-            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
-          >
-            <ArrowUpRight size={14} />
-          </a>
+          {!epic.isOutsideProgram && (
+            <a
+              href={jiraIssueUrl(epic.jiraKey)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in Jira"
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+            >
+              <ArrowUpRight size={14} />
+            </a>
+          )}
         </div>
       </div>
       {actionError && (
@@ -844,7 +856,7 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
           {!loading && active.length > 0 && <AtlasTaskBoard epics={active} />}
           {!loading && active.length === 0 && (
             <p className="text-sm text-slate-400 dark:text-slate-500">
-              No epics tracked yet — add one from the Summary tab.
+              No tickets tracked yet — add one from the Summary tab.
             </p>
           )}
         </>
@@ -855,21 +867,22 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
             {!loading && epics.length === 0 && (
               <>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No epics tracked yet</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No tickets tracked yet</h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Enter an epic number to start tracking it. Atlas will pull in its full task and sub-task tree.
+                  Enter any Jira ticket number to start tracking it. An epic pulls in its full task and sub-task
+                  tree; any other ticket (task, story, bug, ...) is grouped under "Outside the program".
                 </p>
               </>
             )}
 
             <form className="mt-4 flex items-center gap-2" onSubmit={handleSubmit}>
-              <span className="text-sm text-slate-400 dark:text-slate-500">Track epic — WOSMVP-</span>
+              <span className="text-sm text-slate-400 dark:text-slate-500">Track ticket — WOSMVP-</span>
               <input
                 type="text"
                 value={epicKey}
                 onChange={(event) => setEpicKey(event.target.value)}
                 placeholder="123"
-                aria-label="Epic number to track"
+                aria-label="Ticket number to track"
                 disabled={tracking}
                 className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
@@ -967,7 +980,11 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
 
           {pendingDelete && (
             <ConfirmDialog
-              message={`Permanently delete ${pendingDelete.jiraKey} — ${pendingDelete.title}? This cannot be undone.`}
+              message={
+                pendingDelete.isOutsideProgram
+                  ? `Permanently delete "${pendingDelete.title}" and every ticket tracked in it? This cannot be undone.`
+                  : `Permanently delete ${pendingDelete.jiraKey} — ${pendingDelete.title}? This cannot be undone.`
+              }
               confirmLabel="Delete"
               onCancel={() => setPendingDelete(null)}
               onConfirm={handleConfirmDelete}

@@ -46,6 +46,7 @@ function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
     archived: false,
     lastSyncedAt: '2026-08-19T00:00:00.000Z',
     tasks: [],
+    isOutsideProgram: false,
     ...overrides,
   }
 }
@@ -204,9 +205,17 @@ describe('collectLeafTasks', () => {
         assigneeAccountId: 'acc-1',
         epicKey: 'WOSMVP-1',
         epicTitle: 'An epic',
+        isOutsideProgram: false,
         parent: null,
       },
     ])
+  })
+
+  it("tags a leaf with the owning epic's isOutsideProgram flag", () => {
+    const leaves = collectLeafTasks([
+      epic({ jiraKey: 'WOSMVP-1', isOutsideProgram: true, tasks: [task({ _id: 't1', jiraKey: 'A' })] }),
+    ])
+    expect(leaves).toEqual([expect.objectContaining({ jiraKey: 'A', isOutsideProgram: true })])
   })
 
   it('returns an empty array across epics with no tasks', () => {
@@ -226,6 +235,7 @@ describe('groupByParentTask', () => {
         assigneeAccountId: null,
         epicKey: 'WOSMVP-1',
         epicTitle: 'An epic',
+        isOutsideProgram: false,
         parent: overrides.parent ?? null,
       },
     }
@@ -356,9 +366,16 @@ describe('buildBlockedByLookup', () => {
       epic({ _id: 'e2', jiraKey: 'WOSMVP-2', tasks: [task({ _id: 't2', jiraKey: 'WOSMVP-200' })] }),
     ]
     const lookup = buildBlockedByLookup(epics)
-    expect(lookup.get('t1')).toEqual({ taskId: 't1', jiraKey: 'WOSMVP-100', epicId: 'e1', epicKey: 'WOSMVP-1' })
-    expect(lookup.get('t1a')).toEqual({ taskId: 't1a', jiraKey: 'WOSMVP-101', epicId: 'e1', epicKey: 'WOSMVP-1' })
-    expect(lookup.get('t2')).toEqual({ taskId: 't2', jiraKey: 'WOSMVP-200', epicId: 'e2', epicKey: 'WOSMVP-2' })
+    expect(lookup.get('t1')).toEqual({ taskId: 't1', jiraKey: 'WOSMVP-100', epicId: 'e1', epicKey: 'WOSMVP-1', isOutsideProgram: false })
+    expect(lookup.get('t1a')).toEqual({ taskId: 't1a', jiraKey: 'WOSMVP-101', epicId: 'e1', epicKey: 'WOSMVP-1', isOutsideProgram: false })
+    expect(lookup.get('t2')).toEqual({ taskId: 't2', jiraKey: 'WOSMVP-200', epicId: 'e2', epicKey: 'WOSMVP-2', isOutsideProgram: false })
+  })
+
+  it("tags a resolved blocker with the owning epic's isOutsideProgram flag", () => {
+    const epics: AtlasEpic[] = [
+      epic({ _id: 'e1', jiraKey: 'WOSMVP-1', isOutsideProgram: true, tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] }),
+    ]
+    expect(buildBlockedByLookup(epics).get('t1')).toMatchObject({ isOutsideProgram: true })
   })
 
   it('leaves an unresolvable id out of the map', () => {
@@ -382,9 +399,9 @@ describe('buildBlockedByCandidates', () => {
     const candidates = buildBlockedByCandidates(epics)
     expect(candidates).toEqual(
       expect.arrayContaining([
-        { taskId: 't1', jiraKey: 'WOSMVP-100', title: 'Do the thing', epicId: 'e1', epicKey: 'WOSMVP-1' },
-        { taskId: 't1a', jiraKey: 'WOSMVP-101', title: 'Sub-thing', epicId: 'e1', epicKey: 'WOSMVP-1' },
-        { taskId: 't2', jiraKey: 'WOSMVP-200', title: 'Other epic task', epicId: 'e2', epicKey: 'WOSMVP-2' },
+        { taskId: 't1', jiraKey: 'WOSMVP-100', title: 'Do the thing', epicId: 'e1', epicKey: 'WOSMVP-1', isOutsideProgram: false },
+        { taskId: 't1a', jiraKey: 'WOSMVP-101', title: 'Sub-thing', epicId: 'e1', epicKey: 'WOSMVP-1', isOutsideProgram: false },
+        { taskId: 't2', jiraKey: 'WOSMVP-200', title: 'Other epic task', epicId: 'e2', epicKey: 'WOSMVP-2', isOutsideProgram: false },
       ]),
     )
     expect(candidates).toHaveLength(3)

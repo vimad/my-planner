@@ -26,6 +26,15 @@ export interface AtlasEpicDoc {
   // never hard-deletes the epic or its tasks' local annotations.
   archived: boolean
   lastSyncedAt: Date
+  // True only for the single synthetic "Outside the program" bucket
+  // (services/atlasSync.ts's getOrCreateOutsideProgramEpic) that owns every
+  // directly-tracked non-Epic ticket (Task/Story/Bug) — not a real Jira
+  // epic, so its jiraKey is a sentinel, never a real issue key, and its
+  // jiraUrl is empty. Lets it flow through every existing epic-shaped
+  // rendering path (AtlasEpicRow, AtlasTaskBoard's "Group by: Epic") for
+  // free, with call sites branching on this flag only where the sentinel
+  // key/empty URL would otherwise leak into the UI.
+  isOutsideProgram: boolean
 }
 
 const atlasEpicSchema = new Schema<AtlasEpicDoc>({
@@ -36,6 +45,7 @@ const atlasEpicSchema = new Schema<AtlasEpicDoc>({
   notesText: { type: String, default: '' },
   archived: { type: Boolean, default: false },
   lastSyncedAt: { type: Date, required: true },
+  isOutsideProgram: { type: Boolean, default: false },
 })
 
 export const AtlasEpic = mongoose.model<AtlasEpicDoc>('AtlasEpic', atlasEpicSchema)

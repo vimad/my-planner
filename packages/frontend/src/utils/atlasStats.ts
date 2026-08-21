@@ -52,6 +52,11 @@ export interface AtlasLeafTask {
   assigneeAccountId: string | null
   epicKey: string
   epicTitle: string
+  // Mirrors the owning epic's AtlasEpic.isOutsideProgram - lets the Task
+  // Board (AtlasTaskBoard.tsx) mark a directly-tracked, non-Epic ticket's
+  // card/row/chip with a highlighted border and offer a "hide these" filter,
+  // without every leaf-task consumer needing its own epics lookup.
+  isOutsideProgram: boolean
   // The immediate parent task this leaf was walked out of, when that parent
   // itself has other visible sub-tasks - null for a top-level leaf task (its
   // "parent" is just the epic). Lets the Task Board (AtlasTaskBoard.tsx)
@@ -71,7 +76,9 @@ export interface AtlasLeafTask {
 // only ever given the active list, mirroring AtlasView's own `active` split)
 // - unlike flattenTasks/epicStats above, this doesn't re-check epic.archived
 // itself.
-export function collectLeafTasks(epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 'tasks'>[]): AtlasLeafTask[] {
+export function collectLeafTasks(
+  epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 'tasks' | 'isOutsideProgram'>[],
+): AtlasLeafTask[] {
   const leaves: AtlasLeafTask[] = []
   for (const epic of epics) {
     const walk = (task: AtlasTaskNode, parent: ParentTaskRef | null) => {
@@ -87,6 +94,7 @@ export function collectLeafTasks(epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 't
           assigneeAccountId: task.assigneeAccountId,
           epicKey: epic.jiraKey,
           epicTitle: epic.title,
+          isOutsideProgram: epic.isOutsideProgram,
           parent,
         })
         return
@@ -239,6 +247,10 @@ export interface BlockedByRef {
   jiraKey: string
   epicId: string
   epicKey: string
+  // Mirrors the owning epic's AtlasEpic.isOutsideProgram - lets a "Blocked
+  // by"/picker chip show "Outside" instead of the Outside-the-program epic's
+  // sentinel jiraKey.
+  isOutsideProgram: boolean
 }
 
 // GET /api/atlas/epics returns AtlasTask.blockedBy as bare ObjectId strings
@@ -255,7 +267,7 @@ export function buildBlockedByLookup(epics: AtlasEpic[]): Map<string, BlockedByR
     for (const task of flattenTasks(epic.tasks)) {
       const taskId = getId(task)
       if (!taskId) continue
-      lookup.set(taskId, { taskId, jiraKey: task.jiraKey, epicId, epicKey: epic.jiraKey })
+      lookup.set(taskId, { taskId, jiraKey: task.jiraKey, epicId, epicKey: epic.jiraKey, isOutsideProgram: epic.isOutsideProgram })
     }
   }
   return lookup
@@ -284,7 +296,14 @@ export function buildBlockedByCandidates(epics: AtlasEpic[]): BlockedByCandidate
       if (task.archived) continue
       const taskId = getId(task)
       if (!taskId) continue
-      candidates.push({ taskId, jiraKey: task.jiraKey, title: task.title, epicId, epicKey: epic.jiraKey })
+      candidates.push({
+        taskId,
+        jiraKey: task.jiraKey,
+        title: task.title,
+        epicId,
+        epicKey: epic.jiraKey,
+        isOutsideProgram: epic.isOutsideProgram,
+      })
     }
   }
   return candidates

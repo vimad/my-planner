@@ -1,33 +1,67 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { AtlasEpic, type AtlasEpicDoc } from '../models/AtlasEpic.ts'
 import { AtlasTask } from '../models/AtlasTask.ts'
-import { buildTaskTree, EpicNotFoundError, NotAnEpicError, trackAndSyncEpic } from '../services/atlasSync.ts'
+import {
+  buildTaskTree,
+  EpicNotFoundError,
+  NotAnEpicError,
+  TicketAlreadyTrackedError,
+  trackAndSyncEpic,
+  trackAndSyncStandaloneTask,
+  trackAndSyncTicket,
+} from '../services/atlasSync.ts'
 import { resolveAtRisk } from '../utils/atlasRisk.ts'
 import { toLocalDateString } from '../utils/localDate.ts'
 import { tiptapToPlainText, type TiptapNode } from '../utils/tiptapText.ts'
 
 export const atlasEpicsRouter = Router()
 
-interface TrackEpicBody {
+interface TrackTicketBody {
   jiraKey?: string
 }
 
-// POST /api/atlas/epics -> body { jiraKey }. Ticket 07's "track an epic":
-// immediate, synchronous sync (spec §4.1) - resolves the key against Jira
-// and, if it's a real Epic, recursively pulls its full task/sub-task tree
-// (services/atlasSync.ts). An unresolvable key (404) or a non-Epic key (422)
-// saves nothing - trackAndSyncEpic throws before touching Mongo in either
-// case.
+interface SyncManyResult {
+  synced: string[]
+  errors: { jiraKey: string; error: string }[]
+}
+
+// Shared "resync a batch, one bad item doesn't abort the rest" loop - used
+// by the real-epics half of sync-all, the "Outside the program" root-ticket
+// half of sync-all, and that same root-ticket loop for the "Outside the
+// program" card's own per-epic "Sync now" below.
+async function syncEach<T>(items: T[], jiraKeyOf: (item: T) => string, sync: (jiraKey: string) => Promise<unknown>): Promise<SyncManyResult> {
+  const synced: string[] = []
+  const errors: SyncManyResult['errors'] = []
+  for (const item of items) {
+    const jiraKey = jiraKeyOf(item)
+    try {
+      await sync(jiraKey)
+      synced.push(jiraKey)
+    } catch (err) {
+      errors.push({ jiraKey, error: (err as Error).message })
+    }
+  }
+  return { synced, errors }
+}
+
+// POST /api/atlas/epics -> body { jiraKey }. Ticket 07's "track an epic",
+// generalized to "track any ticket": immediate, synchronous sync (spec
+// §4.1) - resolves the key against Jira and, if it's an Epic, recursively
+// pulls its full task/sub-task tree; any other issue type (Task/Story/Bug)
+// is filed under the shared "Outside the program" epic instead
+// (services/atlasSync.ts's trackAndSyncTicket). An unresolvable key (404)
+// saves nothing; a key already tracked elsewhere (409) is refused rather
+// than silently reparented.
 atlasEpicsRouter.post(
   '/',
-  async (req: Request<Record<string, never>, unknown, TrackEpicBody>, res: Response, next: NextFunction) => {
+  async (req: Request<Record<string, never>, unknown, TrackTicketBody>, res: Response, next: NextFunction) => {
     try {
       const jiraKey = req.body.jiraKey?.trim()
       if (!jiraKey) {
         return res.status(400).json({ error: 'jiraKey is required' })
       }
 
-      const result = await trackAndSyncEpic(jiraKey)
+      const result = await trackAndSyncTicket(jiraKey)
       res.status(201).json(result)
     } catch (err) {
       if (err instanceof EpicNotFoundError) {
@@ -35,6 +69,9 @@ atlasEpicsRouter.post(
       }
       if (err instanceof NotAnEpicError) {
         return res.status(422).json({ error: err.message })
+      }
+      if (err instanceof TicketAlreadyTrackedError) {
+        return res.status(409).json({ error: err.message })
       }
       next(err)
     }
@@ -124,11 +161,24 @@ atlasEpicsRouter.patch(
 // just this one epic's tree - trackAndSyncEpic's JQL (`parent = "<jiraKey>"`)
 // and reconcileMissingTasks' AtlasTask.find are both epicId-scoped, so a
 // resync here never touches any other epic's tasks.
+//
+// The synthetic "Outside the program" epic (isOutsideProgram) has no Jira
+// issue of its own to resync against - its jiraKey is a sentinel. "Sync now"
+// on that card instead resyncs each of its directly-tracked root tickets in
+// turn (trackAndSyncStandaloneTask), same "one bad ticket doesn't abort the
+// rest" contract as the global sync-all below.
 atlasEpicsRouter.post('/:id/sync', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
   try {
     const epic = await AtlasEpic.findById(req.params.id)
     if (!epic) {
       return res.status(404).json({ error: 'Epic not found' })
+    }
+
+    if (epic.isOutsideProgram) {
+      const rootTasks = await AtlasTask.find({ epicId: epic._id, parentTaskId: null, archived: false })
+      const { errors } = await syncEach(rootTasks, (task) => task.jiraKey, trackAndSyncStandaloneTask)
+      const tasks = await AtlasTask.find({ epicId: epic._id })
+      return res.json({ epic, tasks, errors })
     }
 
     const result = await trackAndSyncEpic(epic.jiraKey)
@@ -169,27 +219,29 @@ atlasEpicsRouter.delete('/:id', async (req: Request<{ id: string }>, res: Respon
 
 // POST /api/atlas/epics/sync-all -> ticket 10's global "sync all": the other
 // half of spec §4.2's "manual only" refresh model - loops every tracked,
-// *non-archived* epic (an archived one is un-tracked, so re-pulling its tree
-// would contradict its whole point) and resyncs each in turn. One epic
+// *non-archived* real epic (an archived one is un-tracked, so re-pulling its
+// tree would contradict its whole point) and resyncs each in turn. One epic
 // failing (e.g. its Jira issue itself got deleted since) is reported per-
 // epic rather than aborting the whole run, so a single bad epic can't block
-// every other epic's refresh.
+// every other epic's refresh. Also resyncs every directly-tracked "Outside
+// the program" root ticket the same way - excluded from the epic query
+// itself (isOutsideProgram has no Jira issue of its own to resync against)
+// and handled in its own loop below.
 atlasEpicsRouter.post('/sync-all', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const epics = await AtlasEpic.find({ archived: false })
-    const synced: string[] = []
-    const errors: { jiraKey: string; error: string }[] = []
+    const epics = await AtlasEpic.find({ archived: false, isOutsideProgram: { $ne: true } })
+    const epicResult = await syncEach(epics, (epic) => epic.jiraKey, trackAndSyncEpic)
 
-    for (const epic of epics) {
-      try {
-        await trackAndSyncEpic(epic.jiraKey)
-        synced.push(epic.jiraKey)
-      } catch (err) {
-        errors.push({ jiraKey: epic.jiraKey, error: (err as Error).message })
-      }
-    }
+    const outsideEpic = await AtlasEpic.findOne({ isOutsideProgram: true, archived: false })
+    const rootTasks = outsideEpic
+      ? await AtlasTask.find({ epicId: outsideEpic._id, parentTaskId: null, archived: false })
+      : []
+    const taskResult = await syncEach(rootTasks, (task) => task.jiraKey, trackAndSyncStandaloneTask)
 
-    res.json({ synced, errors })
+    res.json({
+      synced: [...epicResult.synced, ...taskResult.synced],
+      errors: [...epicResult.errors, ...taskResult.errors],
+    })
   } catch (err) {
     next(err)
   }

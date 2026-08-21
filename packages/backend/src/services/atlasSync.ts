@@ -19,6 +19,19 @@ const MISSING_TASK_CHECK_FIELDS = ['parent']
 
 export class EpicNotFoundError extends Error {}
 export class NotAnEpicError extends Error {}
+// Thrown when directly-tracking a ticket (trackAndSyncStandaloneTask) would
+// silently rip it out of where it already lives — either a real epic's task
+// tree, or another standalone ticket's sub-task list — rather than folding
+// it into "Outside the program". Jira-side reparents are still allowed to
+// move a task freely (reconcileMissingTasks below); this only guards a
+// *manual* duplicate "Track" submission.
+export class TicketAlreadyTrackedError extends Error {}
+
+// Sentinel jiraKey for the single synthetic "Outside the program" epic
+// (models/AtlasEpic.ts's isOutsideProgram) — deliberately not a shape any
+// real Jira key can take (real keys are `<PROJECT>-<number>`), so it can
+// never collide with one.
+export const OUTSIDE_PROGRAM_KEY = '__outside-program__'
 
 interface JiraStatusRef {
   statusCategory?: { key?: string }
@@ -147,12 +160,15 @@ export interface TrackAndSyncResult {
 }
 
 // Ticket 10's resync diffing (spec §4.5/§4.6, ticket 03's Q4): after a fresh
-// sync has upserted every task/sub-task Jira still returns for this epic,
-// anything previously tracked under this epic that *wasn't* touched by this
+// sync has upserted every task/sub-task Jira still returns for this scope,
+// anything previously tracked within `scope` that *wasn't* touched by this
 // round is either genuinely gone from Jira or has been reparented away from
-// this epic's tree. `seenJiraKeys` is every jiraKey this sync round just
-// upserted (level-0 + level-1) — a doc whose jiraKey isn't in that set is
-// the input to this reconciliation pass.
+// it. `scope` is `{ epicId }` for an epic sync (trackAndSyncEpic) or
+// `{ parentTaskId }` for a standalone ticket's own sub-tasks
+// (trackAndSyncStandaloneTask) — either way it's the exact filter that
+// previously produced this round's "previously tracked" set. `seenJiraKeys`
+// is every jiraKey this sync round just upserted (level-0 + level-1) — a doc
+// whose jiraKey isn't in that set is the input to this reconciliation pass.
 //
 // A single extra bulkFetchIssues call (requesting only `fields.parent`)
 // tells the two cases apart in one round-trip:
@@ -169,8 +185,11 @@ export interface TrackAndSyncResult {
 //     to archiving too, rather than leaving a dangling/incorrect epicId on
 //     an orphaned doc. Same soft-delete outcome as a real delete, just a
 //     different root cause.
-async function reconcileMissingTasks(epic: AtlasEpicDoc & { _id: unknown }, seenJiraKeys: Set<string>): Promise<void> {
-  const previouslyTracked = await AtlasTask.find({ epicId: epic._id as Types.ObjectId, archived: false })
+async function reconcileMissingTasks(
+  scope: { epicId: Types.ObjectId } | { parentTaskId: Types.ObjectId },
+  seenJiraKeys: Set<string>,
+): Promise<void> {
+  const previouslyTracked = await AtlasTask.find({ ...scope, archived: false })
   const missing = previouslyTracked.filter((task) => !seenJiraKeys.has(task.jiraKey))
   if (missing.length === 0) return
 
@@ -299,7 +318,113 @@ export async function trackAndSyncEpic(jiraKey: string): Promise<TrackAndSyncRes
   // sync, since AtlasTask.find({ epicId: epic._id, ... }) has nothing to
   // return yet.
   const seenJiraKeys = new Set([...level0Docs.keys(), ...level1Docs.map((doc) => doc.jiraKey)])
-  await reconcileMissingTasks(epic, seenJiraKeys)
+  await reconcileMissingTasks({ epicId: epic._id as Types.ObjectId }, seenJiraKeys)
 
   return { epic, tasks: [...level0Docs.values(), ...level1Docs] }
+}
+
+// The synthetic "Outside the program" epic that owns every directly-tracked
+// non-Epic ticket (models/AtlasEpic.ts's isOutsideProgram) — a singleton,
+// found-or-created idempotently by its sentinel jiraKey. Its title is kept
+// in sync on every call ($set) in case it's ever edited; jiraUrl/notes stay
+// $setOnInsert-only, same convention as a real epic's local-only fields.
+export async function getOrCreateOutsideProgramEpic(): Promise<AtlasEpicDoc & { _id: unknown }> {
+  const doc = await AtlasEpic.findOneAndUpdate(
+    { jiraKey: OUTSIDE_PROGRAM_KEY },
+    {
+      $set: { title: 'Outside the program', isOutsideProgram: true },
+      $setOnInsert: {
+        jiraKey: OUTSIDE_PROGRAM_KEY,
+        jiraUrl: '',
+        notes: null,
+        notesText: '',
+        archived: false,
+        lastSyncedAt: new Date(),
+      },
+    },
+    { upsert: true, returnDocument: 'after' },
+  )
+  return doc as unknown as AtlasEpicDoc & { _id: unknown }
+}
+
+// Directly-tracking any non-Epic ticket (Task/Story/Bug — the "add any
+// ticket" half of trackAndSyncTicket below): pulls just that one issue plus
+// one level of its own Jira sub-tasks (same Task -> Sub-task depth floor as
+// trackAndSyncEpic), and files them under the shared "Outside the program"
+// epic instead of a real one. Reused as-is for a later resync (this
+// codebase's "Sync now" for the whole Outside-the-program card, and the
+// global "Sync all") - the whole function is upsert-based, so calling it
+// again on an already-tracked key is a no-op resync, not a duplicate.
+//
+// Guards against a manual duplicate "Track" silently reparenting a ticket
+// that's already tracked somewhere else (a real epic's task tree, or another
+// standalone ticket's sub-task list) into Outside-the-program - that kind of
+// move only ever happens as a *Jira-side* reparent, detected and applied by
+// reconcileMissingTasks, never from this direct-track entry point.
+export async function trackAndSyncStandaloneTask(jiraKey: string): Promise<TrackAndSyncResult> {
+  const result = await bulkFetchIssues([jiraKey], TASK_FIELDS)
+  const issue = result.issues[0]
+  if (!issue) {
+    throw new EpicNotFoundError(`Jira issue ${jiraKey} was not found`)
+  }
+
+  const outsideEpic = await getOrCreateOutsideProgramEpic()
+
+  const existing = await AtlasTask.findOne({ jiraKey })
+  if (existing) {
+    const belongsElsewhere = String(existing.epicId) !== String(outsideEpic._id)
+    const isAlreadyASubtask = existing.parentTaskId !== null
+    if (belongsElsewhere) {
+      const owningEpic = await AtlasEpic.findOne({ _id: existing.epicId })
+      throw new TicketAlreadyTrackedError(
+        `${jiraKey} is already tracked under epic ${owningEpic?.jiraKey ?? 'unknown'} - untrack it there first`,
+      )
+    }
+    if (isAlreadyASubtask) {
+      throw new TicketAlreadyTrackedError(`${jiraKey} is already tracked as a sub-task of another ticket`)
+    }
+  }
+
+  const rootDoc = await upsertAtlasTask(issue, outsideEpic._id, null)
+
+  const subtasks = (issue.fields.subtasks as JiraSubtaskRef[] | undefined) ?? []
+  const subtaskResult = subtasks.length > 0 ? await bulkFetchIssues(subtasks.map((s) => s.key), TASK_FIELDS) : { issues: [], issueErrors: [] }
+
+  const childDocs: (AtlasTaskDoc & { _id: unknown })[] = []
+  for (const childIssue of subtaskResult.issues) {
+    const nestedSubtasks = (childIssue.fields.subtasks as JiraSubtaskRef[] | undefined) ?? []
+    if (nestedSubtasks.length > 0) {
+      console.warn(
+        `atlasSync: ${childIssue.key} (expected to be a leaf sub-task) itself has sub-tasks — Atlas never walks past this depth`,
+      )
+    }
+    const doc = await upsertAtlasTask(childIssue, outsideEpic._id, rootDoc._id)
+    childDocs.push(doc)
+  }
+
+  const seenJiraKeys = new Set([rootDoc.jiraKey, ...childDocs.map((doc) => doc.jiraKey)])
+  await reconcileMissingTasks({ parentTaskId: rootDoc._id as Types.ObjectId }, seenJiraKeys)
+
+  return { epic: outsideEpic, tasks: [rootDoc, ...childDocs] }
+}
+
+// The "Track" form's real entry point: resolves the key against Jira once to
+// find out what it is, then branches - an Epic gets the full recursive
+// epic-tree sync (trackAndSyncEpic); anything else (Task/Story/Bug/...) gets
+// filed under "Outside the program" (trackAndSyncStandaloneTask). Each
+// branch re-fetches the issue itself rather than threading the one fetched
+// here through - a little redundant, but keeps trackAndSyncEpic's own
+// well-tested fetch-then-validate gate untouched and independently correct.
+export async function trackAndSyncTicket(jiraKey: string): Promise<TrackAndSyncResult> {
+  const result = await bulkFetchIssues([jiraKey], ['issuetype'])
+  const issue = result.issues[0]
+  if (!issue) {
+    throw new EpicNotFoundError(`Jira issue ${jiraKey} was not found`)
+  }
+
+  const issuetype = issue.fields.issuetype as JiraIssueTypeRef | undefined
+  if (issuetype?.name === 'Epic') {
+    return trackAndSyncEpic(jiraKey)
+  }
+  return trackAndSyncStandaloneTask(jiraKey)
 }
