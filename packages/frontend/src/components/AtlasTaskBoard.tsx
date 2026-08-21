@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowUpRight, ChevronDown, ChevronRight, CornerDownRight, Search } from 'lucide-react'
 import { useAtlasRosterPeople } from '../hooks/useAtlasRosterPeople'
 import { resolveAssignee, type AssigneeInfo } from '../utils/atlasAssignee'
@@ -429,10 +429,14 @@ function SubtaskGroupTableRow({ entry }: { entry: BoardRowGroup<LeafTaskWithAssi
 
 // "Group by: Assignee" - a person becomes a whole labeled row (avatar, full
 // name, progress bar) instead of a filter avatar, so "find someone" turns
-// into scrolling to their lane rather than decoding a tiny badge. The
-// jump-nav strip at top scrolls to + flashes a lane on click, a spatial
-// alternative to filtering. "Hide unassigned" (the board's own toolbar
-// checkbox) drops the Unassigned lane outright here.
+// into scrolling to their lane rather than decoding a tiny badge. The pill
+// strip at top always lists every person present (unaffected by selection,
+// so nothing ever disappears or reflows from it) - clicking a pill filters
+// the lanes below down to just that person's tickets, highlighting the pill
+// to show which one's active; clicking the selected pill again clears the
+// filter back to every lane. This is local to the swimlane view - it doesn't
+// touch the toolbar's selectedPeople filter above. "Hide unassigned" (the
+// board's own toolbar checkbox) drops the Unassigned lane/pill outright here.
 function PersonSwimlanes({
   items,
   assigneeOptions,
@@ -442,10 +446,9 @@ function PersonSwimlanes({
   assigneeOptions: AssigneeOption[]
   hideUnassigned: boolean
 }) {
-  const [flashKey, setFlashKey] = useState<string | null>(null)
-  const laneRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
 
-  const lanes = useMemo(() => {
+  const allLanes = useMemo(() => {
     const byKey = new Map<string, LeafTaskWithAssignee[]>()
     for (const row of items) {
       if (!byKey.has(row.assignee.key)) byKey.set(row.assignee.key, [])
@@ -457,44 +460,48 @@ function PersonSwimlanes({
       .map((a) => ({ assignee: a, rows: byKey.get(a.key)! }))
   }, [items, assigneeOptions, hideUnassigned])
 
-  function jumpTo(key: string) {
-    laneRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    setFlashKey(key)
-    window.setTimeout(() => setFlashKey((cur) => (cur === key ? null : cur)), 900)
+  const visibleLanes = selectedKey ? allLanes.filter((l) => l.assignee.key === selectedKey) : allLanes
+
+  function toggleSelected(key: string) {
+    setSelectedKey((cur) => (cur === key ? null : key))
   }
 
   return (
     <>
       <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-3 dark:border-white/10">
-        {lanes.map(({ assignee, rows }) => (
-          <button
-            key={assignee.key}
-            type="button"
-            onClick={() => jumpTo(assignee.key)}
-            title={`Jump to ${assignee.label}`}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5 text-xs hover:border-fuchsia-300 hover:bg-fuchsia-50 dark:border-white/10 dark:bg-white/5 dark:hover:border-fuchsia-400/40 dark:hover:bg-fuchsia-500/10"
-          >
-            <AssigneeAvatar assignee={assignee} size={18} />
-            <span className="font-medium text-slate-700 dark:text-slate-200">{assignee.label}</span>
-            <span className="text-slate-400">{rows.length}</span>
-          </button>
-        ))}
+        {allLanes.map(({ assignee, rows }) => {
+          const isSelected = selectedKey === assignee.key
+          return (
+            <button
+              key={assignee.key}
+              type="button"
+              onClick={() => toggleSelected(assignee.key)}
+              title={isSelected ? `Showing only ${assignee.label} - click to clear` : `Show only ${assignee.label}'s tickets`}
+              className={`flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs transition ${
+                isSelected
+                  ? 'border-fuchsia-400 bg-fuchsia-100 dark:border-fuchsia-400/50 dark:bg-fuchsia-500/20'
+                  : 'border-slate-200 bg-white hover:border-fuchsia-300 hover:bg-fuchsia-50 dark:border-white/10 dark:bg-white/5 dark:hover:border-fuchsia-400/40 dark:hover:bg-fuchsia-500/10'
+              }`}
+            >
+              <AssigneeAvatar assignee={assignee} size={18} />
+              <span className="font-medium text-slate-700 dark:text-slate-200">{assignee.label}</span>
+              <span className="text-slate-400">{rows.length}</span>
+            </button>
+          )
+        })}
       </div>
 
       <div className="mt-3 flex flex-col gap-3">
-        {lanes.length === 0 && <p className="p-4 text-center text-sm text-slate-400 dark:text-slate-500">No tasks match these filters.</p>}
-        {lanes.map(({ assignee, rows }) => {
+        {visibleLanes.length === 0 && <p className="p-4 text-center text-sm text-slate-400 dark:text-slate-500">No tasks match these filters.</p>}
+        {visibleLanes.map(({ assignee, rows }) => {
           const done = rows.filter((r) => r.task.status === 'Done').length
           const pct = rows.length === 0 ? 0 : Math.round((done / rows.length) * 100)
+          const isSelected = selectedKey === assignee.key
           return (
             <div
               key={assignee.key}
-              ref={(el) => {
-                if (el) laneRefs.current.set(assignee.key, el)
-                else laneRefs.current.delete(assignee.key)
-              }}
               className={`rounded-xl border p-2.5 transition ${
-                flashKey === assignee.key
+                isSelected
                   ? 'border-fuchsia-400 bg-fuchsia-50/70 dark:border-fuchsia-400/50 dark:bg-fuchsia-500/10'
                   : 'border-slate-200 bg-slate-50/50 dark:border-white/10 dark:bg-white/[0.02]'
               }`}

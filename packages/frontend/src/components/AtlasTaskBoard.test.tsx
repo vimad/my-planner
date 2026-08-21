@@ -248,10 +248,44 @@ describe('AtlasTaskBoard', () => {
     )
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
-    // The jump-nav pill and the lane header both carry "Jump to Ada Lovelace"/
-    // "Ada Lovelace" text - either confirms the swimlane layout rendered.
-    expect(screen.getByTitle('Jump to Ada Lovelace')).toBeInTheDocument()
+    // The pill and the lane header both carry "Show only Ada Lovelace's
+    // tickets"/"Ada Lovelace" text - either confirms the swimlane layout rendered.
+    expect(screen.getByTitle("Show only Ada Lovelace's tickets")).toBeInTheDocument()
     expect(screen.getByText('A')).toBeInTheDocument()
+  })
+
+  it("filters lanes to one person's tickets on pill click while keeping every pill visible, then clears on a second click", async () => {
+    stubRoster([
+      { _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' },
+      { _id: 'p2', name: 'Bo Diaz', email: 'bo@example.com', jiraAccountId: 'acc-2' },
+    ])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            tasks: [
+              task({ _id: 't1', jiraKey: 'A', assigneeAccountId: 'acc-1' }),
+              task({ _id: 't2', jiraKey: 'B', assigneeAccountId: 'acc-2' }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
+    await waitFor(() => expect(screen.getByTitle("Show only Ada Lovelace's tickets")).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTitle("Show only Ada Lovelace's tickets"))
+    // Both people's pills stay visible - only the ticket lanes filter down.
+    expect(screen.getByTitle('Showing only Ada Lovelace - click to clear')).toBeInTheDocument()
+    expect(screen.getByTitle("Show only Bo Diaz's tickets")).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('B')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Showing only Ada Lovelace - click to clear'))
+    expect(screen.getByTitle("Show only Ada Lovelace's tickets")).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.getByText('B')).toBeInTheDocument()
   })
 
   it("groups a task's visible sub-tasks into a fieldset within a person's swimlane, when grouped by assignee", async () => {
