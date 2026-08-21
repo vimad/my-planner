@@ -50,7 +50,7 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const [statusFilter, setStatusFilter] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set())
   const [hideUnassigned, setHideUnassigned] = useState(false)
-  const [hideOutsideProgram, setHideOutsideProgram] = useState(false)
+  const [onlyOutsideProgram, setOnlyOutsideProgram] = useState(false)
   const [comboOpen, setComboOpen] = useState(false)
   const [comboQuery, setComboQuery] = useState('')
 
@@ -109,7 +109,7 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const filtered = items.filter(({ task, assignee }) => {
     if (!statusFilter.has(task.status)) return false
     if (hideUnassigned && assignee.kind === 'unassigned') return false
-    if (hideOutsideProgram && task.isOutsideProgram) return false
+    if (onlyOutsideProgram && !task.isOutsideProgram) return false
     if (selectedPeople.size > 0 && !selectedPeople.has(assignee.key)) return false
     if (query && !`${task.jiraKey} ${task.title}`.toLowerCase().includes(query.toLowerCase())) return false
     return true
@@ -187,11 +187,11 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
         <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <input
             type="checkbox"
-            checked={hideOutsideProgram}
-            onChange={() => setHideOutsideProgram((v) => !v)}
+            checked={onlyOutsideProgram}
+            onChange={() => setOnlyOutsideProgram((v) => !v)}
             className="accent-fuchsia-500"
           />
-          Hide outside the program
+          Only outside the program
         </label>
 
         <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">

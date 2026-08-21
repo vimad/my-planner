@@ -354,7 +354,7 @@ describe('AtlasTaskBoard', () => {
     expect(screen.getByText('Outside')).toBeInTheDocument()
   })
 
-  it('hides "Outside the program" tickets when "Hide outside the program" is checked', async () => {
+  it('shows only "Outside the program" tickets when "Only outside the program" is checked', async () => {
     stubRoster([])
     render(
       <AtlasTaskBoard
@@ -371,9 +371,9 @@ describe('AtlasTaskBoard', () => {
     )
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     expect(screen.getByText('B')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Hide outside the program'))
-    expect(screen.getByText('A')).toBeInTheDocument()
-    expect(screen.queryByText('B')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Only outside the program'))
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
+    expect(screen.getByText('B')).toBeInTheDocument()
   })
 
   it('hides the sentinel jiraKey/Jira link for the "Outside the program" epic card, when grouped by epic', async () => {
