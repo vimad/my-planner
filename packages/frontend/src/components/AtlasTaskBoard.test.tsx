@@ -130,6 +130,32 @@ describe('AtlasTaskBoard', () => {
     expect(legend?.closest('fieldset')).toBeInTheDocument()
   })
 
+  it('renders a status column with sub-task groups first, then standalone tasks - decluttering even when a standalone task is listed before the grouped one', async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            tasks: [
+              task({ _id: 't1', jiraKey: 'Z', status: 'To Do' }),
+              task({
+                _id: 't2',
+                jiraKey: 'A',
+                status: 'To Do',
+                subtasks: [task({ _id: 't2a', jiraKey: 'A1', status: 'To Do' })],
+              }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
+    const zIndex = document.body.innerHTML.indexOf('>Z<')
+    const a1Index = document.body.innerHTML.indexOf('>A1<')
+    expect(a1Index).toBeLessThan(zIndex)
+  })
+
   it("resolves an assignee's name from the Atlas roster, and falls back to Unmapped/Unassigned", async () => {
     stubRoster([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
     render(

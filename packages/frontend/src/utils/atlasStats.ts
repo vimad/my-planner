@@ -105,11 +105,13 @@ export type BoardRowGroup<T> = { kind: 'single'; row: T } | { kind: 'group'; par
 // parent.taskId) into one labeled group, in first-appearance order - what
 // every AtlasTaskBoard grouping mode uses to render a task's sub-tasks
 // inside a single bordered box instead of scattering them as
-// indistinguishable flat rows/cards. A row's group is positioned wherever
-// its *first* member appeared in the input; a single row that happened to
-// sit between two members of a group renders after the group, not in its
-// original slot. Rows with parent null (top-level leaves) pass through
-// unchanged as singles.
+// indistinguishable flat rows/cards. All groups sort ahead of all singles -
+// the bordered boxes are the visually "busy" part, so bunching them at the
+// top lets a single glance separate "multi-part tasks" from the plain
+// remainder below, rather than clutter interleaving throughout. Within each
+// of those two partitions, rows keep their original relative/first-
+// appearance order (a stable sort). Rows with parent null (top-level
+// leaves) pass through as singles.
 export function groupByParentTask<T extends { task: AtlasLeafTask }>(rows: T[]): BoardRowGroup<T>[] {
   const groups: BoardRowGroup<T>[] = []
   const indexByParent = new Map<string, number>()
@@ -128,7 +130,7 @@ export function groupByParentTask<T extends { task: AtlasLeafTask }>(rows: T[]):
       if (group.kind === 'group') group.rows.push(row)
     }
   }
-  return groups
+  return groups.slice().sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'group' ? -1 : 1))
 }
 
 export interface AtlasEpicStats {

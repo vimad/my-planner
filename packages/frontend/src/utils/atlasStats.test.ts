@@ -246,22 +246,24 @@ describe('groupByParentTask', () => {
     expect(groupByParentTask([b])).toEqual([{ kind: 'single', row: b }])
   })
 
-  it('keeps a group at the position of its first member, even when a single row appears between members', () => {
+  it('sorts all groups ahead of all singles, even when a single appears first in the input', () => {
+    const s1 = leaf({ jiraKey: 'S1' })
     const a1 = leaf({ jiraKey: 'A1', parent: parentA })
-    const s = leaf({ jiraKey: 'S' })
+    const s2 = leaf({ jiraKey: 'S2' })
     const a2 = leaf({ jiraKey: 'A2', parent: parentA })
-    const groups = groupByParentTask([a1, s, a2])
+    const groups = groupByParentTask([s1, a1, s2, a2])
     expect(groups).toEqual([
       { kind: 'group', parent: parentA, rows: [a1, a2] },
-      { kind: 'single', row: s },
+      { kind: 'single', row: s1 },
+      { kind: 'single', row: s2 },
     ])
   })
 
-  it('keeps rows under different parents in separate groups', () => {
+  it('keeps rows under different parents in separate groups, ordered by first appearance', () => {
     const a1 = leaf({ jiraKey: 'A1', parent: parentA })
     const b1 = leaf({ jiraKey: 'B1', parent: parentB })
-    const groups = groupByParentTask([a1, b1])
-    expect(groups.map((g) => (g.kind === 'group' ? g.parent.jiraKey : null))).toEqual(['A', 'B'])
+    const groups = groupByParentTask([b1, a1])
+    expect(groups.map((g) => (g.kind === 'group' ? g.parent.jiraKey : null))).toEqual(['B', 'A'])
   })
 
   it('returns an empty array for no rows', () => {
