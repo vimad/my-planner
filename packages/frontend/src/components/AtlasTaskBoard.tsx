@@ -1,8 +1,16 @@
-import { useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowUpRight, ChevronDown, ChevronRight, CornerDownRight, Search } from 'lucide-react'
 import { useAtlasRosterPeople } from '../hooks/useAtlasRosterPeople'
 import { resolveAssignee, type AssigneeInfo } from '../utils/atlasAssignee'
-import { collectLeafTasks, STATUS_BADGE, type AtlasLeafTask, type AtlasStatusBucket } from '../utils/atlasStats'
+import {
+  collectLeafTasks,
+  groupByParentTask,
+  STATUS_BADGE,
+  type AtlasLeafTask,
+  type AtlasStatusBucket,
+  type BoardRowGroup,
+  type ParentTaskRef,
+} from '../utils/atlasStats'
 import type { AtlasEpic } from '../types'
 import { AssigneeAvatar } from './AssigneeAvatar'
 
@@ -280,9 +288,88 @@ function AssigneeCombobox({
   )
 }
 
+// A task's sub-tasks, boxed together with the parent task's own key/title
+// literally cutting across the top border line - the native <fieldset>/
+// <legend> "notched border" rendering (browsers carve the border out from
+// behind the legend automatically), rather than a header bar sitting above
+// a separate box. Border/bg follow the same "tinted card" idiom as
+// StatusView.tsx's issue-type-tinted TicketCard (docs/ui-conventions.md,
+// Archetype D variant) - fuchsia is this app's general accent color, so a
+// fuchsia tint reads as "grouped by task", distinct from that variant's
+// bug/story/task colors. Reused (just re-wrapped per layout, via `children`)
+// across all three "Group by" modes so a task's sub-tasks read the same way
+// no matter which mode surfaced them.
+function SubtaskFieldset({
+  parent,
+  count,
+  className = '',
+  children,
+}: {
+  parent: ParentTaskRef
+  count: number
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <fieldset
+      className={`m-0 min-w-0 rounded-xl border border-fuchsia-300 bg-fuchsia-100 p-0 dark:border-fuchsia-500/30 dark:bg-fuchsia-500/10 ${className}`}
+    >
+      <legend className="ml-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 px-1.5 text-xs">
+        <CornerDownRight size={12} className="shrink-0 text-fuchsia-500 dark:text-fuchsia-300" />
+        <span className="shrink-0 font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{parent.jiraKey}</span>
+        <span className="min-w-0 truncate font-semibold text-slate-700 dark:text-slate-200">{parent.title}</span>
+        <span className="shrink-0 text-[10px] font-medium text-fuchsia-500 dark:text-fuchsia-300/70">
+          {count} sub-task{count === 1 ? '' : 's'}
+        </span>
+        <a
+          href={parent.jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open parent task in Jira"
+          className="shrink-0 text-fuchsia-500 hover:text-fuchsia-700 dark:text-fuchsia-300/70 dark:hover:text-fuchsia-200"
+        >
+          <ArrowUpRight size={11} />
+        </a>
+      </legend>
+      {children}
+    </fieldset>
+  )
+}
+
+function TaskTableRow({ task, assignee }: LeafTaskWithAssignee) {
+  return (
+    <tr className="border-t border-slate-100 first:border-t-0 hover:bg-slate-50/70 dark:border-white/5 dark:hover:bg-white/5">
+      <td className="w-24 px-3 py-1.5 font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</td>
+      <td className="px-3 py-1.5 text-slate-800 dark:text-slate-100">{task.title}</td>
+      <td className="w-44 px-3 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <AssigneeAvatar assignee={assignee} size={16} />
+          <span className="truncate text-slate-600 dark:text-slate-300">{assignee.label}</span>
+        </div>
+      </td>
+      <td className="w-24 px-3 py-1.5 text-slate-400 dark:text-slate-500">{task.epicKey}</td>
+      <td className="w-8 px-3 py-1.5 text-right">
+        <a
+          href={task.jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in Jira"
+          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+        >
+          <ArrowUpRight size={11} />
+        </a>
+      </td>
+    </tr>
+  )
+}
+
 // "Group by: Status" - a dense table, the default view. Reads more names/
 // rows per screen than the old kanban cards did, which was the actual fix
-// for "hard to navigate".
+// for "hard to navigate". Within a status, a task's sub-tasks (identified by
+// AtlasLeafTask.parent via groupByParentTask) are clustered into one
+// fuchsia-bordered box - a mini nested table - with the parent task's own
+// key/title as the box's label, instead of scattering as indistinguishable
+// flat rows.
 function StatusTable({ groups }: { groups: { status: AtlasStatusBucket; rows: LeafTaskWithAssignee[] }[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-white/10">
@@ -295,35 +382,36 @@ function StatusTable({ groups }: { groups: { status: AtlasStatusBucket; rows: Le
           </div>
           <table className="w-full border-collapse text-xs">
             <tbody>
-              {group.rows.map(({ task, assignee }) => (
-                <tr key={task.taskId} className="border-t border-slate-100 hover:bg-slate-50/70 dark:border-white/5 dark:hover:bg-white/5">
-                  <td className="w-24 px-3 py-1.5 font-mono text-[11px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</td>
-                  <td className="px-3 py-1.5 text-slate-800 dark:text-slate-100">{task.title}</td>
-                  <td className="w-44 px-3 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <AssigneeAvatar assignee={assignee} size={16} />
-                      <span className="truncate text-slate-600 dark:text-slate-300">{assignee.label}</span>
-                    </div>
-                  </td>
-                  <td className="w-24 px-3 py-1.5 text-slate-400 dark:text-slate-500">{task.epicKey}</td>
-                  <td className="w-8 px-3 py-1.5 text-right">
-                    <a
-                      href={task.jiraUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open in Jira"
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    >
-                      <ArrowUpRight size={11} />
-                    </a>
-                  </td>
-                </tr>
-              ))}
+              {groupByParentTask(group.rows).map((entry) =>
+                entry.kind === 'single' ? (
+                  <TaskTableRow key={entry.row.task.taskId} {...entry.row} />
+                ) : (
+                  <SubtaskGroupTableRow key={`group-${entry.parent.taskId}`} entry={entry} />
+                ),
+              )}
             </tbody>
           </table>
         </div>
       ))}
     </div>
+  )
+}
+
+function SubtaskGroupTableRow({ entry }: { entry: BoardRowGroup<LeafTaskWithAssignee> & { kind: 'group' } }) {
+  return (
+    <tr className="border-t border-slate-100 dark:border-white/5">
+      <td colSpan={5} className="p-1.5">
+        <SubtaskFieldset parent={entry.parent} count={entry.rows.length} className="overflow-hidden">
+          <table className="w-full border-collapse text-xs">
+            <tbody>
+              {entry.rows.map(({ task, assignee }) => (
+                <TaskTableRow key={task.taskId} task={task} assignee={assignee} />
+              ))}
+            </tbody>
+          </table>
+        </SubtaskFieldset>
+      </td>
+    </tr>
   )
 }
 
@@ -411,31 +499,44 @@ function PersonSwimlanes({
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {rows.map(({ task }) => (
-                  <div
-                    key={task.taskId}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] shadow-sm dark:border-white/10 dark:bg-white/5"
-                  >
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BADGE[task.status].split(' ')[0]}`} />
-                    <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
-                    <span className="max-w-40 truncate text-slate-700 dark:text-slate-200">{task.title}</span>
-                    <a
-                      href={task.jiraUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open in Jira"
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    >
-                      <ArrowUpRight size={10} />
-                    </a>
-                  </div>
-                ))}
+                {groupByParentTask(rows).map((entry) =>
+                  entry.kind === 'single' ? (
+                    <TaskChip key={entry.row.task.taskId} task={entry.row.task} />
+                  ) : (
+                    <SubtaskFieldset key={`group-${entry.parent.taskId}`} parent={entry.parent} count={entry.rows.length} className="w-full">
+                      <div className="flex flex-wrap gap-1.5 px-2 pb-2 pt-1">
+                        {entry.rows.map(({ task }) => (
+                          <TaskChip key={task.taskId} task={task} />
+                        ))}
+                      </div>
+                    </SubtaskFieldset>
+                  ),
+                )}
               </div>
             </div>
           )
         })}
       </div>
     </>
+  )
+}
+
+function TaskChip({ task }: { task: AtlasLeafTask }) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] shadow-sm dark:border-white/10 dark:bg-white/5">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_BADGE[task.status].split(' ')[0]}`} />
+      <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
+      <span className="max-w-40 truncate text-slate-700 dark:text-slate-200">{task.title}</span>
+      <a
+        href={task.jiraUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open in Jira"
+        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+      >
+        <ArrowUpRight size={10} />
+      </a>
+    </div>
   )
 }
 
@@ -510,36 +611,49 @@ function EpicCardGroups({ items, epics }: { items: LeafTaskWithAssignee[]; epics
 
             {isOpen && (
               <div className="flex flex-wrap gap-2 border-t border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
-                {rows.map(({ task, assignee }) => (
-                  <div
-                    key={task.taskId}
-                    className="w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
-                      <a
-                        href={task.jiraUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Open in Jira"
-                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
-                        <ArrowUpRight size={11} />
-                      </a>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-800 dark:text-slate-100">{task.title}</p>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${STATUS_BADGE[task.status]}`}>{task.status}</span>
-                      <AssigneeAvatar assignee={assignee} size={16} />
-                      <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">{assignee.label}</span>
-                    </div>
-                  </div>
-                ))}
+                {groupByParentTask(rows).map((entry) =>
+                  entry.kind === 'single' ? (
+                    <TaskCard key={entry.row.task.taskId} task={entry.row.task} assignee={entry.row.assignee} />
+                  ) : (
+                    <SubtaskFieldset key={`group-${entry.parent.taskId}`} parent={entry.parent} count={entry.rows.length} className="w-full">
+                      <div className="flex flex-wrap gap-2 px-2.5 pb-2.5 pt-1">
+                        {entry.rows.map(({ task, assignee }) => (
+                          <TaskCard key={task.taskId} task={task} assignee={assignee} />
+                        ))}
+                      </div>
+                    </SubtaskFieldset>
+                  ),
+                )}
               </div>
             )}
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function TaskCard({ task, assignee }: { task: AtlasLeafTask; assignee: AssigneeInfo }) {
+  return (
+    <div className="w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5">
+      <div className="flex items-center justify-between gap-1">
+        <span className="font-mono text-[10px] font-semibold text-fuchsia-600 dark:text-fuchsia-300">{task.jiraKey}</span>
+        <a
+          href={task.jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in Jira"
+          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+        >
+          <ArrowUpRight size={11} />
+        </a>
+      </div>
+      <p className="mt-1 text-xs text-slate-800 dark:text-slate-100">{task.title}</p>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${STATUS_BADGE[task.status]}`}>{task.status}</span>
+        <AssigneeAvatar assignee={assignee} size={16} />
+        <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">{assignee.label}</span>
+      </div>
     </div>
   )
 }

@@ -91,10 +91,43 @@ describe('AtlasTaskBoard', () => {
       />,
     )
     fireEvent.click(screen.getByText('Task board'))
-    // 'A' has a visible sub-task, so it's skipped in favor of 'A1'.
+    // 'A' has a visible sub-task, so it's skipped in favor of 'A1' - but 'A'
+    // still surfaces once, as the sub-task group's own fieldset legend.
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
-    expect(screen.queryByText('A')).not.toBeInTheDocument()
+    expect(screen.getAllByText('A')).toHaveLength(1)
     expect(screen.getByText('B')).toBeInTheDocument()
+  })
+
+  it("groups a task's visible sub-tasks into a bordered fieldset labeled with the parent task's own key and title", async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            tasks: [
+              task({
+                _id: 't1',
+                jiraKey: 'A',
+                title: 'Parent task',
+                jiraUrl: 'https://wealthos.atlassian.net/browse/A',
+                status: 'In Progress',
+                subtasks: [
+                  task({ _id: 't1a', jiraKey: 'A1', status: 'In Progress' }),
+                  task({ _id: 't1b', jiraKey: 'A2', status: 'In Progress' }),
+                ],
+              }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
+    expect(screen.getByText('A2')).toBeInTheDocument()
+    expect(screen.getByText('Parent task')).toBeInTheDocument()
+    expect(screen.getByText('2 sub-tasks')).toBeInTheDocument()
+    const legend = screen.getByText('Parent task').closest('legend')
+    expect(legend?.closest('fieldset')).toBeInTheDocument()
   })
 
   it("resolves an assignee's name from the Atlas roster, and falls back to Unmapped/Unassigned", async () => {
@@ -204,6 +237,36 @@ describe('AtlasTaskBoard', () => {
     expect(screen.getByText('A')).toBeInTheDocument()
   })
 
+  it("groups a task's visible sub-tasks into a fieldset within a person's swimlane, when grouped by assignee", async () => {
+    stubRoster([{ _id: 'p1', name: 'Ada Lovelace', email: 'ada@example.com', jiraAccountId: 'acc-1' }])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            tasks: [
+              task({
+                _id: 't1',
+                jiraKey: 'A',
+                title: 'Parent task',
+                assigneeAccountId: 'acc-1',
+                subtasks: [
+                  task({ _id: 't1a', jiraKey: 'A1', assigneeAccountId: 'acc-1' }),
+                  task({ _id: 't1b', jiraKey: 'A2', assigneeAccountId: 'acc-1' }),
+                ],
+              }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
+    await waitFor(() => expect(screen.getByText('A2')).toBeInTheDocument())
+    const legend = screen.getByText('Parent task').closest('legend')
+    expect(legend?.closest('fieldset')).toBeInTheDocument()
+  })
+
   it('switches to collapsed epic cards when grouped by epic, expanding on click', async () => {
     stubRoster([])
     render(
@@ -218,5 +281,35 @@ describe('AtlasTaskBoard', () => {
     expect(screen.queryByText('A')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('First Epic'))
     expect(screen.getByText('A')).toBeInTheDocument()
+  })
+
+  it("groups a task's visible sub-tasks into a fieldset within its epic's card grid, when grouped by epic", async () => {
+    stubRoster([])
+    render(
+      <AtlasTaskBoard
+        epics={[
+          epic({
+            jiraKey: 'WOSMVP-1',
+            title: 'First Epic',
+            tasks: [
+              task({
+                _id: 't1',
+                jiraKey: 'A',
+                title: 'Parent task',
+                subtasks: [task({ _id: 't1a', jiraKey: 'A1' }), task({ _id: 't1b', jiraKey: 'A2' })],
+              }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Task board'))
+    await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'epic' } })
+    fireEvent.click(screen.getByText('First Epic'))
+    await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
+    expect(screen.getByText('A2')).toBeInTheDocument()
+    const legend = screen.getByText('Parent task').closest('legend')
+    expect(legend?.closest('fieldset')).toBeInTheDocument()
   })
 })

@@ -8,6 +8,7 @@ import {
   epicStats,
   flattenTasks,
   formatDateRange,
+  groupByParentTask,
 } from './atlasStats'
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 
@@ -137,6 +138,33 @@ describe('collectLeafTasks', () => {
     expect(leaves.map((l) => l.jiraKey)).toEqual(['A1', 'A2', 'B'])
   })
 
+  it("tags a sub-task leaf with its immediate parent's id/key/title/jiraUrl", () => {
+    const leaves = collectLeafTasks([
+      epic({
+        jiraKey: 'WOSMVP-1',
+        title: 'An epic',
+        tasks: [
+          task({
+            _id: 't1',
+            jiraKey: 'A',
+            title: 'Parent task',
+            jiraUrl: 'https://example.com/browse/A',
+            subtasks: [task({ _id: 't1a', jiraKey: 'A1' }), task({ _id: 't1b', jiraKey: 'A2' })],
+          }),
+        ],
+      }),
+    ])
+    expect(leaves.map((l) => ({ jiraKey: l.jiraKey, parent: l.parent }))).toEqual([
+      { jiraKey: 'A1', parent: { taskId: 't1', jiraKey: 'A', title: 'Parent task', jiraUrl: 'https://example.com/browse/A' } },
+      { jiraKey: 'A2', parent: { taskId: 't1', jiraKey: 'A', title: 'Parent task', jiraUrl: 'https://example.com/browse/A' } },
+    ])
+  })
+
+  it('leaves parent null for a top-level leaf task with no parent', () => {
+    const leaves = collectLeafTasks([epic({ tasks: [task({ _id: 't1', jiraKey: 'B' })] })])
+    expect(leaves).toEqual([expect.objectContaining({ parent: null })])
+  })
+
   it('never includes the epic itself, only its tasks/sub-tasks', () => {
     const leaves = collectLeafTasks([epic({ jiraKey: 'WOSMVP-1', title: 'An epic', tasks: [task({ jiraKey: 'A' })] })])
     expect(leaves.every((l) => l.jiraKey !== 'WOSMVP-1')).toBe(true)
@@ -176,12 +204,68 @@ describe('collectLeafTasks', () => {
         assigneeAccountId: 'acc-1',
         epicKey: 'WOSMVP-1',
         epicTitle: 'An epic',
+        parent: null,
       },
     ])
   })
 
   it('returns an empty array across epics with no tasks', () => {
     expect(collectLeafTasks([epic({ tasks: [] })])).toEqual([])
+  })
+})
+
+describe('groupByParentTask', () => {
+  function leaf(overrides: { jiraKey: string; parent?: { taskId: string; jiraKey: string; title: string; jiraUrl: string } | null }) {
+    return {
+      task: {
+        taskId: overrides.jiraKey,
+        jiraKey: overrides.jiraKey,
+        title: overrides.jiraKey,
+        jiraUrl: `https://example.com/browse/${overrides.jiraKey}`,
+        status: 'To Do' as const,
+        assigneeAccountId: null,
+        epicKey: 'WOSMVP-1',
+        epicTitle: 'An epic',
+        parent: overrides.parent ?? null,
+      },
+    }
+  }
+
+  const parentA = { taskId: 't1', jiraKey: 'A', title: 'Parent task', jiraUrl: 'https://example.com/browse/A' }
+  const parentB = { taskId: 't2', jiraKey: 'B', title: 'Parent B', jiraUrl: 'https://example.com/browse/B' }
+
+  it('clusters rows sharing the same parent task into a single group, in first-appearance order', () => {
+    const a1 = leaf({ jiraKey: 'A1', parent: parentA })
+    const a2 = leaf({ jiraKey: 'A2', parent: parentA })
+    const groups = groupByParentTask([a1, a2])
+    expect(groups).toEqual([{ kind: 'group', parent: parentA, rows: [a1, a2] }])
+  })
+
+  it('leaves a row with no parent as its own single entry', () => {
+    const b = leaf({ jiraKey: 'B' })
+    expect(groupByParentTask([b])).toEqual([{ kind: 'single', row: b }])
+  })
+
+  it('keeps a group at the position of its first member, even when a single row appears between members', () => {
+    const a1 = leaf({ jiraKey: 'A1', parent: parentA })
+    const s = leaf({ jiraKey: 'S' })
+    const a2 = leaf({ jiraKey: 'A2', parent: parentA })
+    const groups = groupByParentTask([a1, s, a2])
+    expect(groups).toEqual([
+      { kind: 'group', parent: parentA, rows: [a1, a2] },
+      { kind: 'single', row: s },
+    ])
+  })
+
+  it('keeps rows under different parents in separate groups', () => {
+    const a1 = leaf({ jiraKey: 'A1', parent: parentA })
+    const b1 = leaf({ jiraKey: 'B1', parent: parentB })
+    const groups = groupByParentTask([a1, b1])
+    expect(groups.map((g) => (g.kind === 'group' ? g.parent.jiraKey : null))).toEqual(['A', 'B'])
+  })
+
+  it('returns an empty array for no rows', () => {
+    expect(groupByParentTask([])).toEqual([])
   })
 })
 

@@ -36,6 +36,13 @@ export function flattenTasks(tasks: AtlasTaskNode[]): AtlasTaskNode[] {
   return tasks.flatMap((task) => [task, ...flattenTasks(task.subtasks)])
 }
 
+export interface ParentTaskRef {
+  taskId: string
+  jiraKey: string
+  title: string
+  jiraUrl: string
+}
+
 export interface AtlasLeafTask {
   taskId: string
   jiraKey: string
@@ -45,6 +52,13 @@ export interface AtlasLeafTask {
   assigneeAccountId: string | null
   epicKey: string
   epicTitle: string
+  // The immediate parent task this leaf was walked out of, when that parent
+  // itself has other visible sub-tasks - null for a top-level leaf task (its
+  // "parent" is just the epic). Lets the Task Board (AtlasTaskBoard.tsx)
+  // cluster a task's sub-tasks back together via groupByParentTask below,
+  // since collectLeafTasks otherwise flattens the parent/child relationship
+  // away entirely.
+  parent: ParentTaskRef | null
 }
 
 // A "leaf" is a task/sub-task with zero non-archived children - the Task
@@ -60,7 +74,7 @@ export interface AtlasLeafTask {
 export function collectLeafTasks(epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 'tasks'>[]): AtlasLeafTask[] {
   const leaves: AtlasLeafTask[] = []
   for (const epic of epics) {
-    const walk = (task: AtlasTaskNode) => {
+    const walk = (task: AtlasTaskNode, parent: ParentTaskRef | null) => {
       if (task.archived) return
       const visibleSubtasks = task.subtasks.filter((s) => !s.archived)
       if (visibleSubtasks.length === 0) {
@@ -73,14 +87,48 @@ export function collectLeafTasks(epics: Pick<AtlasEpic, 'jiraKey' | 'title' | 't
           assigneeAccountId: task.assigneeAccountId,
           epicKey: epic.jiraKey,
           epicTitle: epic.title,
+          parent,
         })
         return
       }
-      visibleSubtasks.forEach(walk)
+      const parentRef: ParentTaskRef = { taskId: getId(task) ?? task.jiraKey, jiraKey: task.jiraKey, title: task.title, jiraUrl: task.jiraUrl }
+      visibleSubtasks.forEach((s) => walk(s, parentRef))
     }
-    epic.tasks.filter((t) => !t.archived).forEach(walk)
+    epic.tasks.filter((t) => !t.archived).forEach((t) => walk(t, null))
   }
   return leaves
+}
+
+export type BoardRowGroup<T> = { kind: 'single'; row: T } | { kind: 'group'; parent: ParentTaskRef; rows: T[] }
+
+// Clusters leaf rows that share an immediate parent task (AtlasLeafTask.
+// parent.taskId) into one labeled group, in first-appearance order - what
+// every AtlasTaskBoard grouping mode uses to render a task's sub-tasks
+// inside a single bordered box instead of scattering them as
+// indistinguishable flat rows/cards. A row's group is positioned wherever
+// its *first* member appeared in the input; a single row that happened to
+// sit between two members of a group renders after the group, not in its
+// original slot. Rows with parent null (top-level leaves) pass through
+// unchanged as singles.
+export function groupByParentTask<T extends { task: AtlasLeafTask }>(rows: T[]): BoardRowGroup<T>[] {
+  const groups: BoardRowGroup<T>[] = []
+  const indexByParent = new Map<string, number>()
+  for (const row of rows) {
+    const parent = row.task.parent
+    if (!parent) {
+      groups.push({ kind: 'single', row })
+      continue
+    }
+    const existingIndex = indexByParent.get(parent.taskId)
+    if (existingIndex === undefined) {
+      indexByParent.set(parent.taskId, groups.length)
+      groups.push({ kind: 'group', parent, rows: [row] })
+    } else {
+      const group = groups[existingIndex]
+      if (group.kind === 'group') group.rows.push(row)
+    }
+  }
+  return groups
 }
 
 export interface AtlasEpicStats {

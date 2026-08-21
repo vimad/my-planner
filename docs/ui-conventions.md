@@ -198,3 +198,14 @@ tooltip:  pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-
 Reference: `PlanningView.tsx`'s `TicketBadge`.
 
 **Click-triggered variant**: for a confirmation that should appear after a discrete action (e.g. "Copied!" after a copy-to-clipboard click) rather than on hover, reuse the same tooltip box but drop the `group`/`opacity-0`/`group-hover` machinery — conditionally render the tooltip on the action's own state instead. There's no rapid-toggle/flicker concern to guard against (a click is discrete, not a hover stream), and conditional rendering gets a free `aria-live` announcement via `role="status"` without extra ARIA plumbing. Reference: `StatusView.tsx`'s `CopyLinkButton`.
+
+### H. Sub-task group fieldset
+
+A group of rows/cards that are all sub-tasks of the same parent task, boxed together with the parent's own key/title literally cutting across the box's top border — a native `<fieldset>`/`<legend>` pair (the browser notches the border behind the legend on its own), not a header bar sitting above a separate div. A semantically-tinted variant of Archetype D's border/bg, in the same spirit as the issue-type-tinted card variant above; fuchsia is this app's general accent color (see Semantic colors), reused here for "these rows are the sub-tasks of the task named in the border" rather than introducing a new reserved color.
+
+```
+fieldset: m-0 min-w-0 rounded-xl border border-fuchsia-300 bg-fuchsia-100 p-0 dark:border-fuchsia-500/30 dark:bg-fuchsia-500/10
+legend:   ml-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 px-1.5 text-xs
+```
+
+Reference: `AtlasTaskBoard.tsx`'s `SubtaskFieldset`, used across all three "Group by" modes (Status table, Assignee swimlanes, Epic card groups).
