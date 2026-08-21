@@ -53,12 +53,12 @@ function extractPlainText(doc: unknown): string {
   return parts.join(' ').trim()
 }
 
-// AtlasTaskBoard.tsx (mounted above the epic list) also renders a leaf
-// task's jiraKey/title unconditionally, regardless of accordion state - a
-// jiraKey/title query that must resolve to exactly the accordion row (or
-// assert the accordion specifically doesn't show one) needs scoping to just
-// the "Tracked epics" group (AtlasView.tsx's aria-label) to avoid colliding
-// with - or being satisfied by - the board's own card.
+// AtlasTaskBoard.tsx (mounted above the epic list, collapsed by default like
+// the epic accordion below it) can also render a leaf task's jiraKey/title
+// once expanded - a jiraKey/title query that must resolve to exactly the
+// accordion row (or assert the accordion specifically doesn't show one)
+// needs scoping to just the "Tracked epics" group (AtlasView.tsx's
+// aria-label) to avoid colliding with the board's own card.
 function epicsRegion() {
   return within(screen.getByRole('group', { name: 'Tracked epics' }))
 }
@@ -249,11 +249,12 @@ describe('AtlasView', () => {
       expect(screen.getByText('The Epic')).toBeInTheDocument()
     })
     // The epic row starts collapsed (accordion, not auto-expanded) - open it
-    // to reach WOSMVP-100's own row. WOSMVP-101 (a leaf sub-task) is already
-    // visible either way, via AtlasTaskBoard's unconditional leaf-task card.
+    // to reach WOSMVP-100's own row, then its own sub-task toggle (also
+    // collapsed by default) to reach WOSMVP-101.
     fireEvent.click(screen.getByText('The Epic'))
     expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()
     expect(screen.getByText('Do the thing')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Expand WOSMVP-100'))
     expect(screen.getByText('WOSMVP-101')).toBeInTheDocument()
     expect(screen.getByText('Do the sub-thing')).toBeInTheDocument()
     expect(screen.queryByText('No epics tracked yet')).not.toBeInTheDocument()
@@ -542,10 +543,9 @@ describe('AtlasView task editing (ticket 09)', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
     render(<AtlasView />)
-    // WOSMVP-100 is already visible via AtlasTaskBoard's unconditional
-    // leaf-task card, but the accordion row (needed for "No dates set" and
-    // the Edit affordance below) is still collapsed until clicked.
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    // The accordion row (needed for "No dates set" and the Edit affordance
+    // below) is collapsed until clicked.
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('First Epic'))
     // "No dates set" shows both on the task row and the epic roll-up.
     expect(screen.getAllByText('No dates set')).toHaveLength(2)
@@ -565,7 +565,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.queryByText('notes')).not.toBeInTheDocument()
 
     // Open the epic's accordion to reach the Edit affordance.
@@ -583,7 +583,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByText('First Epic'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
@@ -599,7 +599,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', atRisk: false })] })]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByText('First Epic'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
@@ -620,11 +620,10 @@ describe('AtlasView task editing (ticket 09)', () => {
     ]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    await waitFor(() => expect(epicsRegion().getByText('WOSMVP-1')).toBeInTheDocument())
 
-    // Both epics default their title to "First Epic" here (unoverridden),
-    // and AtlasTaskBoard's own cards also echo each epic's bare key - scope
-    // to "Tracked epics" and target e1's own jiraKey to expand just it.
+    // Both epics default their title to "First Epic" here (unoverridden) -
+    // target e1's own jiraKey to expand just it.
     fireEvent.click(epicsRegion().getByText('WOSMVP-1'))
     fireEvent.click(screen.getByLabelText('Edit WOSMVP-100'))
     fireEvent.change(screen.getByLabelText('Search tasks to block WOSMVP-100 on'), { target: { value: 'WOSMVP-200' } })
@@ -644,7 +643,7 @@ describe('AtlasView task editing (ticket 09)', () => {
     ]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getAllByText('WOSMVP-100').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // Open the epic's accordion - "Blocked by" only renders there.
     fireEvent.click(screen.getByText('First Epic'))
     // WOSMVP-101 already blocked by WOSMVP-100, so WOSMVP-100's key already
@@ -875,7 +874,9 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
     ]
     stubFetch()
     render(<AtlasView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('First Epic'))
+    expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()
     expect(screen.queryByText('WOSMVP-101')).not.toBeInTheDocument()
   })
 })
