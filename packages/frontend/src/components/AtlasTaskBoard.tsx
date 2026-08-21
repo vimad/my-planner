@@ -39,9 +39,12 @@ interface AssigneeOption extends AssigneeInfo {
 // epics - same convention as AtlasView's "Tracked epics" accordion below -
 // with leaf tasks as cards once expanded). Assignee *picking* itself is a
 // searchable combobox with real names and per-person counts, not avatars.
+//
+// Lives on Atlas's own "Board" tab (AtlasView.tsx) rather than stacked above
+// the epic list, so it no longer collapses itself - the tab switch is
+// already the show/hide control.
 export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
   const people = useAtlasRosterPeople()
-  const [expanded, setExpanded] = useState(false)
   const [query, setQuery] = useState('')
   const [groupBy, setGroupBy] = useState<GroupBy>('status')
   const [statusFilter, setStatusFilter] = useState<Set<AtlasStatusBucket>>(new Set(STATUSES))
@@ -125,101 +128,86 @@ export function AtlasTaskBoard({ epics }: { epics: AtlasEpic[] }) {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        {expanded ? (
-          <ChevronDown size={14} className="shrink-0 text-slate-400" />
-        ) : (
-          <ChevronRight size={14} className="shrink-0 text-slate-400" />
-        )}
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Task board</h2>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Leaf tasks only - epics and tasks with sub-tasks are excluded.
-          </p>
+      <div className="min-w-0 flex-1">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Task board</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Leaf tasks only - epics and tasks with sub-tasks are excluded.
+        </p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search key or title…"
+            aria-label="Search leaf tasks"
+            className="w-48 rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+          />
         </div>
-      </button>
 
-      {expanded && (
-        <>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search key or title…"
-                aria-label="Search leaf tasks"
-                className="w-48 rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-              />
-            </div>
+        <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
+          {STATUSES.map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => toggleStatus(status)}
+              title={statusFilter.has(status) ? `Hide ${status} column` : `Show ${status} column`}
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                statusFilter.has(status)
+                  ? STATUS_BADGE[status]
+                  : 'text-slate-400 line-through hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/10'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
 
-            <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
-              {STATUSES.map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => toggleStatus(status)}
-                  title={statusFilter.has(status) ? `Hide ${status} column` : `Show ${status} column`}
-                  className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
-                    statusFilter.has(status)
-                      ? STATUS_BADGE[status]
-                      : 'text-slate-400 line-through hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/10'
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
-            </div>
+        <AssigneeCombobox
+          options={comboOptions}
+          selected={selectedPeople}
+          onToggle={togglePerson}
+          onClear={() => setSelectedPeople(new Set())}
+          open={comboOpen}
+          onOpenChange={setComboOpen}
+          query={comboQuery}
+          onQueryChange={setComboQuery}
+          label={selectedLabel}
+        />
 
-            <AssigneeCombobox
-              options={comboOptions}
-              selected={selectedPeople}
-              onToggle={togglePerson}
-              onClear={() => setSelectedPeople(new Set())}
-              open={comboOpen}
-              onOpenChange={setComboOpen}
-              query={comboQuery}
-              onQueryChange={setComboQuery}
-              label={selectedLabel}
-            />
+        <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <input type="checkbox" checked={hideUnassigned} onChange={() => setHideUnassigned((v) => !v)} className="accent-fuchsia-500" />
+          Hide unassigned
+        </label>
 
-            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <input type="checkbox" checked={hideUnassigned} onChange={() => setHideUnassigned((v) => !v)} className="accent-fuchsia-500" />
-              Hide unassigned
-            </label>
+        <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+          Group by
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+            aria-label="Group tasks by"
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+          >
+            <option value="status">Status</option>
+            <option value="assignee">Assignee</option>
+            <option value="epic">Epic</option>
+          </select>
+        </div>
+      </div>
 
-            <div className="ml-auto flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-              Group by
-              <select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-                aria-label="Group tasks by"
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
-              >
-                <option value="status">Status</option>
-                <option value="assignee">Assignee</option>
-                <option value="epic">Epic</option>
-              </select>
-            </div>
-          </div>
+      <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+        {filtered.length} of {items.length} tasks
+      </p>
 
-          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-            {filtered.length} of {items.length} tasks
-          </p>
-
-          <div className="mt-2">
-            {groupBy === 'assignee' && (
-              <PersonSwimlanes items={filtered} assigneeOptions={assigneeOptions} hideUnassigned={hideUnassigned} />
-            )}
-            {groupBy === 'epic' && <EpicCardGroups items={filtered} epics={epics} />}
-            {groupBy === 'status' && <StatusTable groups={statusGroups} />}
-          </div>
-        </>
-      )}
+      <div className="mt-2">
+        {groupBy === 'assignee' && (
+          <PersonSwimlanes items={filtered} assigneeOptions={assigneeOptions} hideUnassigned={hideUnassigned} />
+        )}
+        {groupBy === 'epic' && <EpicCardGroups items={filtered} epics={epics} />}
+        {groupBy === 'status' && <StatusTable groups={statusGroups} />}
+      </div>
     </div>
   )
 }

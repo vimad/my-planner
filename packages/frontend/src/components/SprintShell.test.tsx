@@ -269,12 +269,15 @@ describe('SprintShell', () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     })
-    expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Status' })).not.toBeInTheDocument()
-    // The epic-key input renders but is inert - no sync wiring until ticket 07.
+    // The empty state and the epic-key input (inert - no sync wiring until
+    // ticket 07) both live on Atlas's own Summary tab, not its default Board
+    // tab (ticket 12).
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
+    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Track' })).toBeDisabled()
   })
 
@@ -294,6 +297,9 @@ describe('SprintShell', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/sprint/atlas')
     })
+    // The empty state lives on Atlas's own Summary tab, not its default
+    // Board tab (ticket 12).
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     // Planning/Status keep sharing the tab row rather than vanishing - all
@@ -349,8 +355,14 @@ describe('SprintShell', () => {
 
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     })
+    // The empty state lives on Atlas's own Summary tab, not its default
+    // Board tab (ticket 12) - the Present link itself sits in the same row
+    // regardless of which of those two is active, so no tab switch is needed
+    // to reach it.
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
+    expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: /Present/ }))
 
@@ -369,6 +381,11 @@ describe('SprintShell', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/sprint/atlas')
     })
+    // AtlasDashboardSection remounts fresh on navigating back (it's a
+    // sibling route to Present, not a nested one) so Atlas's own tab resets
+    // to its default Board tab - switch to Summary again to reach the empty
+    // state.
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
   })
 })

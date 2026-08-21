@@ -90,18 +90,19 @@ function TeamShell({
   )
 }
 
-// Ticket 11's only touch-point on the Dashboard side: a top-of-page link
-// into Present (spec §7 - Atlas's second, read-only view). Deliberately kept
-// here rather than inside AtlasView.tsx itself, for two reasons: (1) the
-// ticket's brief is explicit that Present "does not modify the Dashboard",
-// and (2) AtlasView.test.tsx renders <AtlasView /> directly with no Router
-// context - a <Link>/useNavigate call inside AtlasView.tsx would break that
-// whole suite. SprintShell already renders inside a Router (App.tsx), so the
-// link lives one level up instead.
+// Ticket 11's only touch-point on the Dashboard side: a link into Present
+// (spec §7 - Atlas's second, read-only view), rendered into AtlasView's own
+// tab row via the `presentLink` slot. Deliberately kept here rather than
+// built as a real <Link> inside AtlasView.tsx itself, for two reasons: (1)
+// the ticket's brief is explicit that Present "does not modify the
+// Dashboard", and (2) AtlasView.test.tsx renders <AtlasView /> directly with
+// no Router context - a <Link>/useNavigate call inside AtlasView.tsx would
+// break that whole suite. SprintShell already renders inside a Router
+// (App.tsx), so the Router-dependent element is built one level up instead.
 function AtlasDashboardSection() {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex justify-end">
+    <AtlasView
+      presentLink={
         <Link
           to="/sprint/atlas/present"
           className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
@@ -109,9 +110,8 @@ function AtlasDashboardSection() {
           <Presentation size={12} />
           Present
         </Link>
-      </div>
-      <AtlasView />
-    </div>
+      }
+    />
   )
 }
 

@@ -53,14 +53,21 @@ function extractPlainText(doc: unknown): string {
   return parts.join(' ').trim()
 }
 
-// AtlasTaskBoard.tsx (mounted above the epic list, collapsed by default like
-// the epic accordion below it) can also render a leaf task's jiraKey/title
-// once expanded - a jiraKey/title query that must resolve to exactly the
-// accordion row (or assert the accordion specifically doesn't show one)
-// needs scoping to just the "Tracked epics" group (AtlasView.tsx's
-// aria-label) to avoid colliding with the board's own card.
+// Scopes a query to just the "Tracked epics" accordion (AtlasView.tsx's
+// aria-label) - needed on Summary-tab jiraKey/title assertions that would
+// otherwise also match a task's own row further down its expanded tree.
 function epicsRegion() {
   return within(screen.getByRole('group', { name: 'Tracked epics' }))
+}
+
+// AtlasView now opens on its "Board" tab by default (see the "Board/Summary
+// tabs" describe block below) - every other describe block here exercises
+// the add-epic form and/or the epic accordion list, both of which live on
+// the "Summary" tab, so they all render then immediately switch tabs before
+// asserting on anything.
+function renderAtlas() {
+  render(<AtlasView />)
+  fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
 }
 
 function findTaskById(tasks: AtlasEpic['tasks'], id: string): AtlasEpic['tasks'][number] | undefined {
@@ -169,7 +176,7 @@ describe('AtlasView', () => {
 
   it('shows the empty state and loads the (empty) tracked-epics list on mount', async () => {
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
 
     await waitFor(() => {
       expect(screen.getByText('No epics tracked yet')).toBeInTheDocument()
@@ -237,7 +244,7 @@ describe('AtlasView', () => {
       return jsonResponse({ epic: { _id: 'e1', jiraKey: 'WOSMVP-8262' }, tasks: [] }, 201)
     })
 
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
     fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-8262' } })
@@ -265,7 +272,7 @@ describe('AtlasView', () => {
   it('submitting an unresolvable key shows an inline error and adds nothing to the list', async () => {
     stubFetch(async () => jsonResponse({ error: 'Jira issue WOSMVP-9999 was not found' }, 404))
 
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
     fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-9999' } })
@@ -282,7 +289,7 @@ describe('AtlasView', () => {
   it('submitting a non-Epic key shows an inline error and adds nothing to the list', async () => {
     stubFetch(async () => jsonResponse({ error: 'WOSMVP-100 is a Story issue, not an Epic' }, 422))
 
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
     fireEvent.change(screen.getByLabelText('Epic number to track'), { target: { value: 'WOSMVP-100' } })
@@ -296,10 +303,95 @@ describe('AtlasView', () => {
 
   it('disables the Track button while the input is blank', async () => {
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('No epics tracked yet')).toBeInTheDocument())
 
     expect(screen.getByRole('button', { name: 'Track' })).toBeDisabled()
+  })
+})
+
+describe('AtlasView Board/Summary tabs', () => {
+  function task(overrides: Partial<AtlasEpic['tasks'][number]> = {}): AtlasEpic['tasks'][number] {
+    return {
+      _id: 't1',
+      epicId: 'e1',
+      parentTaskId: null,
+      jiraKey: 'WOSMVP-100',
+      title: 'Do the thing',
+      jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-100',
+      assigneeAccountId: null,
+      status: 'To Do',
+      startDate: null,
+      endDate: null,
+      atRisk: false,
+      atRiskOverride: false,
+      notes: null,
+      notesText: '',
+      blockedBy: [],
+      archived: false,
+      subtasks: [],
+      ...overrides,
+    }
+  }
+
+  function epic(overrides: Partial<AtlasEpic> = {}): AtlasEpic {
+    return {
+      _id: 'e1',
+      jiraKey: 'WOSMVP-1',
+      title: 'First Epic',
+      jiraUrl: 'https://wealthos.atlassian.net/browse/WOSMVP-1',
+      notes: null,
+      notesText: '',
+      archived: false,
+      lastSyncedAt: '2026-08-19T00:00:00.000Z',
+      tasks: [],
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    listData = []
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('opens on the Board tab by default, showing the task board and hiding the add-epic/epic-list Summary content', async () => {
+    listData = [epic({ tasks: [task({ jiraKey: 'WOSMVP-100' })] })]
+    stubFetch()
+    render(<AtlasView />)
+
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'false')
+    await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
+    expect(screen.queryByLabelText('Epic number to track')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Tracked epics' })).not.toBeInTheDocument()
+  })
+
+  it('shows a fallback message on the Board tab when no epics are tracked yet', async () => {
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText(/No epics tracked yet/)).toBeInTheDocument())
+    expect(screen.queryByText('Task board')).not.toBeInTheDocument()
+  })
+
+  it('switches to the Summary tab to reveal the add-epic form and epic list, hiding the task board', async () => {
+    listData = [epic({ tasks: [task({ jiraKey: 'WOSMVP-100' })] })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
+
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByLabelText('Epic number to track')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Tracked epics' })).toBeInTheDocument()
+    expect(screen.queryByText('Task board')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
+    expect(screen.getByText('Task board')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Epic number to track')).not.toBeInTheDocument()
   })
 })
 
@@ -364,7 +456,7 @@ describe('AtlasView dashboard layout', () => {
       epic({ _id: 'e2', jiraKey: 'WOSMVP-2', title: 'Second Epic', tasks: [task({ _id: 't3', jiraKey: 'WOSMVP-200' })] }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
 
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.getByText('Second Epic')).toBeInTheDocument()
@@ -398,7 +490,7 @@ describe('AtlasView dashboard layout', () => {
   it('only shows the At-risk pill when the count is greater than zero', async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ atRisk: false })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.queryByText('at risk')).not.toBeInTheDocument()
   })
@@ -406,7 +498,7 @@ describe('AtlasView dashboard layout', () => {
   it('shows the At-risk pill and per-task badge when at-risk tasks exist', async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ jiraKey: 'WOSMVP-100', atRisk: true })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // The per-task "at risk" badge only renders once the epic's accordion is
     // open.
@@ -425,7 +517,7 @@ describe('AtlasView dashboard layout', () => {
       }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // The notes indicator only renders once the epic's accordion is open.
     fireEvent.click(screen.getByText('First Epic'))
@@ -435,7 +527,7 @@ describe('AtlasView dashboard layout', () => {
   it('renders epic-level notes once, above the task rows, and nothing when notes are empty', async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', notesText: 'Vendor delay is the long pole here.', tasks: [task()] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // Epic notes render inside the accordion, below the epic row itself.
     fireEvent.click(screen.getByText('First Epic'))
@@ -456,7 +548,7 @@ describe('AtlasView dashboard layout', () => {
       epic({ _id: 'e2', jiraKey: 'WOSMVP-2', title: 'Second Epic', tasks: [task({ _id: 't-other-epic', jiraKey: 'WOSMVP-200' })] }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // "Blocked by" only renders once the epic's accordion is open.
     fireEvent.click(screen.getByText('First Epic'))
@@ -479,7 +571,7 @@ describe('AtlasView dashboard layout', () => {
       epic({ _id: 'e2', jiraKey: 'WOSMVP-2', title: 'Archived Epic', archived: true }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Active Epic')).toBeInTheDocument())
     expect(screen.queryByText('Archived Epic')).not.toBeInTheDocument()
 
@@ -542,7 +634,7 @@ describe('AtlasView task editing (ticket 09)', () => {
   it("editing a task's start/end date persists and is reflected immediately in the row and the epic's date-range roll-up", async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     // The accordion row (needed for "No dates set" and the Edit affordance
     // below) is collapsed until clicked.
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
@@ -564,7 +656,7 @@ describe('AtlasView task editing (ticket 09)', () => {
   it("editing a task's notes via the rich-text editor persists and updates the ticket-08 notes indicator", async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     expect(screen.queryByText('notes')).not.toBeInTheDocument()
 
@@ -582,7 +674,7 @@ describe('AtlasView task editing (ticket 09)', () => {
   it('a request that never touches the at-risk checkbox omits atRisk from the PATCH payload entirely', async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByText('First Epic'))
@@ -598,7 +690,7 @@ describe('AtlasView task editing (ticket 09)', () => {
   it('manually toggling the at-risk checkbox includes atRisk: true in the PATCH payload, overriding the auto rule', async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100', atRisk: false })] })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByText('First Epic'))
@@ -619,7 +711,7 @@ describe('AtlasView task editing (ticket 09)', () => {
       epic({ _id: 'e2', jiraKey: 'WOSMVP-2', tasks: [task({ _id: 't2', jiraKey: 'WOSMVP-200', title: 'Other epic task' })] }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(epicsRegion().getByText('WOSMVP-1')).toBeInTheDocument())
 
     // Both epics default their title to "First Epic" here (unoverridden) -
@@ -642,7 +734,7 @@ describe('AtlasView task editing (ticket 09)', () => {
       }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // Open the epic's accordion - "Blocked by" only renders there.
     fireEvent.click(screen.getByText('First Epic'))
@@ -665,7 +757,7 @@ describe('AtlasView task editing (ticket 09)', () => {
       epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'Archived Epic', archived: true, tasks: [task({ _id: 't1', jiraKey: 'WOSMVP-100' })] }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Show 1 archived epic'))
     // The archived row itself isn't expanded by default - open its accordion
@@ -727,7 +819,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it("editing an epic's notes persists and shows on its Dashboard row", async () => {
     listData = [epic({ jiraKey: 'WOSMVP-1', title: 'First Epic' })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     // EpicNotesEditor only renders once the epic's accordion is open.
     fireEvent.click(screen.getByText('First Epic'))
@@ -753,7 +845,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
       const found = listData.find((e) => e._id === epicId)
       if (found) found.title = `${found.title} (synced)`
     })
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('Sync WOSMVP-1 now'))
@@ -770,7 +862,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
     ]
     const syncedEpicIds: string[] = []
     stubFetch(undefined, (epicId) => syncedEpicIds.push(epicId))
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'Sync all' }))
@@ -781,7 +873,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('un-tracking an epic hides it from the main list but it remains visible (and restorable) via the archived toggle', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('Un-track WOSMVP-1'))
@@ -796,7 +888,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('restoring an archived epic returns it to the main list', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Show 1 archived epic'))
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
@@ -810,7 +902,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('does not offer a "Sync now" action on an archived (read-only) epic row', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Show 1 archived epic'))
 
@@ -822,7 +914,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('does not offer a delete action on an active (non-archived) epic row', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic' })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
 
     expect(screen.queryByLabelText('Delete WOSMVP-1')).not.toBeInTheDocument()
@@ -831,7 +923,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('deleting an archived epic asks for confirmation before removing it', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Show 1 archived epic'))
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
@@ -850,7 +942,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
   it('cancelling the delete confirmation leaves the epic untouched', async () => {
     listData = [epic({ _id: 'e1', jiraKey: 'WOSMVP-1', title: 'First Epic', archived: true })]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('Show 1 archived epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Show 1 archived epic'))
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
@@ -873,7 +965,7 @@ describe('AtlasView epic lifecycle (ticket 10)', () => {
       }),
     ]
     stubFetch()
-    render(<AtlasView />)
+    renderAtlas()
     await waitFor(() => expect(screen.getByText('First Epic')).toBeInTheDocument())
     fireEvent.click(screen.getByText('First Epic'))
     expect(screen.getByText('WOSMVP-100')).toBeInTheDocument()

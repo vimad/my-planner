@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -711,7 +711,17 @@ function AtlasEpicRow({
 // useAtlasEpics' updateTask, and the cross-epic blocked-by picker's search
 // universe (blockerCandidates, built once here and threaded down through
 // every AtlasEpicRow/AtlasTaskRow).
-export function AtlasView() {
+//
+// Board/Summary tabs: the task board (AtlasTaskBoard) and everything else
+// (add-epic entry, the epic accordion list, lifecycle actions) used to stack
+// in one scroll; they're now two tabs, Board first and selected by default.
+// `presentLink` is an injected slot (rather than an actual <Link>) so this
+// component stays Router-free - the tab row it renders into is the same row
+// that carries the "Present" link, but SprintShell.tsx owns any Router-
+// dependent element and just hands it in as a prop (see AtlasDashboardSection
+// there); AtlasView.test.tsx renders <AtlasView /> with no Router context and
+// simply gets no link rendered on that side.
+export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
   const {
     epics,
     loading,
@@ -725,6 +735,7 @@ export function AtlasView() {
     syncAll,
     deleteEpic,
   } = useAtlasEpics()
+  const [activeTab, setActiveTab] = useState<'board' | 'summary'>('board')
   const [epicKey, setEpicKey] = useState('')
   // Ticket 10's global "Sync all" - local state, not lifted into the hook,
   // matching every other mutation's "the calling UI owns its own busy/error
@@ -794,98 +805,108 @@ export function AtlasView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
-        {!loading && epics.length === 0 && (
-          <>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No epics tracked yet</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Enter an epic number to start tracking it. Atlas will pull in its full task and sub-task tree.
-            </p>
-          </>
-        )}
-
-        <form className="mt-4 flex items-center gap-2" onSubmit={handleSubmit}>
-          <span className="text-sm text-slate-400 dark:text-slate-500">Track epic — WOSMVP-</span>
-          <input
-            type="text"
-            value={epicKey}
-            onChange={(event) => setEpicKey(event.target.value)}
-            placeholder="123"
-            aria-label="Epic number to track"
-            disabled={tracking}
-            className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
-          />
-          <button
-            type="submit"
-            disabled={tracking || !epicKey.trim()}
-            className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {tracking ? 'Syncing…' : 'Track'}
-          </button>
-        </form>
-
-        {trackError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">Error: {trackError}</p>}
+      <div className="flex items-center justify-between">
+        <div
+          role="tablist"
+          aria-label="Atlas view"
+          className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5"
+        >
+          {(
+            [
+              { key: 'board', label: 'Board' },
+              { key: 'summary', label: 'Summary' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                activeTab === tab.key
+                  ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white'
+                  : 'text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {presentLink}
       </div>
 
       {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading tracked epics…</p>}
       {loadError && <p className="text-sm text-red-600 dark:text-red-400">Error: {loadError}</p>}
 
-      {!loading && active.length > 0 && <AtlasTaskBoard epics={active} />}
-
-      {!loading && active.length > 0 && (
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            disabled={syncingAll}
-            onClick={handleSyncAll}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-          >
-            <RefreshCw size={12} className={syncingAll ? 'animate-spin' : ''} />
-            {syncingAll ? 'Syncing all…' : 'Sync all'}
-          </button>
-          {syncAllError && <span className="text-xs text-red-600 dark:text-red-400">Error: {syncAllError}</span>}
-        </div>
+      {activeTab === 'board' && (
+        <>
+          {!loading && active.length > 0 && <AtlasTaskBoard epics={active} />}
+          {!loading && active.length === 0 && (
+            <p className="text-sm text-slate-400 dark:text-slate-500">
+              No epics tracked yet — add one from the Summary tab.
+            </p>
+          )}
+        </>
       )}
 
-      {/* Labeled so a jiraKey/title that also appears in AtlasTaskBoard's
-          leaf-task cards above (e.g. a leaf task with no sub-tasks) can be
-          told apart from its accordion row here - see AtlasView.test.tsx's
-          epicsRegion() helper. */}
-      {!loading && active.length > 0 && (
-        <div role="group" aria-label="Tracked epics" className="flex flex-col gap-2">
-          {active.map((epic) => {
-            const id = getId(epic) ?? epic.jiraKey
-            return (
-              <AtlasEpicRow
-                key={id}
-                epic={epic}
-                expanded={isExpanded(id, false)}
-                onToggle={() => toggle(id, false)}
-                blockedByLookup={blockedByLookup}
-                blockerCandidates={blockerCandidates}
-                onUpdateTask={updateTask}
-                onSync={() => syncEpic(id)}
-                onArchive={() => updateEpic(id, { archived: true })}
-                onRestore={() => updateEpic(id, { archived: false })}
-                onUpdateNotes={(notes) => updateEpic(id, { notes })}
+      {activeTab === 'summary' && (
+        <>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5 dark:shadow-none dark:backdrop-blur-md">
+            {!loading && epics.length === 0 && (
+              <>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No epics tracked yet</h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Enter an epic number to start tracking it. Atlas will pull in its full task and sub-task tree.
+                </p>
+              </>
+            )}
+
+            <form className="mt-4 flex items-center gap-2" onSubmit={handleSubmit}>
+              <span className="text-sm text-slate-400 dark:text-slate-500">Track epic — WOSMVP-</span>
+              <input
+                type="text"
+                value={epicKey}
+                onChange={(event) => setEpicKey(event.target.value)}
+                placeholder="123"
+                aria-label="Epic number to track"
+                disabled={tracking}
+                className="w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
-            )
-          })}
-        </div>
-      )}
+              <button
+                type="submit"
+                disabled={tracking || !epicKey.trim()}
+                className="rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {tracking ? 'Syncing…' : 'Track'}
+              </button>
+            </form>
 
-      {!loading && archived.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowArchived((value) => !value)}
-            className="text-xs font-medium text-slate-500 underline decoration-dotted hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-          >
-            {showArchived ? 'Hide' : 'Show'} {archived.length} archived epic{archived.length === 1 ? '' : 's'}
-          </button>
-          {showArchived && (
-            <div role="group" aria-label="Archived epics" className="mt-2 flex flex-col gap-2">
-              {archived.map((epic) => {
+            {trackError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">Error: {trackError}</p>}
+          </div>
+
+          {!loading && active.length > 0 && (
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                disabled={syncingAll}
+                onClick={handleSyncAll}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                <RefreshCw size={12} className={syncingAll ? 'animate-spin' : ''} />
+                {syncingAll ? 'Syncing all…' : 'Sync all'}
+              </button>
+              {syncAllError && <span className="text-xs text-red-600 dark:text-red-400">Error: {syncAllError}</span>}
+            </div>
+          )}
+
+          {/* Labeled so a jiraKey/title that also appears in AtlasTaskBoard's
+              leaf-task cards on the Board tab (e.g. a leaf task with no
+              sub-tasks) can be told apart from its accordion row here - see
+              AtlasView.test.tsx's epicsRegion() helper. */}
+          {!loading && active.length > 0 && (
+            <div role="group" aria-label="Tracked epics" className="flex flex-col gap-2">
+              {active.map((epic) => {
                 const id = getId(epic) ?? epic.jiraKey
                 return (
                   <AtlasEpicRow
@@ -900,25 +921,59 @@ export function AtlasView() {
                     onArchive={() => updateEpic(id, { archived: true })}
                     onRestore={() => updateEpic(id, { archived: false })}
                     onUpdateNotes={(notes) => updateEpic(id, { notes })}
-                    onDeleteRequest={() => setPendingDelete(epic)}
-                    dimmed
                   />
                 )
               })}
             </div>
           )}
-        </div>
-      )}
 
-      {deleteError && <p className="text-xs text-red-600 dark:text-red-400">Error: {deleteError}</p>}
+          {!loading && archived.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowArchived((value) => !value)}
+                className="text-xs font-medium text-slate-500 underline decoration-dotted hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              >
+                {showArchived ? 'Hide' : 'Show'} {archived.length} archived epic{archived.length === 1 ? '' : 's'}
+              </button>
+              {showArchived && (
+                <div role="group" aria-label="Archived epics" className="mt-2 flex flex-col gap-2">
+                  {archived.map((epic) => {
+                    const id = getId(epic) ?? epic.jiraKey
+                    return (
+                      <AtlasEpicRow
+                        key={id}
+                        epic={epic}
+                        expanded={isExpanded(id, false)}
+                        onToggle={() => toggle(id, false)}
+                        blockedByLookup={blockedByLookup}
+                        blockerCandidates={blockerCandidates}
+                        onUpdateTask={updateTask}
+                        onSync={() => syncEpic(id)}
+                        onArchive={() => updateEpic(id, { archived: true })}
+                        onRestore={() => updateEpic(id, { archived: false })}
+                        onUpdateNotes={(notes) => updateEpic(id, { notes })}
+                        onDeleteRequest={() => setPendingDelete(epic)}
+                        dimmed
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
-      {pendingDelete && (
-        <ConfirmDialog
-          message={`Permanently delete ${pendingDelete.jiraKey} — ${pendingDelete.title}? This cannot be undone.`}
-          confirmLabel="Delete"
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={handleConfirmDelete}
-        />
+          {deleteError && <p className="text-xs text-red-600 dark:text-red-400">Error: {deleteError}</p>}
+
+          {pendingDelete && (
+            <ConfirmDialog
+              message={`Permanently delete ${pendingDelete.jiraKey} — ${pendingDelete.title}? This cannot be undone.`}
+              confirmLabel="Delete"
+              onCancel={() => setPendingDelete(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+        </>
       )}
     </div>
   )

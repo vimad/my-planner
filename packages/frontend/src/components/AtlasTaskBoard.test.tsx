@@ -67,13 +67,11 @@ describe('AtlasTaskBoard', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('collapses the board by default, revealing columns only after the header is clicked', async () => {
+  it('renders columns immediately, with no collapse toggle', async () => {
     stubRoster([])
     render(<AtlasTaskBoard epics={[epic({ tasks: [task({ _id: 't1', jiraKey: 'A', status: 'To Do' })] })]} />)
     await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
-    expect(screen.queryByText('A')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText('Task board'))
-    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+    expect(screen.getByText('A')).toBeInTheDocument()
   })
 
   it('shows a leaf task in its status column, excluding a task that has visible sub-tasks', async () => {
@@ -90,7 +88,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     // 'A' has a visible sub-task, so it's skipped in favor of 'A1' - but 'A'
     // still surfaces once, as the sub-task group's own fieldset legend.
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
@@ -121,7 +118,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
     expect(screen.getByText('A2')).toBeInTheDocument()
     expect(screen.getByText('Parent task')).toBeInTheDocument()
@@ -149,7 +145,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
     const zIndex = document.body.innerHTML.indexOf('>Z<')
     const a1Index = document.body.innerHTML.indexOf('>A1<')
@@ -171,7 +166,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
     expect(screen.getByText('Unmapped assignee')).toBeInTheDocument()
     expect(screen.getByText('Unassigned')).toBeInTheDocument()
@@ -191,7 +185,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.click(screen.getByTitle('Hide To Do column'))
     expect(screen.queryByText('A')).not.toBeInTheDocument()
@@ -215,7 +208,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.click(screen.getByText('All people'))
     // The combobox's own option row and the (still-mounted, just visually
@@ -240,7 +232,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Hide unassigned'))
     expect(screen.getByText('A')).toBeInTheDocument()
@@ -254,7 +245,6 @@ describe('AtlasTaskBoard', () => {
         epics={[epic({ tasks: [task({ _id: 't1', jiraKey: 'A', assigneeAccountId: 'acc-1' })] })]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
     // The jump-nav pill and the lane header both carry "Jump to Ada Lovelace"/
@@ -285,7 +275,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'assignee' } })
     await waitFor(() => expect(screen.getByText('A2')).toBeInTheDocument())
@@ -300,7 +289,6 @@ describe('AtlasTaskBoard', () => {
         epics={[epic({ jiraKey: 'WOSMVP-1', title: 'First Epic', tasks: [task({ _id: 't1', jiraKey: 'A' })] })]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'epic' } })
     expect(screen.getByText('First Epic')).toBeInTheDocument()
@@ -329,7 +317,6 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('Task board'))
     await waitFor(() => expect(screen.getByText('A1')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'epic' } })
     fireEvent.click(screen.getByText('First Epic'))
