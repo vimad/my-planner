@@ -138,6 +138,80 @@ describe('PATCH /api/atlas-planning-entries/:id', () => {
 
     expect(res.status).toBe(500)
   })
+
+  // Ticket 03 (.scratch/atlas-planning-tab): the Gantt drag-to-reschedule
+  // autosave surface, layered onto the same PATCH route as ticket 01's
+  // reassign control.
+  it('updates startDate/endDate and returns the updated entry', async () => {
+    AtlasPlanningEntry.findByIdAndUpdate.mockResolvedValue({
+      _id: 'pe1',
+      rosterMemberId: 'm1',
+      jiraKey: 'WOSMVP-100',
+      startDate: '2026-08-12',
+      endDate: '2026-08-14',
+    })
+
+    const app = createApp()
+    const res = await request(app)
+      .patch('/api/atlas-planning-entries/pe1')
+      .send({ startDate: '2026-08-12', endDate: '2026-08-14' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.startDate).toBe('2026-08-12')
+    expect(res.body.endDate).toBe('2026-08-14')
+    const [id, update] = AtlasPlanningEntry.findByIdAndUpdate.mock.calls[0]
+    expect(id).toBe('pe1')
+    expect(update).toEqual({ startDate: '2026-08-12', endDate: '2026-08-14' })
+  })
+
+  it('allows clearing startDate/endDate back to null', async () => {
+    AtlasPlanningEntry.findByIdAndUpdate.mockResolvedValue({
+      _id: 'pe1',
+      rosterMemberId: 'm1',
+      jiraKey: 'WOSMVP-100',
+      startDate: null,
+      endDate: null,
+    })
+
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas-planning-entries/pe1').send({ startDate: null, endDate: null })
+
+    expect(res.status).toBe(200)
+    const [, update] = AtlasPlanningEntry.findByIdAndUpdate.mock.calls[0]
+    expect(update).toEqual({ startDate: null, endDate: null })
+  })
+
+  it('rejects a malformed startDate', async () => {
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas-planning-entries/pe1').send({ startDate: 'not-a-date' })
+
+    expect(res.status).toBe(400)
+    expect(AtlasPlanningEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed endDate', async () => {
+    const app = createApp()
+    const res = await request(app).patch('/api/atlas-planning-entries/pe1').send({ endDate: '08/14/2026' })
+
+    expect(res.status).toBe(400)
+    expect(AtlasPlanningEntry.findByIdAndUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not touch rosterMemberId when only dates are patched', async () => {
+    AtlasPlanningEntry.findByIdAndUpdate.mockResolvedValue({
+      _id: 'pe1',
+      rosterMemberId: 'm1',
+      jiraKey: 'WOSMVP-100',
+      startDate: '2026-08-12',
+      endDate: '2026-08-12',
+    })
+
+    const app = createApp()
+    await request(app).patch('/api/atlas-planning-entries/pe1').send({ startDate: '2026-08-12', endDate: '2026-08-12' })
+
+    const [, update] = AtlasPlanningEntry.findByIdAndUpdate.mock.calls[0]
+    expect(update).not.toHaveProperty('rosterMemberId')
+  })
 })
 
 describe('DELETE /api/atlas-planning-entries/:id', () => {

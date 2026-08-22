@@ -24,6 +24,12 @@ export interface UseAtlasPlanningResult {
   reassignTicket: (entryId: string, rosterMemberId: string) => Promise<void>
   removeError: string | null
   removeTicket: (entryId: string) => Promise<void>
+  rescheduleError: string | null
+  // Ticket 03's (.scratch/atlas-planning-tab) Gantt drag-to-reschedule
+  // autosave - PATCHes just startDate/endDate (never rosterMemberId, mirrors
+  // reassignTicket's own "only touch what this action means" convention) so
+  // dragging a bar can never accidentally reassign it to a different person.
+  rescheduleTicket: (entryId: string, startDate: string, endDate: string) => Promise<void>
 }
 
 // Atlas Planning tab's own data hook (.scratch/atlas-planning-tab, ticket
@@ -43,6 +49,7 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
   const [attachError, setAttachError] = useState<string | null>(null)
   const [reassignError, setReassignError] = useState<string | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null)
 
   useEffect(() => {
     let ignore = false
@@ -113,6 +120,26 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
     }
   }, [])
 
+  // Ticket 03's Gantt drag-to-reschedule autosave (no Save button - a drop
+  // fires this directly). Same request/response shape as reassignTicket,
+  // just a different subset of the PATCH body.
+  const rescheduleTicket = useCallback(async (entryId: string, startDate: string, endDate: string) => {
+    setRescheduleError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/atlas-planning-entries/${entryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate }),
+      })
+      if (!res.ok) throw new Error(await parseErrorMessage(res))
+      const updated: AtlasPlanningEntry = await res.json()
+      setEntries((prev) => prev.map((e) => (getId(e) === entryId ? updated : e)))
+    } catch (err) {
+      setRescheduleError((err as Error).message)
+      throw err
+    }
+  }, [])
+
   const removeTicket = useCallback(async (entryId: string) => {
     setRemoveError(null)
     try {
@@ -136,5 +163,7 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
     reassignTicket,
     removeError,
     removeTicket,
+    rescheduleError,
+    rescheduleTicket,
   }
 }

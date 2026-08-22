@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import App from '../App'
 import type { Team } from '../types'
@@ -71,6 +71,15 @@ function stubFetch(): FetchMock {
 
 const teamA: Team = { _id: 'team-a', name: 'Team A', jiraLabels: ['team-a-label'] }
 const teamB: Team = { _id: 'team-b', name: 'Team B', jiraLabels: ['team-b-label'] }
+
+// Atlas's own internal tab row (docs/.scratch/atlas-planning-tab) also has a
+// "Planning" tab now, sharing the name with this top-level Sprint tab - the
+// two are scoped to different tablists (`Sprint view` vs `Atlas view`), so
+// any query for "Planning" here must be scoped to this one, not a bare
+// screen.getByRole, to stay unambiguous.
+function sprintTablist() {
+  return within(screen.getByLabelText('Sprint view'))
+}
 
 describe('SprintShell', () => {
   beforeEach(() => {
@@ -271,8 +280,8 @@ describe('SprintShell', () => {
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Atlas' })).toHaveAttribute('aria-selected', 'true')
     })
-    expect(screen.queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Status' })).not.toBeInTheDocument()
+    expect(sprintTablist().queryByRole('tab', { name: 'Planning' })).not.toBeInTheDocument()
+    expect(sprintTablist().queryByRole('tab', { name: 'Status' })).not.toBeInTheDocument()
     // The empty state and the epic-key input (inert - no sync wiring until
     // ticket 07) both live on Atlas's own Summary tab, not its default Board
     // tab (ticket 12).
@@ -288,9 +297,9 @@ describe('SprintShell', () => {
     await waitFor(() => {
       expect(screen.getByText("No sprints found for this team's board.")).toBeInTheDocument()
     })
-    expect(screen.getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Status' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Atlas' })).toBeInTheDocument()
+    expect(sprintTablist().getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
+    expect(sprintTablist().getByRole('tab', { name: 'Status' })).toBeInTheDocument()
+    expect(sprintTablist().getByRole('tab', { name: 'Atlas' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Atlas' }))
 
@@ -309,13 +318,13 @@ describe('SprintShell', () => {
     // by navigating back to Planning below, not via a "Team A" tab here.
     expect(screen.queryByLabelText('Manage teams')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Manage Atlas people')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Status' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'false')
+    expect(sprintTablist().getByRole('tab', { name: 'Planning' })).toBeInTheDocument()
+    expect(sprintTablist().getByRole('tab', { name: 'Status' })).toBeInTheDocument()
+    expect(sprintTablist().getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'false')
 
     // And clicking back to Planning from Atlas returns to Team A's Planning
     // view, not a broken team-less URL.
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    fireEvent.click(sprintTablist().getByRole('tab', { name: 'Planning' }))
     await waitFor(() => {
       expect(window.location.pathname).toBe('/sprint/team-a/planning')
     })
@@ -341,7 +350,7 @@ describe('SprintShell', () => {
     expect(screen.queryByLabelText('Manage teams')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Manage Atlas people')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+    fireEvent.click(sprintTablist().getByRole('tab', { name: 'Planning' }))
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/sprint/team-a/planning')

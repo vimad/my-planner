@@ -182,6 +182,20 @@ describe('AtlasPlanningView', () => {
     expect(within(aliceRowAfter).getByText('No tickets attached')).toBeInTheDocument()
   })
 
+  // Ticket 03 (.scratch/atlas-planning-tab): just the wiring - the Gantt
+  // chart's own rendering/drag/leave-shading behavior (which requires
+  // mocking @svar-ui/react-gantt for jsdom, same as SprintGanttChart's own
+  // PlanningView never clicking its Gantt trigger in PlanningView.test.tsx)
+  // is covered in depth by AtlasPlanningGanttChart.test.tsx instead. This
+  // only checks the trigger button renders in the header action row -
+  // opening it here would instantiate the real, un-mocked SVAR chart.
+  it('renders a Gantt chart trigger button in the header action row', async () => {
+    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
+    stubFetch()
+    render(<AtlasPlanningView />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Gantt chart' })).toBeInTheDocument())
+  })
+
   it('surfaces a server-side attach error inline without clearing the input', async () => {
     stubFetch(async () => jsonResponse({ error: 'jiraKey is required' }, 400))
     render(<AtlasPlanningView />)

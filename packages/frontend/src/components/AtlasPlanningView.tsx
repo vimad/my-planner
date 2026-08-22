@@ -9,8 +9,10 @@ import type { AtlasPlanningEntry, AtlasRosterMember } from '../types'
 import { normalizePlanningJiraKey } from '../utils/atlasPlanningKey'
 import { getId } from '../utils/getId'
 import { computeRollingWindowDates } from '../utils/rollingWindow'
+import { AtlasPlanningExportButton } from './AtlasPlanningExportButton'
 import { AtlasPlanningLeaveGrid } from './AtlasPlanningLeaveGrid'
 import { AtlasPlanningHolidayChips } from './AtlasPlanningHolidayChips'
+import { AtlasPlanningGanttButton } from './AtlasPlanningGanttChart'
 
 // Atlas Planning tab (.scratch/atlas-planning-tab, ticket 01) - a people-wise
 // table of plain Jira-key badges, entirely separate from Sprint Planning's
@@ -239,6 +241,8 @@ export function AtlasPlanningView() {
     reassignTicket,
     removeError,
     removeTicket,
+    rescheduleError,
+    rescheduleTicket,
   } = useAtlasPlanning()
   const {
     leaveMarks,
@@ -282,18 +286,51 @@ export function AtlasPlanningView() {
     }
   }
 
+  // Ticket 03's (.scratch/atlas-planning-tab) Gantt drag-to-reschedule
+  // autosave - the modal only ever computes *what* changed (entry id + new
+  // dates); this is the one place that actually issues the PATCH, same
+  // separation as handleRemove/handleReassign above. Fire-and-forget from
+  // the Gantt's own perspective (its onDragReschedule prop isn't async) -
+  // any failure surfaces via rescheduleError, same as every other mutation
+  // in this file.
+  function handleReschedule(entryId: string, startDate: string, endDate: string) {
+    rescheduleTicket(entryId, startDate, endDate).catch(() => {
+      // rescheduleError already surfaces the failure.
+    })
+  }
+
   const loading = rosterLoading || entriesLoading
 
   return (
     <div className="flex flex-col gap-4">
-      {!rosterLoading && roster.length > 0 && (
-        <AttachTicketForm roster={roster} onAttach={attachTicket} attaching={attaching} attachError={attachError} />
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {!rosterLoading && roster.length > 0 ? (
+          <AttachTicketForm roster={roster} onAttach={attachTicket} attaching={attaching} attachError={attachError} />
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          {!rosterLoading && !entriesLoading && (
+            <AtlasPlanningGanttButton
+              roster={roster}
+              entries={entries}
+              leaveMarks={leaveMarks}
+              holidays={holidays}
+              windowDates={windowDates}
+              onDragReschedule={handleReschedule}
+            />
+          )}
+          {!rosterLoading && !entriesLoading && !leaveLoading && (
+            <AtlasPlanningExportButton roster={roster} entries={entries} leaveMarks={leaveMarks} windowDates={windowDates} />
+          )}
+        </div>
+      </div>
 
       {rosterError && <p className="text-sm text-red-600 dark:text-red-400">Error: {rosterError}</p>}
       {entriesError && <p className="text-sm text-red-600 dark:text-red-400">Error: {entriesError}</p>}
       {removeError && <p className="text-sm text-red-600 dark:text-red-400">Error: {removeError}</p>}
       {reassignError && <p className="text-sm text-red-600 dark:text-red-400">Error: {reassignError}</p>}
+      {rescheduleError && <p className="text-sm text-red-600 dark:text-red-400">Error: {rescheduleError}</p>}
       {leaveError && <p className="text-sm text-red-600 dark:text-red-400">Error: {leaveError}</p>}
       {holidaysError && <p className="text-sm text-red-600 dark:text-red-400">Error: {holidaysError}</p>}
 

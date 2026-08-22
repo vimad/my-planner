@@ -3,6 +3,8 @@ import { AtlasPlanningEntry, type AtlasPlanningEntryDoc } from '../models/AtlasP
 
 export const atlasPlanningEntriesRouter = Router()
 
+const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
+
 interface CreatePlanningEntryBody {
   rosterMemberId?: string
   jiraKey?: string
@@ -50,26 +52,45 @@ atlasPlanningEntriesRouter.get('/', async (_req: Request, res: Response, next: N
 
 interface UpdatePlanningEntryBody {
   rosterMemberId?: string
+  startDate?: string | null
+  endDate?: string | null
 }
 
-// PATCH /api/atlas-planning-entries/:id -> ticket 01's reassign-to-a-
-// different-person control (the badge/row's person-picker). Only
-// rosterMemberId is accepted here - startDate/endDate patching is ticket 03's
-// Gantt-drag-to-save surface, layered onto this same route later, not this
-// ticket's scope.
+// PATCH /api/atlas-planning-entries/:id -> both ticket 01's reassign-to-a-
+// different-person control (the badge/row's person-picker) and ticket 03's
+// Gantt drag-to-reschedule autosave. Each of rosterMemberId/startDate/
+// endDate is only ever touched when actually present in the body (the same
+// `!== undefined` convention rosterMemberId alone used before ticket 03),
+// so a reassign PATCH never clobbers dates and a reschedule PATCH never
+// clobbers the assignee. startDate/endDate are nullable 'YYYY-MM-DD'
+// strings (ticket 01's model comment) - `null` is a legal value (clearing a
+// date), so it's checked separately from "absent" rather than falling
+// through the same falsy-string branch rosterMemberId uses.
 atlasPlanningEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, UpdatePlanningEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { rosterMemberId } = req.body
+      const { rosterMemberId, startDate, endDate } = req.body
 
       if (rosterMemberId !== undefined && !rosterMemberId.trim()) {
         return res.status(400).json({ error: 'rosterMemberId cannot be empty' })
+      }
+      if (startDate !== undefined && startDate !== null && !DATE_SHAPE.test(startDate)) {
+        return res.status(400).json({ error: 'startDate must be a YYYY-MM-DD string or null' })
+      }
+      if (endDate !== undefined && endDate !== null && !DATE_SHAPE.test(endDate)) {
+        return res.status(400).json({ error: 'endDate must be a YYYY-MM-DD string or null' })
       }
 
       const update: Partial<AtlasPlanningEntryDoc> = {}
       if (rosterMemberId !== undefined) {
         update.rosterMemberId = rosterMemberId as unknown as AtlasPlanningEntryDoc['rosterMemberId']
+      }
+      if (startDate !== undefined) {
+        update.startDate = startDate
+      }
+      if (endDate !== undefined) {
+        update.endDate = endDate
       }
 
       const entry = await AtlasPlanningEntry.findByIdAndUpdate(req.params.id, update, {

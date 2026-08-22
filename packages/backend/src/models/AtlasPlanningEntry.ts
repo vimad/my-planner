@@ -9,10 +9,13 @@ import mongoose, { Schema, type Types } from 'mongoose'
 // normalizeJiraKey) before it ever reaches this route - nothing else is
 // cached about the ticket.
 //
-// `startDate`/`endDate` are unused by ticket 01 - always null, never read or
-// written by anything in this ticket's scope - but kept here now (rather
-// than added later) so ticket 03's Gantt chart can position this entry's bar
-// without a follow-up migration.
+// `startDate`/`endDate` were unused by ticket 01 (always null there) - kept
+// here from the start (rather than added later) so ticket 03's Gantt chart
+// could position this entry's bar without a follow-up migration. Ticket 03
+// now sets/reads them: `null` means "not yet scheduled" (the Gantt defaults
+// an unset entry to a 1-day bar on today until the user drags it), and both
+// fields update together via PATCH /api/atlas-planning-entries/:id when a
+// bar is dragged (see routes/atlasPlanningEntries.ts).
 export interface AtlasPlanningEntryDoc {
   rosterMemberId: Types.ObjectId
   jiraKey: string
