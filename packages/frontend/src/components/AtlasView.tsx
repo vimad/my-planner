@@ -17,6 +17,7 @@ import { useAtlasEpics, type UpdateAtlasTaskPatch } from '../hooks/useAtlasEpics
 import type { AtlasEpic, AtlasTaskNode } from '../types'
 import { jiraIssueUrl } from '../constants/jira'
 import { getId } from '../utils/getId'
+import { AtlasPlanningView } from './AtlasPlanningView'
 import { AtlasTaskBoard } from './AtlasTaskBoard'
 import { ConfirmDialog } from './ConfirmDialog'
 import {
@@ -747,7 +748,7 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
     syncAll,
     deleteEpic,
   } = useAtlasEpics()
-  const [activeTab, setActiveTab] = useState<'board' | 'summary'>('board')
+  const [activeTab, setActiveTab] = useState<'board' | 'summary' | 'planning'>('board')
   const [epicKey, setEpicKey] = useState('')
   // Ticket 10's global "Sync all" - local state, not lifted into the hook,
   // matching every other mutation's "the calling UI owns its own busy/error
@@ -827,6 +828,7 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
             [
               { key: 'board', label: 'Board' },
               { key: 'summary', label: 'Summary' },
+              { key: 'planning', label: 'Planning' },
             ] as const
           ).map((tab) => (
             <button
@@ -848,8 +850,11 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
         {presentLink}
       </div>
 
-      {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading tracked epics…</p>}
-      {loadError && <p className="text-sm text-red-600 dark:text-red-400">Error: {loadError}</p>}
+      {/* Scoped to Board/Summary (both backed by useAtlasEpics above) - the
+          Planning tab below owns its own loading/error state entirely, per
+          ticket 01's "never blocks on or interferes with epic/task data". */}
+      {activeTab !== 'planning' && loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading tracked epics…</p>}
+      {activeTab !== 'planning' && loadError && <p className="text-sm text-red-600 dark:text-red-400">Error: {loadError}</p>}
 
       {activeTab === 'board' && (
         <>
@@ -992,6 +997,12 @@ export function AtlasView({ presentLink }: { presentLink?: ReactNode } = {}) {
           )}
         </>
       )}
+
+      {/* Ticket 01 (.scratch/atlas-planning-tab): a fully separate module -
+          AtlasPlanningView owns its own hooks (useAtlasRoster +
+          useAtlasPlanning), never useAtlasEpics above, so this tab's data
+          never blocks on or shares state with Board/Summary. */}
+      {activeTab === 'planning' && <AtlasPlanningView />}
     </div>
   )
 }

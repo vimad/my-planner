@@ -395,6 +395,29 @@ describe('AtlasView Board/Summary tabs', () => {
     expect(screen.getByText('Task board')).toBeInTheDocument()
     expect(screen.queryByLabelText('Ticket number to track')).not.toBeInTheDocument()
   })
+
+  // Ticket 01 (.scratch/atlas-planning-tab): a third pill after "Summary",
+  // rendering AtlasPlanningView - a fully separate module with its own hooks
+  // (useAtlasRoster + useAtlasPlanning), so this only asserts the tab reveals
+  // that module's content; AtlasPlanningView.test.tsx covers its own
+  // interaction-level behavior (attach/remove/reassign, validation, empty
+  // states) in depth. stubFetch's default `jsonResponse([])` fallback
+  // already answers GET /api/atlas/roster, /api/people and
+  // /api/atlas-planning-entries with an empty array, so no extra stubbing is
+  // needed here for the empty-roster state.
+  it('switches to the Planning tab to reveal its own content, independent of Board/Summary', async () => {
+    listData = [epic({ tasks: [task({ jiraKey: 'WOSMVP-100' })] })]
+    stubFetch()
+    render(<AtlasView />)
+    await waitFor(() => expect(screen.getByText('Task board')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Planning' }))
+
+    expect(screen.getByRole('tab', { name: 'Planning' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.queryByText('Task board')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/No one on the Atlas roster yet/)).toBeInTheDocument())
+  })
 })
 
 describe('AtlasView dashboard layout', () => {

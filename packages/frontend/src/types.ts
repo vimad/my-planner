@@ -672,3 +672,23 @@ export interface AtlasRosterMember {
   personId: Person
   createdAt: string
 }
+
+// One Jira key attached to an Atlas roster member's Planning-tab row
+// (.scratch/atlas-planning-tab, ticket 01) - mirrors backend models/
+// AtlasPlanningEntry.ts. Deliberately not named "Ticket" (CONTEXT.md
+// reserves that term for a cached Jira issue snapshot); `jiraKey` is just the
+// raw string the user typed, nothing else fetched or cached about it.
+// `rosterMemberId` comes back as a plain id string (never populated by the
+// backend) - callers resolve it against a separately-fetched roster
+// (useAtlasRoster). `startDate`/`endDate` are unused by ticket 01 (always
+// null), populated later by ticket 03's Gantt chart.
+export interface AtlasPlanningEntry {
+  _id?: string
+  id?: string
+  rosterMemberId: string
+  jiraKey: string
+  startDate: string | null
+  endDate: string | null
+  createdAt?: string
+  updatedAt?: string
+}
