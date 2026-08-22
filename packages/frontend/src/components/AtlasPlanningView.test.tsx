@@ -182,6 +182,25 @@ describe('AtlasPlanningView', () => {
     expect(within(aliceRowAfter).getByText('No tickets attached')).toBeInTheDocument()
   })
 
+  it('sets a ticket\'s start/end date via the badge\'s calendar popover', async () => {
+    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
+    stubFetch()
+    render(<AtlasPlanningView />)
+    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Set dates for WOSMVP-100'))
+    fireEvent.change(screen.getByLabelText('Start date for WOSMVP-100'), { target: { value: '2026-08-24' } })
+    fireEvent.change(screen.getByLabelText('End date for WOSMVP-100'), { target: { value: '2026-08-26' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith('/e1') && init?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+      expect(JSON.parse(patchCall![1]!.body!)).toEqual({ startDate: '2026-08-24', endDate: '2026-08-26' })
+    })
+    expect(screen.queryByLabelText('Start date for WOSMVP-100')).not.toBeInTheDocument()
+  })
+
   // Ticket 03 (.scratch/atlas-planning-tab): just the wiring - the Gantt
   // chart's own rendering/drag/leave-shading behavior (which requires
   // mocking @svar-ui/react-gantt for jsdom, same as SprintGanttChart's own

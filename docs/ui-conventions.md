@@ -158,6 +158,8 @@ rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 
 
 Note dark mode here is translucent (`bg-white/5` + blur), not an opaque hex like B/C/A — that's what distinguishes an in-flow card from a floating surface. Reference: `CategoryForm.tsx`, `MiniCalendar.tsx`, `NotesView.tsx` tree/editor panes, `ScratchNoteCard.tsx`, `WeeklyProgressPanel.tsx` (collapsed state).
 
+**Variant: card with a sticky first column** (a scrollable grid/table whose leftmost column stays pinned, e.g. a person-name column) — the sticky column itself needs an opaque background to actually occlude the cells scrolling behind it, so it deliberately breaks from the card's own translucent `bg-white/5`: header cell `dark:bg-[#1a1229]` (small-popover hex), body cell `dark:bg-[#160f24]` (full-modal hex) — reusing those two reserved hexes isn't a semantic claim that the cell *is* a popover/modal, just the two opaque dark tones already in the palette, picked for contrast against header vs. body rows. The surrounding card wrapper stays the ordinary translucent Archetype D. Reference: `SprintLeaveGrid.tsx`, `AtlasPlanningLeaveGrid.tsx`.
+
 **Variant: issue-type-tinted card** (`StatusView.tsx`'s `TicketCard`/`cardAccentClasses`) — swaps the plain border/bg for the same bug/story/task color family as the badge coloring below, at a card-appropriate lower dark-mode opacity:
 
 ```

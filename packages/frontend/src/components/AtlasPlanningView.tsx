@@ -1,4 +1,4 @@
-import { Repeat2 } from 'lucide-react'
+import { Calendar, Repeat2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { jiraIssueUrl } from '../constants/jira'
 import { useAtlasPlanning } from '../hooks/useAtlasPlanning'
@@ -139,6 +139,85 @@ function AttachTicketForm({
 // justify one) - same neutral `slate` classes docs/ui-conventions.md
 // reserves for Tags ("neutral bg-slate-100 dark:bg-white/10, no
 // color-coding").
+// Small anchored popover (Archetype A, docs/ui-conventions.md) for setting a
+// ticket's start/end date from the badge itself, without opening the Gantt
+// modal - spec.md's Table UI decision calls for "a small calendar affordance
+// to set/edit its start/end date" directly on the badge.
+function DateEditPopover({
+  entry,
+  onSave,
+  saving,
+}: {
+  entry: AtlasPlanningEntry
+  onSave: (startDate: string, endDate: string) => void
+  saving?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [startDate, setStartDate] = useState(entry.startDate ?? '')
+  const [endDate, setEndDate] = useState(entry.endDate ?? '')
+  const ref = useOutsideClick(() => setOpen(false))
+
+  function handleOpen() {
+    setStartDate(entry.startDate ?? '')
+    setEndDate(entry.endDate ?? '')
+    setOpen(true)
+  }
+
+  function handleSave() {
+    if (!startDate || !endDate) return
+    onSave(startDate, endDate)
+    setOpen(false)
+  }
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => (open ? setOpen(false) : handleOpen())}
+        disabled={saving}
+        aria-label={`Set dates for ${entry.jiraKey}`}
+        aria-expanded={open}
+        title="Set start/end date"
+        className="text-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-slate-100"
+      >
+        <Calendar size={11} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-10 mt-1 flex min-w-40 flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-white/10 dark:bg-[#1a1229]">
+          <label className="flex flex-col gap-0.5 text-[10px] font-normal normal-case text-slate-500 dark:text-slate-400">
+            Start
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              aria-label={`Start date for ${entry.jiraKey}`}
+              className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-xs text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[10px] font-normal normal-case text-slate-500 dark:text-slate-400">
+            End
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              aria-label={`End date for ${entry.jiraKey}`}
+              className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-xs text-slate-900 focus:border-fuchsia-400/60 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !startDate || !endDate}
+            className="mt-0.5 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      )}
+    </span>
+  )
+}
+
 function PlanningTicketBadge({
   entry,
   roster,
@@ -146,6 +225,8 @@ function PlanningTicketBadge({
   removing,
   onReassign,
   reassigning,
+  onReschedule,
+  rescheduling,
 }: {
   entry: AtlasPlanningEntry
   roster: AtlasRosterMember[]
@@ -153,6 +234,8 @@ function PlanningTicketBadge({
   removing?: boolean
   onReassign: (rosterMemberId: string) => void
   reassigning?: boolean
+  onReschedule: (startDate: string, endDate: string) => void
+  rescheduling?: boolean
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useOutsideClick(() => setPickerOpen(false))
@@ -167,6 +250,7 @@ function PlanningTicketBadge({
       >
         {entry.jiraKey}
       </a>
+      <DateEditPopover entry={entry} onSave={onReschedule} saving={rescheduling} />
       <span ref={pickerRef} className="relative inline-flex">
         <button
           type="button"
@@ -369,6 +453,7 @@ export function AtlasPlanningView() {
                               removing={removingId === entryId}
                               onReassign={(rosterMemberId) => handleReassign(entryId, rosterMemberId)}
                               reassigning={reassigningId === entryId}
+                              onReschedule={(startDate, endDate) => handleReschedule(entryId, startDate, endDate)}
                             />
                           )
                         })
