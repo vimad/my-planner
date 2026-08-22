@@ -1,11 +1,16 @@
 import { Repeat2 } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { jiraIssueUrl } from '../constants/jira'
 import { useAtlasPlanning } from '../hooks/useAtlasPlanning'
+import { useAtlasPlanningHolidays } from '../hooks/useAtlasPlanningHolidays'
+import { useAtlasPlanningLeave } from '../hooks/useAtlasPlanningLeave'
 import { useAtlasRoster } from '../hooks/useAtlasRoster'
 import type { AtlasPlanningEntry, AtlasRosterMember } from '../types'
 import { normalizePlanningJiraKey } from '../utils/atlasPlanningKey'
 import { getId } from '../utils/getId'
+import { computeRollingWindowDates } from '../utils/rollingWindow'
+import { AtlasPlanningLeaveGrid } from './AtlasPlanningLeaveGrid'
+import { AtlasPlanningHolidayChips } from './AtlasPlanningHolidayChips'
 
 // Atlas Planning tab (.scratch/atlas-planning-tab, ticket 01) - a people-wise
 // table of plain Jira-key badges, entirely separate from Sprint Planning's
@@ -212,6 +217,15 @@ function PlanningTicketBadge({
 // module's own useAtlasPlanning.ts, so neither Board/Summary's data
 // (useAtlasEpics.ts) nor the roster fetch itself is shared/blocking across
 // tabs.
+//
+// Ticket 02 (.scratch/atlas-planning-tab) slots the leave grid and holiday
+// chip row into this same tab body, below the ticket table. `windowDates` is
+// computed exactly once per render via utils/rollingWindow.ts and passed
+// down to both, so the grid and chip row can never disagree about "today"
+// within a single render pass (two separate calls a few ms apart could
+// theoretically straddle a midnight rollover) - the same single-source-of-
+// truth posture the spec asks the later Gantt chart (ticket 03) to follow
+// too.
 export function AtlasPlanningView() {
   const { roster, loading: rosterLoading, error: rosterError } = useAtlasRoster()
   const {
@@ -226,8 +240,25 @@ export function AtlasPlanningView() {
     removeError,
     removeTicket,
   } = useAtlasPlanning()
+  const {
+    leaveMarks,
+    loading: leaveLoading,
+    error: leaveError,
+    cycling,
+    cycleError,
+    cycleLeave,
+  } = useAtlasPlanningLeave()
+  const {
+    holidays,
+    loading: holidaysLoading,
+    error: holidaysError,
+    toggling,
+    toggleError,
+    toggleHoliday,
+  } = useAtlasPlanningHolidays()
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [reassigningId, setReassigningId] = useState<string | null>(null)
+  const windowDates = useMemo(() => computeRollingWindowDates(), [])
 
   async function handleRemove(entryId: string) {
     setRemovingId(entryId)
@@ -263,6 +294,8 @@ export function AtlasPlanningView() {
       {entriesError && <p className="text-sm text-red-600 dark:text-red-400">Error: {entriesError}</p>}
       {removeError && <p className="text-sm text-red-600 dark:text-red-400">Error: {removeError}</p>}
       {reassignError && <p className="text-sm text-red-600 dark:text-red-400">Error: {reassignError}</p>}
+      {leaveError && <p className="text-sm text-red-600 dark:text-red-400">Error: {leaveError}</p>}
+      {holidaysError && <p className="text-sm text-red-600 dark:text-red-400">Error: {holidaysError}</p>}
 
       {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading planning…</p>}
 
@@ -310,6 +343,28 @@ export function AtlasPlanningView() {
             </div>
           )}
         </div>
+      )}
+
+      {!rosterLoading && !leaveLoading && (
+        <AtlasPlanningLeaveGrid
+          roster={roster}
+          windowDates={windowDates}
+          leaveMarks={leaveMarks}
+          cycling={cycling}
+          cycleError={cycleError}
+          onCycle={cycleLeave}
+        />
+      )}
+
+      {!rosterLoading && !holidaysLoading && (
+        <AtlasPlanningHolidayChips
+          roster={roster}
+          windowDates={windowDates}
+          holidays={holidays}
+          toggling={toggling}
+          toggleError={toggleError}
+          onToggle={toggleHoliday}
+        />
       )}
     </div>
   )

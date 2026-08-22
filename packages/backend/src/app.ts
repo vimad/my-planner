@@ -2,6 +2,8 @@ import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { atlasEpicsRouter } from './routes/atlasEpics.ts'
 import { atlasPlanningEntriesRouter } from './routes/atlasPlanningEntries.ts'
+import { atlasPlanningHolidaysRouter } from './routes/atlasPlanningHolidays.ts'
+import { atlasPlanningLeaveRouter } from './routes/atlasPlanningLeave.ts'
 import { atlasRosterRouter } from './routes/atlasRoster.ts'
 import { atlasTasksRouter } from './routes/atlasTasks.ts'
 import { boardsRouter } from './routes/boards.ts'
@@ -43,6 +45,8 @@ export function createApp({ corsOrigin }: CreateAppOptions = {}) {
   })
 
   app.use('/api/atlas-planning-entries', atlasPlanningEntriesRouter)
+  app.use('/api/atlas-planning-holidays', atlasPlanningHolidaysRouter)
+  app.use('/api/atlas-planning-leave', atlasPlanningLeaveRouter)
   app.use('/api/atlas/epics', atlasEpicsRouter)
   app.use('/api/atlas/roster', atlasRosterRouter)
   app.use('/api/atlas/tasks', atlasTasksRouter)

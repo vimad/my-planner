@@ -692,3 +692,32 @@ export interface AtlasPlanningEntry {
   createdAt?: string
   updatedAt?: string
 }
+
+// One roster member's leave mark for one absolute date on the Atlas
+// Planning tab's rolling two-week window (.scratch/atlas-planning-tab,
+// ticket 02) - mirrors backend models/AtlasPlanningLeave.ts. `date` is a
+// plain 'YYYY-MM-DD' string. Deliberately a separate type/collection from
+// Sprint Planning's LeaveEntry (which nests under a CapacityEntry) - this
+// feature has no sprint/capacity concept at all.
+export type AtlasPlanningLeavePortion = 'full' | 'half'
+
+export interface AtlasPlanningLeaveMark {
+  _id?: string
+  id?: string
+  rosterMemberId: string
+  date: string
+  portion: AtlasPlanningLeavePortion
+  createdAt?: string
+  updatedAt?: string
+}
+
+// A shared holiday mark for one absolute date on the Atlas Planning tab's
+// rolling window - applies to the whole roster, not any one person. Mirrors
+// backend models/AtlasPlanningHoliday.ts.
+export interface AtlasPlanningHoliday {
+  _id?: string
+  id?: string
+  date: string
+  createdAt?: string
+  updatedAt?: string
+}
