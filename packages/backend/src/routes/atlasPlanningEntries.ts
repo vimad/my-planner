@@ -1,49 +1,36 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { AtlasPlanningEntry, type AtlasPlanningEntryDoc } from '../models/AtlasPlanningEntry.ts'
+import { reconcilePlanningEntries } from '../services/atlasPlanningSync.ts'
 
 export const atlasPlanningEntriesRouter = Router()
 
 const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
 
-interface CreatePlanningEntryBody {
-  rosterMemberId?: string
-  jiraKey?: string
-}
-
-// POST /api/atlas-planning-entries -> attach a Jira key to an Atlas roster
-// member's Planning-tab row (.scratch/atlas-planning-tab, ticket 01). Stores
-// only the raw typed key - no Jira lookup is ever made here, per CLAUDE.md's
-// read-only-Jira rule and the spec's "zero Jira API calls" decision.
-atlasPlanningEntriesRouter.post(
-  '/',
-  async (req: Request<Record<string, never>, unknown, CreatePlanningEntryBody>, res: Response, next: NextFunction) => {
-    try {
-      const rosterMemberId = req.body.rosterMemberId?.trim()
-      const jiraKey = req.body.jiraKey?.trim()
-
-      if (!rosterMemberId) {
-        return res.status(400).json({ error: 'rosterMemberId is required' })
-      }
-      if (!jiraKey) {
-        return res.status(400).json({ error: 'jiraKey is required' })
-      }
-
-      const entry = await AtlasPlanningEntry.create({ rosterMemberId, jiraKey })
-      res.status(201).json(entry)
-    } catch (err) {
-      next(err)
-    }
-  },
-)
-
-// GET /api/atlas-planning-entries -> every attached ticket, across every
-// roster member, creation order. Deliberately flat/ungrouped, same posture
-// as GET /api/atlas/roster returning the whole roster rather than a
-// per-person tree - the frontend hook/component buckets these by
-// rosterMemberId itself.
+// GET /api/atlas-planning-entries -> every board-derived planning entry,
+// across every roster member, sorted so each person's own tickets come back
+// together and in their assigned `order` (services/atlasPlanningSync.ts).
+// Entries are never created directly through this router - see that
+// service's own header comment for the two places that call it.
 atlasPlanningEntriesRouter.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const entries = await AtlasPlanningEntry.find().sort({ createdAt: 1 })
+    const entries = await AtlasPlanningEntry.find().sort({ rosterMemberId: 1, order: 1 })
+    res.json(entries)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/atlas-planning-entries/sync -> runs the same board-reconciliation
+// pass a Board/Summary sync triggers (services/atlasPlanningSync.ts), then
+// returns the refreshed list. The only caller is the Planning tab's own
+// one-time initial load (useAtlasPlanning.ts): when GET comes back empty, it
+// calls this once to seed entries from whatever To Do/In Progress tasks are
+// already tracked - In Progress first per person, same ordering rule any
+// other sync produces.
+atlasPlanningEntriesRouter.post('/sync', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    await reconcilePlanningEntries()
+    const entries = await AtlasPlanningEntry.find().sort({ rosterMemberId: 1, order: 1 })
     res.json(entries)
   } catch (err) {
     next(err)
@@ -51,30 +38,22 @@ atlasPlanningEntriesRouter.get('/', async (_req: Request, res: Response, next: N
 })
 
 interface UpdatePlanningEntryBody {
-  rosterMemberId?: string
   startDate?: string | null
   endDate?: string | null
 }
 
-// PATCH /api/atlas-planning-entries/:id -> both ticket 01's reassign-to-a-
-// different-person control (the badge/row's person-picker) and ticket 03's
-// Gantt drag-to-reschedule autosave. Each of rosterMemberId/startDate/
-// endDate is only ever touched when actually present in the body (the same
-// `!== undefined` convention rosterMemberId alone used before ticket 03),
-// so a reassign PATCH never clobbers dates and a reschedule PATCH never
-// clobbers the assignee. startDate/endDate are nullable 'YYYY-MM-DD'
-// strings (ticket 01's model comment) - `null` is a legal value (clearing a
-// date), so it's checked separately from "absent" rather than falling
-// through the same falsy-string branch rosterMemberId uses.
+// PATCH /api/atlas-planning-entries/:id -> ticket 03's Gantt drag-to-
+// reschedule autosave, the only manual edit a planning entry still supports
+// now that attach/reassign/remove are fully board-derived (see
+// atlasPlanningSync.ts). startDate/endDate are nullable 'YYYY-MM-DD'
+// strings - `null` is a legal value (clearing a date), checked separately
+// from "absent" so a partial PATCH never clobbers the other field.
 atlasPlanningEntriesRouter.patch(
   '/:id',
   async (req: Request<{ id: string }, unknown, UpdatePlanningEntryBody>, res: Response, next: NextFunction) => {
     try {
-      const { rosterMemberId, startDate, endDate } = req.body
+      const { startDate, endDate } = req.body
 
-      if (rosterMemberId !== undefined && !rosterMemberId.trim()) {
-        return res.status(400).json({ error: 'rosterMemberId cannot be empty' })
-      }
       if (startDate !== undefined && startDate !== null && !DATE_SHAPE.test(startDate)) {
         return res.status(400).json({ error: 'startDate must be a YYYY-MM-DD string or null' })
       }
@@ -83,15 +62,8 @@ atlasPlanningEntriesRouter.patch(
       }
 
       const update: Partial<AtlasPlanningEntryDoc> = {}
-      if (rosterMemberId !== undefined) {
-        update.rosterMemberId = rosterMemberId as unknown as AtlasPlanningEntryDoc['rosterMemberId']
-      }
-      if (startDate !== undefined) {
-        update.startDate = startDate
-      }
-      if (endDate !== undefined) {
-        update.endDate = endDate
-      }
+      if (startDate !== undefined) update.startDate = startDate
+      if (endDate !== undefined) update.endDate = endDate
 
       const entry = await AtlasPlanningEntry.findByIdAndUpdate(req.params.id, update, {
         returnDocument: 'after',
@@ -108,20 +80,3 @@ atlasPlanningEntriesRouter.patch(
     }
   },
 )
-
-// DELETE /api/atlas-planning-entries/:id -> removes an attached ticket from
-// whichever person's row it's on. A hard delete, same as
-// DELETE /api/atlas/roster/:id - there's no soft-delete/archive concept here.
-atlasPlanningEntriesRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
-  try {
-    const entry = await AtlasPlanningEntry.findByIdAndDelete(req.params.id)
-
-    if (!entry) {
-      return res.status(404).json({ error: 'Planning entry not found' })
-    }
-
-    res.status(204).end()
-  } catch (err) {
-    next(err)
-  }
-})

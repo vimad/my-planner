@@ -673,20 +673,27 @@ export interface AtlasRosterMember {
   createdAt: string
 }
 
-// One Jira key attached to an Atlas roster member's Planning-tab row
-// (.scratch/atlas-planning-tab, ticket 01) - mirrors backend models/
-// AtlasPlanningEntry.ts. Deliberately not named "Ticket" (CONTEXT.md
-// reserves that term for a cached Jira issue snapshot); `jiraKey` is just the
-// raw string the user typed, nothing else fetched or cached about it.
-// `rosterMemberId` comes back as a plain id string (never populated by the
-// backend) - callers resolve it against a separately-fetched roster
-// (useAtlasRoster). `startDate`/`endDate` are unused by ticket 01 (always
-// null), populated later by ticket 03's Gantt chart.
+// One ticket on an Atlas roster member's Planning-tab row (.scratch/
+// atlas-planning-tab) - mirrors backend models/AtlasPlanningEntry.ts.
+// Deliberately not named "Ticket" (CONTEXT.md reserves that term for a
+// cached Jira issue snapshot). Board-derived as of the Planning-tab rework:
+// every entry mirrors one AtlasTask (`taskId`), written only by the
+// backend's reconcilePlanningEntries - there's no attach/reassign/remove UI
+// anymore. `jiraKey` stays denormalized alongside `taskId` so callers can
+// render the badge/link without a separate lookup. `rosterMemberId` comes
+// back as a plain id string (never populated by the backend) - callers
+// resolve it against a separately-fetched roster (useAtlasRoster).
+// `taskId`/`order` are optional here since no frontend code needs to read
+// them directly (ordering/grouping is already applied server-side).
+// `startDate`/`endDate` are the one field a person still edits directly, via
+// ticket 03's Gantt chart / per-badge date popover.
 export interface AtlasPlanningEntry {
   _id?: string
   id?: string
   rosterMemberId: string
+  taskId?: string
   jiraKey: string
+  order?: number
   startDate: string | null
   endDate: string | null
   createdAt?: string

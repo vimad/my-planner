@@ -17,38 +17,26 @@ export interface UseAtlasPlanningResult {
   entries: AtlasPlanningEntry[]
   loading: boolean
   error: string | null
-  attaching: boolean
-  attachError: string | null
-  attachTicket: (rosterMemberId: string, jiraKey: string) => Promise<void>
-  reassignError: string | null
-  reassignTicket: (entryId: string, rosterMemberId: string) => Promise<void>
-  removeError: string | null
-  removeTicket: (entryId: string) => Promise<void>
   rescheduleError: string | null
   // Ticket 03's (.scratch/atlas-planning-tab) Gantt drag-to-reschedule
-  // autosave - PATCHes just startDate/endDate (never rosterMemberId, mirrors
-  // reassignTicket's own "only touch what this action means" convention) so
-  // dragging a bar can never accidentally reassign it to a different person.
+  // autosave - PATCHes just startDate/endDate. The only manual edit a
+  // planning entry still supports: everything else (which ticket, whose row
+  // it's on) is board-derived, written by the backend's
+  // reconcilePlanningEntries, never by this hook.
   rescheduleTicket: (entryId: string, startDate: string, endDate: string) => Promise<void>
 }
 
-// Atlas Planning tab's own data hook (.scratch/atlas-planning-tab, ticket
-// 01) - fetches/mutates AtlasPlanningEntry (`/api/atlas-planning-entries`)
-// only. Deliberately independent of useAtlasEpics.ts (Board/Summary's own
-// hook) and useSprintPlan.ts (Sprint Planning's people-wise hook) per the
-// spec's module-boundary decision: switching Board/Summary/Planning tabs
-// must never block on another tab's fetch, and this module owns no code from
-// either. The one shared piece of infrastructure this feature does reuse -
-// Atlas's roster - is fetched separately by whichever component composes
-// this hook with useAtlasRoster.ts.
+// Atlas Planning tab's own data hook (.scratch/atlas-planning-tab) - fetches/
+// mutates AtlasPlanningEntry (`/api/atlas-planning-entries`) only.
+// Deliberately independent of useAtlasEpics.ts (Board/Summary's own hook)
+// and useSprintPlan.ts (Sprint Planning's people-wise hook) per the spec's
+// module-boundary decision. The one shared piece of infrastructure this
+// feature reuses - Atlas's roster - is fetched separately by whichever
+// component composes this hook with useAtlasRoster.ts.
 export function useAtlasPlanning(): UseAtlasPlanningResult {
   const [entries, setEntries] = useState<AtlasPlanningEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [attaching, setAttaching] = useState(false)
-  const [attachError, setAttachError] = useState<string | null>(null)
-  const [reassignError, setReassignError] = useState<string | null>(null)
-  const [removeError, setRemoveError] = useState<string | null>(null)
   const [rescheduleError, setRescheduleError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -60,7 +48,20 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
       try {
         const res = await fetch(`${API_URL}/api/atlas-planning-entries`)
         if (!res.ok) throw new Error(await parseErrorMessage(res))
-        const data: AtlasPlanningEntry[] = await res.json()
+        let data: AtlasPlanningEntry[] = await res.json()
+
+        // One-time initial load: if Planning has never been seeded from the
+        // board yet, pull it in now (backend's reconcilePlanningEntries via
+        // POST /sync) - to do vs. in-progress tickets already tracked on the
+        // board, in-progress ordered first per person. A no-op request once
+        // this has run at least once, since entries won't come back empty
+        // again unless every synced ticket has since reached Done.
+        if (data.length === 0) {
+          const syncRes = await fetch(`${API_URL}/api/atlas-planning-entries/sync`, { method: 'POST' })
+          if (!syncRes.ok) throw new Error(await parseErrorMessage(syncRes))
+          data = await syncRes.json()
+        }
+
         if (!ignore) setEntries(data)
       } catch (err) {
         if (!ignore) setError((err as Error).message)
@@ -76,53 +77,6 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
     }
   }, [])
 
-  // Attaches a ticket key to a person's row. No Jira call is ever made here
-  // (spec: "zero Jira API calls in this whole ticket") - jiraKey is stored
-  // exactly as passed in, validated only for shape by the caller
-  // (AtlasPlanningView's client-side normalizeJiraKey check) before this is
-  // called.
-  const attachTicket = useCallback(async (rosterMemberId: string, jiraKey: string) => {
-    setAttaching(true)
-    setAttachError(null)
-    try {
-      const res = await fetch(`${API_URL}/api/atlas-planning-entries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterMemberId, jiraKey }),
-      })
-      if (!res.ok) throw new Error(await parseErrorMessage(res))
-      const created: AtlasPlanningEntry = await res.json()
-      setEntries((prev) => [...prev, created])
-    } catch (err) {
-      setAttachError((err as Error).message)
-      throw err
-    } finally {
-      setAttaching(false)
-    }
-  }, [])
-
-  // Reassigns an already-attached ticket to a different roster member - the
-  // badge/row's person-picker control (spec story 13), not drag-and-drop.
-  const reassignTicket = useCallback(async (entryId: string, rosterMemberId: string) => {
-    setReassignError(null)
-    try {
-      const res = await fetch(`${API_URL}/api/atlas-planning-entries/${entryId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterMemberId }),
-      })
-      if (!res.ok) throw new Error(await parseErrorMessage(res))
-      const updated: AtlasPlanningEntry = await res.json()
-      setEntries((prev) => prev.map((e) => (getId(e) === entryId ? updated : e)))
-    } catch (err) {
-      setReassignError((err as Error).message)
-      throw err
-    }
-  }, [])
-
-  // Ticket 03's Gantt drag-to-reschedule autosave (no Save button - a drop
-  // fires this directly). Same request/response shape as reassignTicket,
-  // just a different subset of the PATCH body.
   const rescheduleTicket = useCallback(async (entryId: string, startDate: string, endDate: string) => {
     setRescheduleError(null)
     try {
@@ -140,29 +94,10 @@ export function useAtlasPlanning(): UseAtlasPlanningResult {
     }
   }, [])
 
-  const removeTicket = useCallback(async (entryId: string) => {
-    setRemoveError(null)
-    try {
-      const res = await fetch(`${API_URL}/api/atlas-planning-entries/${entryId}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await parseErrorMessage(res))
-      setEntries((prev) => prev.filter((e) => getId(e) !== entryId))
-    } catch (err) {
-      setRemoveError((err as Error).message)
-      throw err
-    }
-  }, [])
-
   return {
     entries,
     loading,
     error,
-    attaching,
-    attachError,
-    attachTicket,
-    reassignError,
-    reassignTicket,
-    removeError,
-    removeTicket,
     rescheduleError,
     rescheduleTicket,
   }

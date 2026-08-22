@@ -27,10 +27,10 @@ function member(id: string, name: string): AtlasRosterMember {
 
 let rosterData: AtlasRosterMember[]
 let entriesData: AtlasPlanningEntry[]
+let syncedEntriesData: AtlasPlanningEntry[]
 let fetchMock: FetchMock
-let nextEntryId: number
 
-function stubFetch(postHandler?: (init: FetchCallInit) => Promise<FakeResponse>): FetchMock {
+function stubFetch(): FetchMock {
   const mock: FetchMock = vi.fn((url, init) => {
     const href = String(url)
     const method = init?.method ?? 'GET'
@@ -44,18 +44,9 @@ function stubFetch(postHandler?: (init: FetchCallInit) => Promise<FakeResponse>)
     if (href.endsWith('/api/atlas-planning-entries') && method === 'GET') {
       return jsonResponse(structuredClone(entriesData))
     }
-    if (href.endsWith('/api/atlas-planning-entries') && method === 'POST') {
-      if (postHandler) return postHandler(init!)
-      const body = JSON.parse(init?.body ?? '{}')
-      const created: AtlasPlanningEntry = {
-        _id: `e${nextEntryId++}`,
-        rosterMemberId: body.rosterMemberId,
-        jiraKey: body.jiraKey,
-        startDate: null,
-        endDate: null,
-      }
-      entriesData = [...entriesData, created]
-      return jsonResponse(created, 201)
+    if (href.endsWith('/api/atlas-planning-entries/sync') && method === 'POST') {
+      entriesData = syncedEntriesData
+      return jsonResponse(structuredClone(entriesData))
     }
     if (/\/api\/atlas-planning-entries\/[^/]+$/.test(href) && method === 'PATCH') {
       const id = href.split('/').pop()!
@@ -64,13 +55,6 @@ function stubFetch(postHandler?: (init: FetchCallInit) => Promise<FakeResponse>)
       if (!found) return jsonResponse({ error: 'Planning entry not found' }, 404)
       Object.assign(found, body)
       return jsonResponse(found, 200)
-    }
-    if (/\/api\/atlas-planning-entries\/[^/]+$/.test(href) && method === 'DELETE') {
-      const id = href.split('/').pop()!
-      const found = entriesData.find((e) => e._id === id)
-      if (!found) return jsonResponse({ error: 'Planning entry not found' }, 404)
-      entriesData = entriesData.filter((e) => e._id !== id)
-      return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(undefined) })
     }
     return jsonResponse([])
   })
@@ -83,107 +67,75 @@ describe('AtlasPlanningView', () => {
   beforeEach(() => {
     rosterData = [member('m1', 'Alice'), member('m2', 'Bob')]
     entriesData = []
-    nextEntryId = 1
+    syncedEntriesData = []
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('shows an empty-roster message and no attach form when the roster has no members', async () => {
+  it('shows an empty-roster message when the roster has no members', async () => {
     rosterData = []
     stubFetch()
     render(<AtlasPlanningView />)
 
     await waitFor(() => expect(screen.getByText(/No one on the Atlas roster yet/)).toBeInTheDocument())
-    expect(screen.queryByLabelText('Person to attach ticket to')).not.toBeInTheDocument()
   })
 
-  it('renders one row per roster member in roster order, each starting with no tickets attached', async () => {
+  it('renders one row per roster member in roster order, each starting with no tickets', async () => {
     stubFetch()
     render(<AtlasPlanningView />)
 
-    await waitFor(() => expect(screen.getByRole('group', { name: 'People and their attached tickets' })).toBeInTheDocument())
-    const table = screen.getByRole('group', { name: 'People and their attached tickets' })
+    await waitFor(() => expect(screen.getByRole('group', { name: 'People and their tickets' })).toBeInTheDocument())
+    const table = screen.getByRole('group', { name: 'People and their tickets' })
     const names = within(table).getAllByText(/^(Alice|Bob)$/).map((el) => el.textContent)
     expect(names).toEqual(['Alice', 'Bob'])
-    expect(within(table).getAllByText('No tickets attached')).toHaveLength(2)
+    expect(within(table).getAllByText('No tickets')).toHaveLength(2)
   })
 
-  it('requires a person to be picked before submitting', async () => {
+  it('renders board-synced tickets already present on load, grouped by person', async () => {
+    entriesData = [
+      { _id: 'e1', rosterMemberId: 'm1', taskId: 't1', jiraKey: 'WOSMVP-100', order: 0, startDate: null, endDate: null },
+      { _id: 'e2', rosterMemberId: 'm1', taskId: 't2', jiraKey: 'WOSMVP-101', order: 1, startDate: null, endDate: null },
+    ]
     stubFetch()
     render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByLabelText('Jira key to attach')).toBeInTheDocument())
-
-    fireEvent.change(screen.getByLabelText('Jira key to attach'), { target: { value: '14802' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Attach' }))
-
-    expect(screen.getByText('Pick a person')).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/atlas-planning-entries'), expect.objectContaining({ method: 'POST' }))
-  })
-
-  it('rejects a malformed Jira key before submitting', async () => {
-    stubFetch()
-    render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByLabelText('Jira key to attach')).toBeInTheDocument())
-
-    fireEvent.change(screen.getByLabelText('Person to attach ticket to'), { target: { value: 'm1' } })
-    fireEvent.change(screen.getByLabelText('Jira key to attach'), { target: { value: 'not-a-key' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Attach' }))
-
-    expect(screen.getByText('Enter a valid Jira key, e.g. WOSMVP-14802')).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/atlas-planning-entries'), expect.objectContaining({ method: 'POST' }))
-  })
-
-  it('attaches a ticket to the picked person, normalizing the key, and clears the input', async () => {
-    stubFetch()
-    render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByLabelText('Jira key to attach')).toBeInTheDocument())
-
-    fireEvent.change(screen.getByLabelText('Person to attach ticket to'), { target: { value: 'm1' } })
-    fireEvent.change(screen.getByLabelText('Jira key to attach'), { target: { value: '14802' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Attach' }))
-
-    await waitFor(() => expect(screen.getByText('WOSMVP-14802')).toBeInTheDocument())
-    expect(screen.getByLabelText('Jira key to attach')).toHaveValue('')
-    const aliceRow = screen.getByLabelText('Tickets for Alice')
-    expect(within(aliceRow).getByText('WOSMVP-14802')).toBeInTheDocument()
-    expect(within(aliceRow).getByText('WOSMVP-14802')).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-14802')
-  })
-
-  it('removes an attached ticket from its person row', async () => {
-    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
-    stubFetch()
-    render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
-
-    fireEvent.click(screen.getByLabelText('Remove WOSMVP-100'))
-
-    await waitFor(() => expect(screen.queryByText('WOSMVP-100')).not.toBeInTheDocument())
-    const aliceRow = screen.getByLabelText('Tickets for Alice')
-    expect(within(aliceRow).getByText('No tickets attached')).toBeInTheDocument()
-  })
-
-  it('reassigns an attached ticket to a different person via the badge picker', async () => {
-    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
-    stubFetch()
-    render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
-
-    const aliceRow = screen.getByLabelText('Tickets for Alice')
-    fireEvent.click(within(aliceRow).getByLabelText('Reassign WOSMVP-100'))
-    fireEvent.click(screen.getByRole('button', { name: 'Bob' }))
 
     await waitFor(() => {
-      const bobRow = screen.getByLabelText('Tickets for Bob')
-      expect(within(bobRow).getByText('WOSMVP-100')).toBeInTheDocument()
+      const aliceRow = screen.getByLabelText('Tickets for Alice')
+      expect(within(aliceRow).getByText('WOSMVP-100')).toBeInTheDocument()
+      expect(within(aliceRow).getByText('WOSMVP-101')).toBeInTheDocument()
     })
-    const aliceRowAfter = screen.getByLabelText('Tickets for Alice')
-    expect(within(aliceRowAfter).getByText('No tickets attached')).toBeInTheDocument()
+    expect(screen.getByText('WOSMVP-100')).toHaveAttribute('href', 'https://wealthos.atlassian.net/browse/WOSMVP-100')
   })
 
-  it('sets a ticket\'s start/end date via the badge\'s calendar popover', async () => {
-    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
+  it('performs a one-time initial load from the board when no entries exist yet', async () => {
+    entriesData = []
+    syncedEntriesData = [{ _id: 'e1', rosterMemberId: 'm1', taskId: 't1', jiraKey: 'WOSMVP-900', order: 0, startDate: null, endDate: null }]
+    stubFetch()
+    render(<AtlasPlanningView />)
+
+    await waitFor(() => {
+      const aliceRow = screen.getByLabelText('Tickets for Alice')
+      expect(within(aliceRow).getByText('WOSMVP-900')).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/atlas-planning-entries/sync'), expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('has no attach, reassign, or remove controls - Planning is fully board-derived', async () => {
+    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', taskId: 't1', jiraKey: 'WOSMVP-100', order: 0, startDate: null, endDate: null }]
+    stubFetch()
+    render(<AtlasPlanningView />)
+    await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
+
+    expect(screen.queryByLabelText('Person to attach ticket to')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Attach' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Reassign WOSMVP-100')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Remove WOSMVP-100')).not.toBeInTheDocument()
+  })
+
+  it("sets a ticket's start/end date via the badge's calendar popover", async () => {
+    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', taskId: 't1', jiraKey: 'WOSMVP-100', order: 0, startDate: null, endDate: null }]
     stubFetch()
     render(<AtlasPlanningView />)
     await waitFor(() => expect(screen.getByText('WOSMVP-100')).toBeInTheDocument())
@@ -209,22 +161,9 @@ describe('AtlasPlanningView', () => {
   // only checks the trigger button renders in the header action row -
   // opening it here would instantiate the real, un-mocked SVAR chart.
   it('renders a Gantt chart trigger button in the header action row', async () => {
-    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', jiraKey: 'WOSMVP-100', startDate: null, endDate: null }]
+    entriesData = [{ _id: 'e1', rosterMemberId: 'm1', taskId: 't1', jiraKey: 'WOSMVP-100', order: 0, startDate: null, endDate: null }]
     stubFetch()
     render(<AtlasPlanningView />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Gantt chart' })).toBeInTheDocument())
-  })
-
-  it('surfaces a server-side attach error inline without clearing the input', async () => {
-    stubFetch(async () => jsonResponse({ error: 'jiraKey is required' }, 400))
-    render(<AtlasPlanningView />)
-    await waitFor(() => expect(screen.getByLabelText('Jira key to attach')).toBeInTheDocument())
-
-    fireEvent.change(screen.getByLabelText('Person to attach ticket to'), { target: { value: 'm1' } })
-    fireEvent.change(screen.getByLabelText('Jira key to attach'), { target: { value: '14802' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Attach' }))
-
-    await waitFor(() => expect(screen.getByText('Error: jiraKey is required')).toBeInTheDocument())
-    expect(screen.getByLabelText('Jira key to attach')).toHaveValue('14802')
   })
 })

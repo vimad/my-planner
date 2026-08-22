@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { AtlasEpic, type AtlasEpicDoc } from '../models/AtlasEpic.ts'
 import { AtlasTask } from '../models/AtlasTask.ts'
+import { reconcilePlanningEntries } from '../services/atlasPlanningSync.ts'
 import {
   buildTaskTree,
   EpicNotFoundError,
@@ -62,6 +63,7 @@ atlasEpicsRouter.post(
       }
 
       const result = await trackAndSyncTicket(jiraKey)
+      await reconcilePlanningEntries()
       res.status(201).json(result)
     } catch (err) {
       if (err instanceof EpicNotFoundError) {
@@ -178,10 +180,12 @@ atlasEpicsRouter.post('/:id/sync', async (req: Request<{ id: string }>, res: Res
       const rootTasks = await AtlasTask.find({ epicId: epic._id, parentTaskId: null, archived: false })
       const { errors } = await syncEach(rootTasks, (task) => task.jiraKey, trackAndSyncStandaloneTask)
       const tasks = await AtlasTask.find({ epicId: epic._id })
+      await reconcilePlanningEntries()
       return res.json({ epic, tasks, errors })
     }
 
     const result = await trackAndSyncEpic(epic.jiraKey)
+    await reconcilePlanningEntries()
     res.json(result)
   } catch (err) {
     if (err instanceof EpicNotFoundError) {
@@ -237,6 +241,8 @@ atlasEpicsRouter.post('/sync-all', async (_req: Request, res: Response, next: Ne
       ? await AtlasTask.find({ epicId: outsideEpic._id, parentTaskId: null, archived: false })
       : []
     const taskResult = await syncEach(rootTasks, (task) => task.jiraKey, trackAndSyncStandaloneTask)
+
+    await reconcilePlanningEntries()
 
     res.json({
       synced: [...epicResult.synced, ...taskResult.synced],

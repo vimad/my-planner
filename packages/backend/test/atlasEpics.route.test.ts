@@ -23,6 +23,7 @@ vi.mock('../src/models/AtlasEpic.ts', () => ({
   },
 }))
 vi.mock('../src/models/AtlasTask.ts', () => ({ AtlasTask: { find: vi.fn(), deleteMany: vi.fn() } }))
+vi.mock('../src/services/atlasPlanningSync.ts', () => ({ reconcilePlanningEntries: vi.fn() }))
 vi.mock('../src/services/atlasSync.ts', async () => {
   const actual = await vi.importActual<typeof import('../src/services/atlasSync.ts')>('../src/services/atlasSync.ts')
   return {
@@ -35,6 +36,9 @@ vi.mock('../src/services/atlasSync.ts', async () => {
 
 const { AtlasEpic } = (await import('../src/models/AtlasEpic.ts')) as unknown as { AtlasEpic: MockedAtlasEpicModel }
 const { AtlasTask } = (await import('../src/models/AtlasTask.ts')) as unknown as { AtlasTask: MockedAtlasTaskModel }
+const { reconcilePlanningEntries } = (await import('../src/services/atlasPlanningSync.ts')) as unknown as {
+  reconcilePlanningEntries: Mock
+}
 const { trackAndSyncEpic, trackAndSyncTicket, trackAndSyncStandaloneTask, EpicNotFoundError, NotAnEpicError, TicketAlreadyTrackedError } =
   (await import('../src/services/atlasSync.ts')) as unknown as {
     trackAndSyncEpic: Mock
@@ -71,6 +75,7 @@ describe('POST /api/atlas/epics', () => {
     expect(res.status).toBe(201)
     expect(res.body.epic.jiraKey).toBe('WOSMVP-8262')
     expect(res.body.tasks).toHaveLength(1)
+    expect(reconcilePlanningEntries).toHaveBeenCalledTimes(1)
   })
 
   it('returns 201 with the synced "Outside the program" epic + task on a valid non-Epic ticket key', async () => {
@@ -292,6 +297,7 @@ describe('POST /api/atlas/epics/:id/sync', () => {
     expect(trackAndSyncEpic).toHaveBeenCalledWith('WOSMVP-8262')
     expect(res.status).toBe(200)
     expect(res.body.epic.jiraKey).toBe('WOSMVP-8262')
+    expect(reconcilePlanningEntries).toHaveBeenCalledTimes(1)
   })
 
   it('returns 404 when the epic id does not exist locally, without calling Jira', async () => {
@@ -339,6 +345,7 @@ describe('POST /api/atlas/epics/:id/sync', () => {
     expect(trackAndSyncStandaloneTask).toHaveBeenCalledWith('WOSMVP-600')
     expect(trackAndSyncEpic).not.toHaveBeenCalled()
     expect(res.status).toBe(200)
+    expect(reconcilePlanningEntries).toHaveBeenCalledTimes(1)
   })
 
   it("one root ticket's sync failure doesn't abort the rest, for the \"Outside the program\" epic", async () => {
@@ -432,6 +439,7 @@ describe('POST /api/atlas/epics/sync-all', () => {
     expect(res.status).toBe(200)
     expect(res.body.synced).toEqual(['WOSMVP-1', 'WOSMVP-2'])
     expect(res.body.errors).toEqual([])
+    expect(reconcilePlanningEntries).toHaveBeenCalledTimes(1)
   })
 
   it('also resyncs every directly-tracked "Outside the program" root ticket', async () => {

@@ -400,11 +400,12 @@ describe('AtlasView Board/Summary tabs', () => {
   // rendering AtlasPlanningView - a fully separate module with its own hooks
   // (useAtlasRoster + useAtlasPlanning), so this only asserts the tab reveals
   // that module's content; AtlasPlanningView.test.tsx covers its own
-  // interaction-level behavior (attach/remove/reassign, validation, empty
+  // interaction-level behavior (board-derived entries, date editing, empty
   // states) in depth. stubFetch's default `jsonResponse([])` fallback
-  // already answers GET /api/atlas/roster, /api/people and
-  // /api/atlas-planning-entries with an empty array, so no extra stubbing is
-  // needed here for the empty-roster state.
+  // already answers GET /api/atlas/roster, /api/people,
+  // /api/atlas-planning-entries and POST /api/atlas-planning-entries/sync
+  // with an empty array, so no extra stubbing is needed here for the
+  // empty-roster state.
   it('switches to the Planning tab to reveal its own content, independent of Board/Summary', async () => {
     listData = [epic({ tasks: [task({ jiraKey: 'WOSMVP-100' })] })]
     stubFetch()

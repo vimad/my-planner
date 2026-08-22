@@ -1,12 +1,11 @@
-import { Calendar, Repeat2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Calendar } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { jiraIssueUrl } from '../constants/jira'
 import { useAtlasPlanning } from '../hooks/useAtlasPlanning'
 import { useAtlasPlanningHolidays } from '../hooks/useAtlasPlanningHolidays'
 import { useAtlasPlanningLeave } from '../hooks/useAtlasPlanningLeave'
 import { useAtlasRoster } from '../hooks/useAtlasRoster'
-import type { AtlasPlanningEntry, AtlasRosterMember } from '../types'
-import { normalizePlanningJiraKey } from '../utils/atlasPlanningKey'
+import type { AtlasPlanningEntry } from '../types'
 import { getId } from '../utils/getId'
 import { computeRollingWindowDates } from '../utils/rollingWindow'
 import { AtlasPlanningExportButton } from './AtlasPlanningExportButton'
@@ -14,15 +13,23 @@ import { AtlasPlanningLeaveGrid } from './AtlasPlanningLeaveGrid'
 import { AtlasPlanningHolidayChips } from './AtlasPlanningHolidayChips'
 import { AtlasPlanningGanttButton } from './AtlasPlanningGanttChart'
 
-// Atlas Planning tab (.scratch/atlas-planning-tab, ticket 01) - a people-wise
-// table of plain Jira-key badges, entirely separate from Sprint Planning's
-// own people-wise view (PlanningView.tsx/useSprintPlan.ts) and from Atlas's
+// Atlas Planning tab (.scratch/atlas-planning-tab) - a people-wise table of
+// plain Jira-key badges, entirely separate from Sprint Planning's own
+// people-wise view (PlanningView.tsx/useSprintPlan.ts) and from Atlas's
 // epic/task stack (useAtlasEpics.ts): no imports from either, by design (spec
-// "Module boundary"). Code duplication with PlanningView's badge/form shapes
-// is expected and accepted - only the visual language is copied, not the
+// "Module boundary"). Code duplication with PlanningView's badge shapes is
+// expected and accepted - only the visual language is copied, not the
 // components themselves. The one exception is Atlas's own roster
 // (useAtlasRoster.ts), reused as-is since it's shared Atlas infrastructure,
 // not part of either module this feature avoids.
+//
+// Entries themselves are fully board-derived now: which tickets show up and
+// whose row they're on is written entirely by the backend's
+// reconcilePlanningEntries (services/atlasPlanningSync.ts), triggered by
+// every Board/Summary sync plus this tab's own one-time initial load
+// (useAtlasPlanning.ts). There is no attach/reassign/remove control here
+// anymore - the only thing a person still edits by hand on this screen is a
+// ticket's start/end date.
 
 // Same "click outside closes it" pattern AtlasPeopleButton.tsx/
 // TeamSwitcher.tsx/ProfileSwitcher.tsx each already duplicate locally rather
@@ -39,106 +46,6 @@ function useOutsideClick(onOutside: () => void) {
   return ref
 }
 
-function memberId(m: AtlasRosterMember): string {
-  return getId(m) ?? ''
-}
-
-// The attach form: person picker + free-typed Jira key + submit (spec
-// "Attaching work" - no backlog browser, no Product/Technical/Bug tabs).
-// Styled after PlanningView.tsx's AddToPlanForm (dashed-border bar), same
-// visual language, own implementation. Format-checked and normalized via
-// this feature's own utils/atlasPlanningKey.ts (TDD'd separately) rather
-// than constants/jira.ts's normalizeJiraKey, which only reshapes a prefix
-// and doesn't actually validate the shape (spec story 8's "obvious typo"
-// guard needs a real check). The normalized (uppercase, full WOSMVP-<n>)
-// form is what actually gets stored, matching the shape every other
-// Jira-key badge in the app displays.
-function AttachTicketForm({
-  roster,
-  onAttach,
-  attaching,
-  attachError,
-}: {
-  roster: AtlasRosterMember[]
-  onAttach: (rosterMemberId: string, jiraKey: string) => Promise<void>
-  attaching: boolean
-  attachError: string | null
-}) {
-  const [rosterMemberId, setRosterMemberId] = useState('')
-  const [jiraKeyInput, setJiraKeyInput] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setFormError(null)
-
-    if (!rosterMemberId) {
-      setFormError('Pick a person')
-      return
-    }
-    const normalized = normalizePlanningJiraKey(jiraKeyInput)
-    if (!normalized) {
-      setFormError('Enter a valid Jira key, e.g. WOSMVP-14802')
-      return
-    }
-
-    try {
-      await onAttach(rosterMemberId, normalized)
-      setJiraKeyInput('')
-    } catch {
-      // attachError (from useAtlasPlanning) already surfaces the failure.
-    }
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      aria-label="Attach ticket to person"
-      className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/60 px-3 py-2 dark:border-white/15 dark:bg-white/5"
-    >
-      <select
-        value={rosterMemberId}
-        onChange={(e) => setRosterMemberId(e.target.value)}
-        aria-label="Person to attach ticket to"
-        disabled={attaching}
-        className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-      >
-        <option value="">Select person</option>
-        {roster.map((m) => (
-          <option key={memberId(m)} value={memberId(m)}>
-            {m.personId.name}
-          </option>
-        ))}
-      </select>
-      <input
-        type="text"
-        value={jiraKeyInput}
-        onChange={(e) => setJiraKeyInput(e.target.value)}
-        placeholder="WOSMVP-14802"
-        aria-label="Jira key to attach"
-        disabled={attaching}
-        className="w-36 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-sm focus:border-fuchsia-400/60 focus:outline-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-100"
-      />
-      <button
-        type="submit"
-        disabled={attaching}
-        className="rounded-lg border border-slate-200 px-3 py-1 text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/5"
-      >
-        {attaching ? 'Attaching…' : 'Attach'}
-      </button>
-      {formError && <span className="text-xs text-red-600 dark:text-red-400">{formError}</span>}
-      {!formError && attachError && <span className="text-xs text-red-600 dark:text-red-400">Error: {attachError}</span>}
-    </form>
-  )
-}
-
-// A plain, neutral slate badge - key text (also the Jira link, spec story
-// 11) + a reassign picker + remove (spec story 12/13). Deliberately not the
-// violet "Placeholder" color (reserved for Sprint Planning's non-Jira
-// stand-ins) and not an issue-type color family (no type data exists here to
-// justify one) - same neutral `slate` classes docs/ui-conventions.md
-// reserves for Tags ("neutral bg-slate-100 dark:bg-white/10, no
-// color-coding").
 // Small anchored popover (Archetype A, docs/ui-conventions.md) for setting a
 // ticket's start/end date from the badge itself, without opening the Gantt
 // modal - spec.md's Table UI decision calls for "a small calendar affordance
@@ -218,28 +125,21 @@ function DateEditPopover({
   )
 }
 
+// A plain, neutral slate badge - key text (also the Jira link) + the date
+// popover. Deliberately not the violet "Placeholder" color (reserved for
+// Sprint Planning's non-Jira stand-ins) and not an issue-type color family
+// (no type data exists here to justify one) - same neutral `slate` classes
+// docs/ui-conventions.md reserves for Tags ("neutral bg-slate-100
+// dark:bg-white/10, no color-coding").
 function PlanningTicketBadge({
   entry,
-  roster,
-  onRemove,
-  removing,
-  onReassign,
-  reassigning,
   onReschedule,
   rescheduling,
 }: {
   entry: AtlasPlanningEntry
-  roster: AtlasRosterMember[]
-  onRemove: () => void
-  removing?: boolean
-  onReassign: (rosterMemberId: string) => void
-  reassigning?: boolean
   onReschedule: (startDate: string, endDate: string) => void
   rescheduling?: boolean
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const pickerRef = useOutsideClick(() => setPickerOpen(false))
-
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/10 dark:text-slate-300">
       <a
@@ -251,58 +151,15 @@ function PlanningTicketBadge({
         {entry.jiraKey}
       </a>
       <DateEditPopover entry={entry} onSave={onReschedule} saving={rescheduling} />
-      <span ref={pickerRef} className="relative inline-flex">
-        <button
-          type="button"
-          onClick={() => setPickerOpen((o) => !o)}
-          disabled={reassigning}
-          aria-label={`Reassign ${entry.jiraKey}`}
-          aria-expanded={pickerOpen}
-          title="Reassign to a different person"
-          className="text-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-slate-100"
-        >
-          <Repeat2 size={11} />
-        </button>
-        {pickerOpen && (
-          <div className="absolute left-0 top-full z-10 mt-1 min-w-28 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-[#1a1229]">
-            {roster.map((m) => {
-              const id = memberId(m)
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    setPickerOpen(false)
-                    if (id !== entry.rosterMemberId) onReassign(id)
-                  }}
-                  className="block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs font-sans normal-case text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
-                >
-                  {m.personId.name}
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={removing}
-        aria-label={`Remove ${entry.jiraKey}`}
-        className="font-sans text-xs leading-none text-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-slate-100"
-      >
-        ×
-      </button>
     </span>
   )
 }
 
-// Ticket 01's whole Planning tab body: attach form + Archetype D table, one
-// row per roster member in roster order. Composes useAtlasRoster.ts (Atlas's
-// shared roster hook - the one reuse this module is allowed) with this
-// module's own useAtlasPlanning.ts, so neither Board/Summary's data
-// (useAtlasEpics.ts) nor the roster fetch itself is shared/blocking across
-// tabs.
+// Ticket 01's whole Planning tab body: Archetype D table, one row per roster
+// member in roster order. Composes useAtlasRoster.ts (Atlas's shared roster
+// hook - the one reuse this module is allowed) with this module's own
+// useAtlasPlanning.ts, so neither Board/Summary's data (useAtlasEpics.ts) nor
+// the roster fetch itself is shared/blocking across tabs.
 //
 // Ticket 02 (.scratch/atlas-planning-tab) slots the leave grid and holiday
 // chip row into this same tab body, below the ticket table. `windowDates` is
@@ -314,20 +171,7 @@ function PlanningTicketBadge({
 // too.
 export function AtlasPlanningView() {
   const { roster, loading: rosterLoading, error: rosterError } = useAtlasRoster()
-  const {
-    entries,
-    loading: entriesLoading,
-    error: entriesError,
-    attaching,
-    attachError,
-    attachTicket,
-    reassignError,
-    reassignTicket,
-    removeError,
-    removeTicket,
-    rescheduleError,
-    rescheduleTicket,
-  } = useAtlasPlanning()
+  const { entries, loading: entriesLoading, error: entriesError, rescheduleError, rescheduleTicket } = useAtlasPlanning()
   const {
     leaveMarks,
     loading: leaveLoading,
@@ -344,39 +188,14 @@ export function AtlasPlanningView() {
     toggleError,
     toggleHoliday,
   } = useAtlasPlanningHolidays()
-  const [removingId, setRemovingId] = useState<string | null>(null)
-  const [reassigningId, setReassigningId] = useState<string | null>(null)
   const windowDates = useMemo(() => computeRollingWindowDates(), [])
-
-  async function handleRemove(entryId: string) {
-    setRemovingId(entryId)
-    try {
-      await removeTicket(entryId)
-    } catch {
-      // removeError already surfaces the failure.
-    } finally {
-      setRemovingId(null)
-    }
-  }
-
-  async function handleReassign(entryId: string, rosterMemberId: string) {
-    setReassigningId(entryId)
-    try {
-      await reassignTicket(entryId, rosterMemberId)
-    } catch {
-      // reassignError already surfaces the failure.
-    } finally {
-      setReassigningId(null)
-    }
-  }
 
   // Ticket 03's (.scratch/atlas-planning-tab) Gantt drag-to-reschedule
   // autosave - the modal only ever computes *what* changed (entry id + new
-  // dates); this is the one place that actually issues the PATCH, same
-  // separation as handleRemove/handleReassign above. Fire-and-forget from
-  // the Gantt's own perspective (its onDragReschedule prop isn't async) -
-  // any failure surfaces via rescheduleError, same as every other mutation
-  // in this file.
+  // dates); this is the one place that actually issues the PATCH. Fire-and-
+  // forget from the Gantt's own perspective (its onDragReschedule prop isn't
+  // async) - any failure surfaces via rescheduleError, same as the badge's
+  // own popover.
   function handleReschedule(entryId: string, startDate: string, endDate: string) {
     rescheduleTicket(entryId, startDate, endDate).catch(() => {
       // rescheduleError already surfaces the failure.
@@ -387,33 +206,24 @@ export function AtlasPlanningView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {!rosterLoading && roster.length > 0 ? (
-          <AttachTicketForm roster={roster} onAttach={attachTicket} attaching={attaching} attachError={attachError} />
-        ) : (
-          <span />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {!rosterLoading && !entriesLoading && (
+          <AtlasPlanningGanttButton
+            roster={roster}
+            entries={entries}
+            leaveMarks={leaveMarks}
+            holidays={holidays}
+            windowDates={windowDates}
+            onDragReschedule={handleReschedule}
+          />
         )}
-        <div className="flex items-center gap-2">
-          {!rosterLoading && !entriesLoading && (
-            <AtlasPlanningGanttButton
-              roster={roster}
-              entries={entries}
-              leaveMarks={leaveMarks}
-              holidays={holidays}
-              windowDates={windowDates}
-              onDragReschedule={handleReschedule}
-            />
-          )}
-          {!rosterLoading && !entriesLoading && !leaveLoading && (
-            <AtlasPlanningExportButton roster={roster} entries={entries} leaveMarks={leaveMarks} windowDates={windowDates} />
-          )}
-        </div>
+        {!rosterLoading && !entriesLoading && !leaveLoading && (
+          <AtlasPlanningExportButton roster={roster} entries={entries} leaveMarks={leaveMarks} windowDates={windowDates} />
+        )}
       </div>
 
       {rosterError && <p className="text-sm text-red-600 dark:text-red-400">Error: {rosterError}</p>}
       {entriesError && <p className="text-sm text-red-600 dark:text-red-400">Error: {entriesError}</p>}
-      {removeError && <p className="text-sm text-red-600 dark:text-red-400">Error: {removeError}</p>}
-      {reassignError && <p className="text-sm text-red-600 dark:text-red-400">Error: {reassignError}</p>}
       {rescheduleError && <p className="text-sm text-red-600 dark:text-red-400">Error: {rescheduleError}</p>}
       {leaveError && <p className="text-sm text-red-600 dark:text-red-400">Error: {leaveError}</p>}
       {holidaysError && <p className="text-sm text-red-600 dark:text-red-400">Error: {holidaysError}</p>}
@@ -427,9 +237,9 @@ export function AtlasPlanningView() {
               No one on the Atlas roster yet — add people from the roster panel above to start planning.
             </p>
           ) : (
-            <div role="group" aria-label="People and their attached tickets" className="flex flex-col">
+            <div role="group" aria-label="People and their tickets" className="flex flex-col">
               {roster.map((member) => {
-                const id = memberId(member)
+                const id = getId(member) ?? ''
                 const memberEntries = entries.filter((e) => e.rosterMemberId === id)
                 return (
                   <div
@@ -440,7 +250,7 @@ export function AtlasPlanningView() {
                     <span className="pt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100">{member.personId.name}</span>
                     <div className="flex flex-wrap gap-1.5">
                       {memberEntries.length === 0 ? (
-                        <span className="pt-0.5 text-xs text-slate-400 dark:text-slate-500">No tickets attached</span>
+                        <span className="pt-0.5 text-xs text-slate-400 dark:text-slate-500">No tickets</span>
                       ) : (
                         memberEntries.map((entry) => {
                           const entryId = getId(entry) ?? ''
@@ -448,11 +258,6 @@ export function AtlasPlanningView() {
                             <PlanningTicketBadge
                               key={entryId}
                               entry={entry}
-                              roster={roster}
-                              onRemove={() => handleRemove(entryId)}
-                              removing={removingId === entryId}
-                              onReassign={(rosterMemberId) => handleReassign(entryId, rosterMemberId)}
-                              reassigning={reassigningId === entryId}
                               onReschedule={(startDate, endDate) => handleReschedule(entryId, startDate, endDate)}
                             />
                           )

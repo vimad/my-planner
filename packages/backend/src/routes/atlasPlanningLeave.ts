@@ -103,9 +103,8 @@ atlasPlanningLeaveRouter.patch(
 )
 
 // DELETE /api/atlas-planning-leave/:id -> clears a cell's mark ("half" ->
-// "none" of the click-to-cycle interaction). A hard delete, same as
-// DELETE /api/atlas-planning-entries/:id - there's no soft-delete/archive
-// concept here.
+// "none" of the click-to-cycle interaction). A hard delete - there's no
+// soft-delete/archive concept here.
 atlasPlanningLeaveRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response, next: NextFunction) => {
   try {
     const entry = await AtlasPlanningLeave.findByIdAndDelete(req.params.id)

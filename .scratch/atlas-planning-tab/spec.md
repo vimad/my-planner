@@ -2,6 +2,24 @@
 
 Status: ready-for-agent
 
+**Superseded (2026-08-22):** the Planning tab was reworked to be fully
+board-derived instead of manually attached. Everything below describing
+manual "attach a ticket by typing its key," reassign, remove, and the "zero
+Jira API calls"/"no import from Atlas's epic/task stack" module-boundary
+decision (user stories 6-13, 27-28; Implementation Decisions' "Ticket
+attachment data," "Module boundary," "Table UI" reassign/remove bits; Out of
+Scope's Jira-fetch/dev-qa bullets) no longer reflects the code. Planning
+entries are now written entirely by `packages/backend/src/services/
+atlasPlanningSync.ts`'s `reconcilePlanningEntries`, called after every
+Board/Summary Jira sync and once by the Planning tab's own initial load: it
+pulls each roster member's non-Done AtlasTasks (In Progress ordered before To
+Do for a person's first seed; newly-synced tickets appended at the end of an
+existing row), and drops an entry the moment its ticket reaches Done. The
+only remaining manual edit on this screen is a ticket's start/end date. See
+that service file's header comment and `packages/backend/src/models/
+AtlasPlanningEntry.ts` for the current shape. The rest of this spec (roster
+reuse, leave/holidays, rolling window, Gantt, export) is still accurate.
+
 Source: synthesized directly from a `/to-spec` conversation, after an exploration pass over the existing Atlas and Sprint Planning code plus a short clarifying round with the user on placement, roster source, ticket data, and Gantt bar dates (all four resolved to the recommended/simpler option — see Implementation Decisions).
 
 ## Problem Statement
