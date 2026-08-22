@@ -167,6 +167,7 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'status' } })
     await waitFor(() => expect(screen.getByText('Ada Lovelace')).toBeInTheDocument())
     expect(screen.getByText('Unmapped assignee')).toBeInTheDocument()
     expect(screen.getByText('Unassigned')).toBeInTheDocument()
@@ -361,7 +362,7 @@ describe('AtlasTaskBoard', () => {
     expect(legend?.closest('fieldset')).toBeInTheDocument()
   })
 
-  it('highlights a directly-tracked "Outside the program" ticket with an indigo border, in the default status-table view', async () => {
+  it('highlights a directly-tracked "Outside the program" ticket with an indigo border, in the status-table view', async () => {
     stubRoster([])
     render(
       <AtlasTaskBoard
@@ -377,6 +378,7 @@ describe('AtlasTaskBoard', () => {
         ]}
       />,
     )
+    fireEvent.change(screen.getByLabelText('Group tasks by'), { target: { value: 'status' } })
     await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
     const rowA = screen.getByText('A').closest('tr')
     const rowB = screen.getByText('B').closest('tr')
